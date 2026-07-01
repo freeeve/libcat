@@ -71,8 +71,9 @@ func TestRecordCrosswalk(t *testing.T) {
 		t.Errorf("700 $4 = %q, want nrt", got)
 	}
 
-	// Both subjects land as uncontrolled 653s.
-	if got := len(r.DataFields("653")); got != 2 {
-		t.Errorf("653 count = %d, want 2", got)
+	// Both OverDrive subjects land as 650 topical terms, which libcodex maps to
+	// bf:subject (653 would be dropped by the crosswalk).
+	if got := len(r.DataFields("650")); got != 2 {
+		t.Errorf("650 count = %d, want 2", got)
 	}
 }

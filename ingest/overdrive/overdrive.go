@@ -160,9 +160,13 @@ func (it Item) Record() *codex.Record {
 	if it.Series != "" {
 		r.AddField(codex.NewDataField("490", '1', ' ', codex.NewSubfield('a', it.Series)))
 	}
+	// OverDrive subjects are uncontrolled marketing strings. They go in 650 with
+	// ind2=4 (source not specified) rather than 653, because libcodex's crosswalk
+	// maps 6xx access points (600/610/611/650/651/655) to bf:subject and drops
+	// 653 entirely -- so 653 would silently lose every subject.
 	for _, s := range it.Subjects {
 		if s.Name != "" {
-			r.AddField(codex.NewDataField("653", ' ', ' ', codex.NewSubfield('a', s.Name)))
+			r.AddField(codex.NewDataField("650", ' ', '4', codex.NewSubfield('a', s.Name)))
 		}
 	}
 	for _, c := range append(authors, others...) {
