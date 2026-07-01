@@ -1,0 +1,17 @@
+# Go
+/bin/
+*.test
+*.out
+coverage.*
+
+# Hugo (module consumers)
+/public/
+/resources/_gen/
+.hugo_build.lock
+
+# Node (Hugo module assets, if any)
+node_modules/
+
+# Editor / OS
+.DS_Store
+*.swp
