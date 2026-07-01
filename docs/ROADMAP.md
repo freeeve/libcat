@@ -8,9 +8,25 @@ reference implementation and proving ground).
 ## Phase 0 -- Keystone crosswalk
 
 Record -> `codex.Record` -> `bf:Work`/`bf:Instance`, validated on all ~6,266
-qllpoc records; emit canonical per-Work Turtle + a bulk N-Quads dump. Proves
-BIBFRAME can represent the real corpus and yields MARC/MODS/schema.org export
-immediately.
+qllpoc records; emit canonical per-Work N-Quads grains + a bulk N-Quads dump (the
+bulk `catalog.nq` is the canonical-sorted concatenation of the grains). Proves
+BIBFRAME can represent the real corpus and yields MARC/MODS/schema.org export --
+with a documented known-loss list, since MARC<->BIBFRAME round-trips are lossy in
+both directions (see `tasks/003`).
+
+Dependency status: **libcodex 0.4.0** supplies the N-Quads reader/writer the
+grains and bulk dump need (`rdf.Encoder` / `Dataset.NQuads` / `ParseNQuads` /
+streaming `DecodeQuad`). **Dataset canonicalization (RDFC-1.0) has now landed**
+too (libcodex `tasks/036`, shipping in **v0.5.0**): `rdf/canon.go` gives
+`Dataset.Canonical()` with canonical blank-node labeling + statement sort, so an
+unchanged grain re-serializes byte-for-byte (validated against the 65 W3C
+rdf-canon vectors + isomorphism/idempotence/fuzz). Both halves Phase 0 needs --
+N-Quads I/O and canonical output -- are in place once libcatalog requires libcodex
+v0.5.0; grains are written through `Canonical()`, while the raw `NQuads()` stays
+insertion-order for the streaming/bulk fast path.
+
+Acceptance gates: RDFC-1.0 canonicalization is stable (re-serialize == no-op
+diff) and round-trip fidelity is measured, not assumed.
 -> qllpoc `tasks/038`.
 
 ## Phase 1 -- Identity + graph-as-truth
