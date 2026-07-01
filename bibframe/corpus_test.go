@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/freeeve/libcatalog/storage"
 	codex "github.com/freeeve/libcodex"
 	"github.com/freeeve/libcodex/iso2709"
 )
@@ -20,27 +21,42 @@ func makeRecord(id, title, author string) *codex.Record {
 	return r
 }
 
-func TestBuildFromMARC(t *testing.T) {
+// marcBytes encodes records as an ISO 2709 stream.
+func marcBytes(t *testing.T, recs []*codex.Record) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	w := iso2709.NewWriter(&b)
+	for _, r := range recs {
+		if err := w.Write(r); err != nil {
+			t.Fatalf("encode marc: %v", err)
+		}
+	}
+	return b.Bytes()
+}
+
+// grainOnDisk resolves a work id to its concrete path under a local Dir sink.
+func grainOnDisk(root, id string) string {
+	return filepath.Join(root, filepath.FromSlash(GrainPath(id)))
+}
+
+func TestBuildMARC(t *testing.T) {
 	recs := []*codex.Record{
 		makeRecord("od-001", "The Argonauts", "Nelson, Maggie"),
 		makeRecord("od-002", "Stone Butch Blues", "Feinberg, Leslie"),
 	}
-	marc := filepath.Join(t.TempDir(), "collection.mrc")
-	if err := iso2709.WriteFile(marc, recs); err != nil {
-		t.Fatalf("write marc fixture: %v", err)
-	}
+	marc := marcBytes(t, recs)
 
 	out := t.TempDir()
-	stats, err := BuildFromMARC(out, marc, "overdrive")
+	stats, err := BuildMARC(storage.Dir(out), bytes.NewReader(marc), "overdrive")
 	if err != nil {
-		t.Fatalf("BuildFromMARC: %v", err)
+		t.Fatalf("BuildMARC: %v", err)
 	}
 	if stats.Records != 2 || stats.Grains != 2 {
 		t.Fatalf("stats = %+v, want 2 records / 2 grains", stats)
 	}
 
 	// Each grain lands at its sharded path and is a canonical feed grain.
-	g1, err := os.ReadFile(GrainPath(out, "od-001"))
+	g1, err := os.ReadFile(grainOnDisk(out, "od-001"))
 	if err != nil {
 		t.Fatalf("read grain od-001: %v", err)
 	}
@@ -63,10 +79,10 @@ func TestBuildFromMARC(t *testing.T) {
 
 	// The build is deterministic: a second run from the same MARC is byte-identical.
 	out2 := t.TempDir()
-	if _, err := BuildFromMARC(out2, marc, "overdrive"); err != nil {
-		t.Fatalf("BuildFromMARC (2nd): %v", err)
+	if _, err := BuildMARC(storage.Dir(out2), bytes.NewReader(marc), "overdrive"); err != nil {
+		t.Fatalf("BuildMARC (2nd): %v", err)
 	}
-	assertSameFile(t, GrainPath(out, "od-001"), GrainPath(out2, "od-001"))
+	assertSameFile(t, grainOnDisk(out, "od-001"), grainOnDisk(out2, "od-001"))
 	assertSameFile(t, filepath.Join(out, "catalog.nq"), filepath.Join(out2, "catalog.nq"))
 }
 

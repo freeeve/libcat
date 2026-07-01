@@ -4,11 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
+	"path"
 	"sort"
 	"strings"
 
+	"github.com/freeeve/libcatalog/storage"
 	codex "github.com/freeeve/libcodex"
 	codexbf "github.com/freeeve/libcodex/bibframe"
 	"github.com/freeeve/libcodex/iso2709"
@@ -34,28 +35,52 @@ func WorkID(rec *codex.Record) string {
 	return "x" + hashID(b)[:16]
 }
 
-// GrainPath is the sharded on-disk path for a work id under root:
-// <root>/data/works/<xx>/<id>.nq, sharded by a hash prefix so no directory
-// holds an unbounded number of files (ARCHITECTURE §3). The shard width is
-// tunable; two hex chars (256 buckets) suits a mid-size collection.
-func GrainPath(root, id string) string {
+// GrainPath returns the sink-relative path for a work id:
+// data/works/<xx>/<id>.nq, sharded by a hash prefix so no directory holds an
+// unbounded number of files (ARCHITECTURE §3). Paths use forward slashes; the
+// Sink maps them onto its backend.
+func GrainPath(id string) string {
 	shard := hashID([]byte(id))[:2]
-	return filepath.Join(root, "data", "works", shard, id+".nq")
+	return path.Join("data", "works", shard, id+".nq")
 }
 
-// BuildCorpus writes one canonical N-Quads grain per record under root (sharded
-// by WorkID) in the provider's feed graph, plus a bulk catalog.nq. The grains
-// are the RDFC-1.0 canonical, diffable source of truth; catalog.nq is a derived
-// bulk serialization for reindexing/download.
+// ReadMARC reads every record from an ISO 2709 (.mrc) stream.
+func ReadMARC(r io.Reader) ([]*codex.Record, error) {
+	rd := iso2709.NewReader(r)
+	var recs []*codex.Record
+	for {
+		rec, err := rd.Read()
+		if err == io.EOF {
+			return recs, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		recs = append(recs, rec)
+	}
+}
+
+// BuildMARC reads an ISO 2709 MARC stream -- e.g. an OverDrive Marketplace MARC
+// Express export -- and builds the corpus into sink.
+func BuildMARC(sink storage.Sink, marc io.Reader, provider string) (BuildStats, error) {
+	recs, err := ReadMARC(marc)
+	if err != nil {
+		return BuildStats{}, fmt.Errorf("read marc: %w", err)
+	}
+	return BuildCorpus(sink, recs, provider)
+}
+
+// BuildCorpus writes one canonical N-Quads grain per record into sink (at
+// GrainPath) in the provider's feed graph, plus a bulk catalog.nq. Because it
+// writes through the Sink, the same build runs against a local directory, cloud
+// object storage, or a git tree unchanged.
 //
 // catalog.nq is not a byte-concatenation of the grain files: each grain
-// canonicalizes its blank nodes to _:c14nN independently, so concatenating them
-// would merge distinct blanks that happen to share a label. It is instead
-// re-serialized from the records through one shared encoder, keeping blank
-// labels unique across the corpus. All records are held in memory for the sorted
-// bulk write; at large scale (ARCHITECTURE §3, >10M records) that becomes an
-// out-of-core concern.
-func BuildCorpus(root string, records []*codex.Record, provider string) (BuildStats, error) {
+// canonicalizes its blanks to _:c14nN independently, so it is re-serialized
+// through one shared encoder to keep blank labels unique across the corpus. All
+// records are held in memory for the sorted bulk write; at large scale
+// (ARCHITECTURE §3) that becomes an out-of-core / fan-out concern.
+func BuildCorpus(sink storage.Sink, records []*codex.Record, provider string) (BuildStats, error) {
 	feed := FeedGraph(provider)
 	stats := BuildStats{Records: len(records)}
 
@@ -70,7 +95,7 @@ func BuildCorpus(root string, records []*codex.Record, provider string) (BuildSt
 		if err != nil {
 			return stats, fmt.Errorf("grain %s: %w", id, err)
 		}
-		if err := writeFile(GrainPath(root, id), grain); err != nil {
+		if err := writeSink(sink, GrainPath(id), grain); err != nil {
 			return stats, err
 		}
 		stats.Grains++
@@ -82,29 +107,43 @@ func BuildCorpus(root string, records []*codex.Record, provider string) (BuildSt
 	for i, e := range entries {
 		sorted[i] = e.rec
 	}
-	if err := codexbf.WriteNQuadsFile(filepath.Join(root, "catalog.nq"), sorted,
-		func(*codex.Record) rdf.Term { return feed }); err != nil {
-		return stats, fmt.Errorf("write catalog.nq: %w", err)
+	if err := writeCatalog(sink, sorted, feed); err != nil {
+		return stats, err
 	}
 	return stats, nil
 }
 
-// BuildFromMARC reads an ISO 2709 (.mrc) MARC file -- e.g. an OverDrive
-// Marketplace MARC Express export -- and builds the corpus under root.
-func BuildFromMARC(root, marcPath, provider string) (BuildStats, error) {
-	recs, err := iso2709.ReadFile(marcPath)
+// writeCatalog streams the bulk catalog.nq through one shared encoder so blank
+// labels stay unique across the whole corpus.
+func writeCatalog(sink storage.Sink, records []*codex.Record, feed rdf.Term) error {
+	w, err := sink.Create("catalog.nq")
 	if err != nil {
-		return BuildStats{}, fmt.Errorf("read marc %s: %w", marcPath, err)
+		return fmt.Errorf("create catalog.nq: %w", err)
 	}
-	return BuildCorpus(root, recs, provider)
+	nw := codexbf.NewNQuadsWriter(w, func(*codex.Record) rdf.Term { return feed })
+	for _, rec := range records {
+		if err := nw.Write(rec); err != nil {
+			w.Close()
+			return fmt.Errorf("write catalog.nq: %w", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("close catalog.nq: %w", err)
+	}
+	return nil
 }
 
-// writeFile creates the parent shard directory and writes data.
-func writeFile(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+// writeSink writes data to path through the sink, closing the writer.
+func writeSink(sink storage.Sink, p string, data []byte) error {
+	w, err := sink.Create(p)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	if _, err := w.Write(data); err != nil {
+		w.Close()
+		return err
+	}
+	return w.Close()
 }
 
 // hashID is the hex SHA-256 of b, used for shard prefixes and id fallbacks.
