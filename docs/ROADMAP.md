@@ -9,7 +9,8 @@ reference implementation and proving ground).
 
 Record -> `codex.Record` -> `bf:Work`/`bf:Instance`, validated on all ~6,266
 qllpoc records; emit canonical per-Work N-Quads grains + a bulk N-Quads dump (the
-bulk `catalog.nq` is the canonical-sorted concatenation of the grains). Proves
+bulk `catalog.nq` is re-serialized from the grains with corpus-wide unique blank
+scope). Proves
 BIBFRAME can represent the real corpus and yields MARC/MODS/schema.org export --
 with a documented known-loss list, since MARC<->BIBFRAME round-trips are lossy in
 both directions (see `tasks/003`).

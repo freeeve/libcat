@@ -48,9 +48,12 @@ The split is deliberate and load-bearing:
   (subjects, agents) are not Work-scoped -- they live under
   `data/authorities/<xx>/<id>.nq`, referenced by IRI.
 - **One format, one writer.** N-Quads is chosen so a single libcodex writer
-  produces both the per-Work grains and the bulk dump, and so the bulk
-  **`catalog.nq`** is the canonical-sorted concatenation of the grains -- no
-  conversion step. (Turtle cannot carry named graphs; TriG would be an extra
+  produces both the per-Work grains and the bulk **`catalog.nq`** -- same format,
+  no conversion step. The bulk dump is not a byte-concatenation of the grain
+  files: each grain canonicalizes its blank nodes to `_:c14nN` independently, so
+  concatenating would merge distinct blanks that share a label. `catalog.nq` is
+  instead re-serialized with corpus-wide unique blank scope (one shared encoder
+  across all records). (Turtle cannot carry named graphs; TriG would be an extra
   serializer to build in libcodex; N-Quads' 4th column gives provenance for
   free.)
 - **Clean diffs require deterministic labeling.** Blank nodes are given stable
