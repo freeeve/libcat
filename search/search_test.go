@@ -53,9 +53,10 @@ func TestSearchText(t *testing.T) {
 		Title:        "Herculine",
 		Subtitle:     "A Novel",
 		Contributors: []project.Contributor{{Name: "Byron, Grace"}},
-		Subjects:     []string{"Fiction"},
+		Subjects:     []project.Subject{{ID: "https://homosaurus.org/v3/homoit0000669", Labels: map[string]string{"en": "Transgender people"}}},
+		Tags:         []string{"Fiction"},
 	})
-	want := "Herculine A Novel Byron, Grace Fiction"
+	want := "Herculine A Novel Byron, Grace Transgender people Fiction"
 	if got != want {
 		t.Errorf("searchText = %q, want %q", got, want)
 	}

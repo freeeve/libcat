@@ -38,6 +38,8 @@ _:id2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontol
 _:id2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#value> "11682058" <feed:overdrive> .
 _:id2 <http://id.loc.gov/ontologies/bibframe/source> _:src2 <feed:overdrive> .
 _:src2 <http://www.w3.org/2000/01/rdf-schema#label> "overdrive" <feed:overdrive> .
+<https://homosaurus.org/v3/homoit0000669> <http://www.w3.org/2004/02/skos/core#prefLabel> "Transgender people"@en <authority:homosaurus> .
+<https://homosaurus.org/v3/homoit0000669> <http://www.w3.org/2004/02/skos/core#prefLabel> "Personas trans"@es <authority:homosaurus> .
 `
 
 func TestProject(t *testing.T) {
@@ -63,10 +65,17 @@ func TestProject(t *testing.T) {
 	if !reflect.DeepEqual(w.Contributors, wantContribs) {
 		t.Errorf("contributors = %+v, want %+v", w.Contributors, wantContribs)
 	}
-	// Editorial subject IRI merges with the feed subject label.
-	wantSubjects := []string{"Fiction", "https://homosaurus.org/v3/homoit0000669"}
+	// The editorial IRI subject is controlled -- carried as {URI, resolved labels};
+	// the feed genre string is an uncontrolled tag. They no longer conflate (tasks/012).
+	wantSubjects := []Subject{{
+		ID:     "https://homosaurus.org/v3/homoit0000669",
+		Labels: map[string]string{"en": "Transgender people", "es": "Personas trans"},
+	}}
 	if !reflect.DeepEqual(w.Subjects, wantSubjects) {
-		t.Errorf("subjects = %v, want %v", w.Subjects, wantSubjects)
+		t.Errorf("subjects = %+v, want %+v", w.Subjects, wantSubjects)
+	}
+	if !reflect.DeepEqual(w.Tags, []string{"Fiction"}) {
+		t.Errorf("tags = %v, want [Fiction]", w.Tags)
 	}
 	if !reflect.DeepEqual(w.Languages, []string{"eng"}) {
 		t.Errorf("languages = %v", w.Languages)
@@ -134,9 +143,18 @@ func TestFacets(t *testing.T) {
 	}) {
 		t.Errorf("contributor facet = %+v", f.Contributors)
 	}
-	// Both the feed subject and the editorial subject IRI are faceted.
-	if len(f.Subjects) != 2 {
-		t.Errorf("subject facet = %+v, want 2 values", f.Subjects)
+	// Controlled subjects and feed tags facet separately (tasks/012): the Homosaurus
+	// URI is the sole subject facet (with resolved labels), "Fiction" the sole tag.
+	wantSubj := []SubjectFacet{{
+		ID:     "https://homosaurus.org/v3/homoit0000669",
+		Labels: map[string]string{"en": "Transgender people", "es": "Personas trans"},
+		Count:  1,
+	}}
+	if !reflect.DeepEqual(f.Subjects, wantSubj) {
+		t.Errorf("subject facet = %+v, want %+v", f.Subjects, wantSubj)
+	}
+	if !reflect.DeepEqual(f.Tags, []FacetValue{{Value: "Fiction", Count: 1}}) {
+		t.Errorf("tag facet = %+v, want [{Fiction 1}]", f.Tags)
 	}
 }
 

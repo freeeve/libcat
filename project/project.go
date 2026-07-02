@@ -19,6 +19,7 @@ const (
 	bflcNS        = "http://id.loc.gov/ontologies/bflc/"
 	rdfNS         = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 	rdfsNS        = "http://www.w3.org/2000/01/rdf-schema#"
+	skosNS        = "http://www.w3.org/2004/02/skos/core#"
 	classWork     = bfNS + "Work"
 	pTitle        = bfNS + "title"
 	pMainTitle    = bfNS + "mainTitle"
@@ -35,15 +36,17 @@ const (
 	pSource       = bfNS + "source"
 	classIsbn     = bfNS + "Isbn"
 	pLabel        = rdfsNS + "label"
+	pPrefLabel    = skosNS + "prefLabel"
 	pValue        = rdfNS + "value"
 	primaryContr  = bflcNS + "PrimaryContribution"
 )
 
 // SchemaVersion is the catalog.json / facets.json / redirects.json schema version.
 // The Hugo module and search-index builder read it to detect a projector/consumer
-// mismatch. v2 added the per-Instance identifier scheme (ProviderID.Source), so the
-// runtime availability adapter can select its key by scheme (tasks/004/008).
-const SchemaVersion = 2
+// mismatch. v2 added the per-Instance identifier scheme (ProviderID.Source) for the
+// availability adapter (tasks/004/008). v3 split controlled subjects (authority
+// URIs + resolved labels) from uncontrolled feed tags (tasks/012).
+const SchemaVersion = 3
 
 // Catalog is the projected corpus: one record per Work, sorted by id.
 type Catalog struct {
@@ -58,7 +61,8 @@ type Work struct {
 	Title           string        `json:"title"`
 	Subtitle        string        `json:"subtitle,omitempty"`
 	Contributors    []Contributor `json:"contributors,omitempty"`
-	Subjects        []string      `json:"subjects,omitempty"`
+	Subjects        []Subject     `json:"subjects,omitempty"`
+	Tags            []string      `json:"tags,omitempty"`
 	Languages       []string      `json:"languages,omitempty"`
 	Classifications []string      `json:"classifications,omitempty"`
 	Instances       []Instance    `json:"instances,omitempty"`
@@ -68,6 +72,16 @@ type Work struct {
 type Contributor struct {
 	Name string `json:"name"`
 	Role string `json:"role,omitempty"`
+}
+
+// Subject is a controlled-vocabulary subject: a stable authority URI plus the
+// human labels resolved from the authority's skos:prefLabel / rdfs:label statements
+// in the graph, keyed by language tag (e.g. "en", "es"; "" for an untagged label).
+// Links and facets key on ID; display uses Labels, falling back to ID when the
+// authority provides none (tasks/012). Distinct from an uncontrolled feed Tag.
+type Subject struct {
+	ID     string            `json:"id"`
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // Instance is one edition/format: its id, ISBNs, and the scheme-tagged provider
@@ -91,11 +105,12 @@ type ProviderID struct {
 // distinct values and how many Works carry each. Emitting it saves the static
 // site from aggregating the whole corpus in templates at build time.
 type Facets struct {
-	Version         int          `json:"version"`
-	Languages       []FacetValue `json:"languages,omitempty"`
-	Subjects        []FacetValue `json:"subjects,omitempty"`
-	Contributors    []FacetValue `json:"contributors,omitempty"`
-	Classifications []FacetValue `json:"classifications,omitempty"`
+	Version         int            `json:"version"`
+	Languages       []FacetValue   `json:"languages,omitempty"`
+	Subjects        []SubjectFacet `json:"subjects,omitempty"`
+	Tags            []FacetValue   `json:"tags,omitempty"`
+	Contributors    []FacetValue   `json:"contributors,omitempty"`
+	Classifications []FacetValue   `json:"classifications,omitempty"`
 }
 
 // FacetValue is one facet value and the number of Works that carry it.
@@ -104,28 +119,71 @@ type FacetValue struct {
 	Count int    `json:"count"`
 }
 
+// SubjectFacet is one controlled-subject facet value: the authority URI (the key),
+// its resolved labels, and the number of Works carrying it. Facets key on ID so a
+// relabel does not churn the facet; display uses Labels (tasks/012).
+type SubjectFacet struct {
+	ID     string            `json:"id"`
+	Labels map[string]string `json:"labels,omitempty"`
+	Count  int               `json:"count"`
+}
+
 // Facets aggregates the catalog into per-dimension value counts, each value
 // counted once per Work. Values are ordered by descending count then value, so
 // the output is deterministic.
 func (c *Catalog) Facets() Facets {
-	lang, subj, contrib, cls := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
+	lang, tag, contrib, cls := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
+	subj := map[string]*SubjectFacet{}
 	for _, w := range c.Works {
 		countDistinct(lang, w.Languages)
-		countDistinct(subj, w.Subjects)
+		countDistinct(tag, w.Tags)
 		countDistinct(cls, w.Classifications)
 		names := make([]string, len(w.Contributors))
 		for i, con := range w.Contributors {
 			names[i] = con.Name
 		}
 		countDistinct(contrib, names)
+		seen := map[string]bool{}
+		for _, s := range w.Subjects {
+			if s.ID == "" || seen[s.ID] {
+				continue
+			}
+			seen[s.ID] = true
+			sf := subj[s.ID]
+			if sf == nil {
+				sf = &SubjectFacet{ID: s.ID, Labels: s.Labels}
+				subj[s.ID] = sf
+			}
+			sf.Count++
+		}
 	}
 	return Facets{
 		Version:         SchemaVersion,
 		Languages:       facetValues(lang),
-		Subjects:        facetValues(subj),
+		Subjects:        subjectFacets(subj),
+		Tags:            facetValues(tag),
 		Contributors:    facetValues(contrib),
 		Classifications: facetValues(cls),
 	}
+}
+
+// subjectFacets turns the URI->SubjectFacet map into a slice ordered by descending
+// count, then id, so the output is deterministic.
+func subjectFacets(m map[string]*SubjectFacet) []SubjectFacet {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]SubjectFacet, 0, len(m))
+	for _, sf := range m {
+		out = append(out, *sf)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
 }
 
 // countDistinct increments m once for each distinct non-empty value in vals.
@@ -231,8 +289,9 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 		return nil, err
 	}
 	p := &projector{
-		feed: ds.Graph(bibframe.FeedGraph(provider)),
-		ed:   ds.Graph(bibframe.EditorialGraph()),
+		feed:   ds.Graph(bibframe.FeedGraph(provider)),
+		ed:     ds.Graph(bibframe.EditorialGraph()),
+		labels: buildLabelIndex(ds),
 	}
 	cat := &Catalog{Version: SchemaVersion}
 	if p.feed == nil {
@@ -246,8 +305,9 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 }
 
 type projector struct {
-	feed *rdf.Graph
-	ed   *rdf.Graph // editorial graph; nil when the corpus has no editorial statements
+	feed   *rdf.Graph
+	ed     *rdf.Graph                   // editorial graph; nil when the corpus has no editorial statements
+	labels map[string]map[string]string // authority URI -> language tag -> label
 }
 
 func (p *projector) work(w rdf.Term) Work {
@@ -257,7 +317,7 @@ func (p *projector) work(w rdf.Term) Work {
 		wk.Subtitle, _ = p.feed.Literal(t, pSubtitle)
 	}
 	wk.Contributors = p.contributors(w)
-	wk.Subjects = p.subjects(w)
+	wk.Subjects, wk.Tags = p.subjectsAndTags(w)
 	wk.Languages = p.languages(w)
 	wk.Classifications = p.classifications(w)
 	wk.Instances = p.instances(w)
@@ -306,25 +366,83 @@ func (p *projector) contributors(w rdf.Term) []Contributor {
 	return out
 }
 
-// subjects returns the deduped subject labels from both the feed and editorial
-// graphs; an IRI-valued subject with no label contributes its IRI.
-func (p *projector) subjects(w rdf.Term) []string {
-	set := map[string]bool{}
+// subjectsAndTags splits a Work's bf:subject objects (across the feed and editorial
+// graphs) into two dimensions (tasks/012). An IRI object is a controlled-vocabulary
+// subject: its authority URI plus labels resolved from the graph (buildLabelIndex).
+// A labeled blank node is an uncontrolled feed tag: its label string. Subjects are
+// deduped by URI and sorted by URI; tags are deduped and sorted.
+func (p *projector) subjectsAndTags(w rdf.Term) ([]Subject, []string) {
+	subj := map[string]Subject{}
+	tags := map[string]bool{}
 	collect := func(g *rdf.Graph) {
 		if g == nil {
 			return
 		}
 		for _, s := range g.Objects(w, pSubject) {
-			if label, ok := g.Literal(s, pLabel); ok && label != "" {
-				set[label] = true
-			} else if s.IsIRI() {
-				set[s.Value] = true
+			if s.IsIRI() {
+				if _, ok := subj[s.Value]; !ok {
+					subj[s.Value] = Subject{ID: s.Value, Labels: p.labels[s.Value]}
+				}
+			} else if label, ok := g.Literal(s, pLabel); ok && label != "" {
+				tags[label] = true
 			}
 		}
 	}
 	collect(p.feed)
 	collect(p.ed)
-	return sortedKeys(set)
+
+	ids := make([]string, 0, len(subj))
+	for id := range subj {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	subjects := make([]Subject, len(ids))
+	for i, id := range ids {
+		subjects[i] = subj[id]
+	}
+	if len(subjects) == 0 {
+		subjects = nil
+	}
+	return subjects, sortedKeys(tags)
+}
+
+// buildLabelIndex indexes the human labels of controlled-vocabulary terms across
+// every graph in the dataset (tasks/012): for each IRI subject of skos:prefLabel or
+// rdfs:label, it maps the term URI -> language tag -> label. prefLabel wins over
+// rdfs:label for the same (URI, language). These labels come from authority
+// statements (e.g. an authority:<vocab> graph merged into catalog.nq); the index is
+// empty when no authority data is present, so subjects fall back to their URI.
+func buildLabelIndex(ds *rdf.Dataset) map[string]map[string]string {
+	idx := map[string]map[string]string{}
+	put := func(uri, lang, label string, pref bool) {
+		if label == "" {
+			return
+		}
+		byLang := idx[uri]
+		if byLang == nil {
+			byLang = map[string]string{}
+			idx[uri] = byLang
+		}
+		if _, ok := byLang[lang]; ok && !pref {
+			return // keep prefLabel over rdfs:label
+		}
+		byLang[lang] = label
+	}
+	// Two passes so prefLabel always wins regardless of statement order.
+	for _, q := range ds.Quads {
+		if q.P.Value == pPrefLabel && q.S.IsIRI() && q.O.IsLiteral() {
+			put(q.S.Value, q.O.Lang, q.O.Value, true)
+		}
+	}
+	for _, q := range ds.Quads {
+		if q.P.Value == pLabel && q.S.IsIRI() && q.O.IsLiteral() {
+			put(q.S.Value, q.O.Lang, q.O.Value, false)
+		}
+	}
+	if len(idx) == 0 {
+		return nil
+	}
+	return idx
 }
 
 func (p *projector) languages(w rdf.Term) []string {

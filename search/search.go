@@ -136,7 +136,9 @@ func writeIndex(sink storage.Sink, name string, postings map[string]*roaring.Bit
 }
 
 // searchText is the text a Work contributes to the index: its title, subtitle,
-// contributor names, and subject labels.
+// contributor names, controlled-subject labels (all languages), and feed tags.
+// Term order does not matter -- the index sorts and dedups tokens -- but label
+// values are gathered in sorted order so the text is deterministic.
 func searchText(w project.Work) string {
 	var b strings.Builder
 	b.WriteString(w.Title)
@@ -149,8 +151,19 @@ func searchText(w project.Work) string {
 		b.WriteString(c.Name)
 	}
 	for _, s := range w.Subjects {
+		labels := make([]string, 0, len(s.Labels))
+		for _, l := range s.Labels {
+			labels = append(labels, l)
+		}
+		slices.Sort(labels)
+		for _, l := range labels {
+			b.WriteByte(' ')
+			b.WriteString(l)
+		}
+	}
+	for _, t := range w.Tags {
 		b.WriteByte(' ')
-		b.WriteString(s)
+		b.WriteString(t)
 	}
 	return b.String()
 }
