@@ -35,6 +35,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat project:", err)
 			os.Exit(1)
 		}
+	case "index":
+		if err := runIndex(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat index:", err)
+			os.Exit(1)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -74,4 +79,5 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lcat overdrive --cache <dir> --out <dir> [--marc <file.mrc>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <name>]")
+	fmt.Fprintln(os.Stderr, "  lcat index --catalog <catalog.json> [--out <dir>]")
 }
