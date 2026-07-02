@@ -25,6 +25,15 @@ type Assignment struct {
 	MintedWork     bool
 }
 
+// Merge is an editorial merge decision recovered from the grains (ARCHITECTURE
+// §4): every reference to From resolves to To. It is the under-merge fix -- two
+// records that should be one Work but clustered apart -- and the computed key
+// cannot undo it. Chains collapse to a single canonical id.
+type Merge struct {
+	From string
+	To   string
+}
+
 // Resolver assigns stable Work/Instance ids across ingests. Seed it with the
 // identity already committed (from the grains), then Resolve each incoming record
 // to an existing id or a freshly minted one. It is the mint-or-resolve core of

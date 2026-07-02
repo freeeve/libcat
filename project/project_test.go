@@ -104,3 +104,43 @@ func TestFacets(t *testing.T) {
 		t.Errorf("subject facet = %+v, want 2 values", f.Subjects)
 	}
 }
+
+// catalogWithMerges is a catalog.nq whose editorial graph records a merge chain
+// (a->b->c) and an independent merge (d->e), plus a feed line that must be ignored.
+const catalogWithMerges = `<#aWork> <https://github.com/freeeve/libcatalog/ns#mergedInto> <#bWork> <editorial:> .
+<#bWork> <https://github.com/freeeve/libcatalog/ns#mergedInto> <#cWork> <editorial:> .
+<#dWork> <https://github.com/freeeve/libcatalog/ns#mergedInto> <#eWork> <editorial:> .
+<#cWork> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:overdrive> .
+`
+
+func TestRedirects(t *testing.T) {
+	rm, err := Redirects([]byte(catalogWithMerges))
+	if err != nil {
+		t.Fatalf("Redirects: %v", err)
+	}
+	if rm.Version != SchemaVersion {
+		t.Errorf("version = %d, want %d", rm.Version, SchemaVersion)
+	}
+	// Chain a->b->c collapses to a->c and b->c; d->e independent. Sorted by From.
+	want := []Redirect{{From: "a", To: "c"}, {From: "b", To: "c"}, {From: "d", To: "e"}}
+	if !reflect.DeepEqual(rm.Redirects, want) {
+		t.Errorf("redirects = %+v, want %+v", rm.Redirects, want)
+	}
+}
+
+func TestRedirectsCycleSafe(t *testing.T) {
+	// A malformed overlay with a cycle (a<->b) must terminate, not loop, and emit no
+	// self-redirect (From == To is dropped).
+	cyc := `<#aWork> <https://github.com/freeeve/libcatalog/ns#mergedInto> <#bWork> <editorial:> .
+<#bWork> <https://github.com/freeeve/libcatalog/ns#mergedInto> <#aWork> <editorial:> .
+`
+	rm, err := Redirects([]byte(cyc))
+	if err != nil {
+		t.Fatalf("Redirects: %v", err)
+	}
+	for _, r := range rm.Redirects {
+		if r.From == r.To {
+			t.Errorf("self-redirect emitted: %+v", r)
+		}
+	}
+}

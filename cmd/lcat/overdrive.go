@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/freeeve/libcatalog/bibframe"
@@ -62,6 +63,11 @@ func buildOverdriveGrains(items []overdrive.Item, out, provider string) error {
 	}
 	r := identity.NewResolver()
 	identity.SeedResolver(r, prior.Grains)
+	// Seed editorial merges (tasks/001) so a retired Work's Instances resolve onto
+	// the surviving Work; the computed key cannot undo the human decision.
+	for _, m := range prior.Merges {
+		r.SeedMerge(m.From, m.To)
+	}
 
 	// Group items by resolved Work. The first item to reach a Work supplies its
 	// shared Work-level metadata, and the first to reach an Instance supplies that
@@ -112,12 +118,37 @@ func buildOverdriveGrains(items []overdrive.Item, out, provider string) error {
 	if err != nil {
 		return err
 	}
+	// Drop the grains of Works retired by an editorial merge: their Instances have
+	// just been rewritten onto the survivor, so the stale grain would otherwise
+	// re-seed the retired id as a live cluster on the next ingest (tasks/001).
+	retired, err := removeRetiredGrains(out, prior.Merges)
+	if err != nil {
+		return err
+	}
 	for _, c := range r.Conflicts() {
 		fmt.Fprintln(os.Stderr, "lcat overdrive: conflict:", c)
 	}
-	fmt.Printf("built %d works from %d instances under %s (feed:%s); minted %d works, %d instances\n",
-		stats.Grains, stats.Records, out, provider, mintedWorks, mintedInstances)
+	fmt.Printf("built %d works from %d instances under %s (feed:%s); minted %d works, %d instances; retired %d works\n",
+		stats.Grains, stats.Records, out, provider, mintedWorks, mintedInstances, retired)
 	return nil
+}
+
+// removeRetiredGrains deletes the per-Work grain file of every Work retired by a
+// merge and returns how many were removed. A retired grain that is already gone (a
+// re-ingest after the first merge-aware run) is not an error.
+func removeRetiredGrains(dir string, merges []identity.Merge) (int, error) {
+	n := 0
+	for _, id := range bibframe.RetiredWorks(merges) {
+		path := filepath.Join(dir, filepath.FromSlash(bibframe.GrainPath(id)))
+		if err := os.Remove(path); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return n, fmt.Errorf("remove retired grain %s: %w", id, err)
+		}
+		n++
+	}
+	return n, nil
 }
 
 // writeOverdriveMARC exports the cached items as an ISO 2709 MARC file.

@@ -43,9 +43,16 @@ func runProject(args []string) error {
 	if err := writeJSON(filepath.Join(*out, "facets.json"), facets); err != nil {
 		return err
 	}
-	fmt.Printf("projected %d works to %s (schema v%d); facets: %d languages, %d subjects, %d contributors\n",
+	redirects, err := project.Redirects(b)
+	if err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(*out, "redirects.json"), redirects); err != nil {
+		return err
+	}
+	fmt.Printf("projected %d works to %s (schema v%d); facets: %d languages, %d subjects, %d contributors; %d redirects\n",
 		len(cat.Works), *out, project.SchemaVersion,
-		len(facets.Languages), len(facets.Subjects), len(facets.Contributors))
+		len(facets.Languages), len(facets.Subjects), len(facets.Contributors), len(redirects.Redirects))
 	return nil
 }
 

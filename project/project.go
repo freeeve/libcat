@@ -147,6 +147,69 @@ func facetValues(m map[string]int) []FacetValue {
 	return out
 }
 
+// Redirect is one retired-Work -> surviving-Work URL redirect (ARCHITECTURE §4):
+// after an editorial merge the retired id must still resolve, so shared links and
+// SEO survive.
+type Redirect struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// RedirectMap is the redirect artifact emitted alongside catalog.json: every
+// retired Work id and the surviving id it now resolves to, chains collapsed to the
+// final survivor and sorted by retired id. The static host turns each into a 301
+// (per the tasks/001 decision: the projector emits the map, the host serves it).
+type RedirectMap struct {
+	Version   int        `json:"version"`
+	Redirects []Redirect `json:"redirects"`
+}
+
+// Redirects builds the redirect map from a catalog.nq dataset by reading the
+// editorial graph's lcat:mergedInto statements and collapsing merge chains
+// (A->B->C yields A->C and B->C) to the final survivor. A merge cycle terminates
+// at the last id reached rather than looping.
+func Redirects(catalogNQ []byte) (RedirectMap, error) {
+	ds, err := rdf.ParseNQuads(catalogNQ)
+	if err != nil {
+		return RedirectMap{}, err
+	}
+	ed := bibframe.EditorialGraph()
+	raw := map[string]string{}
+	for _, q := range ds.Quads {
+		if q.G == ed && q.P.Value == bibframe.PredMergedInto && q.S.IsIRI() && q.O.IsIRI() {
+			raw[fragID(q.S.Value, "Work")] = fragID(q.O.Value, "Work")
+		}
+	}
+	rm := RedirectMap{Version: SchemaVersion}
+	froms := make([]string, 0, len(raw))
+	for from := range raw {
+		froms = append(froms, from)
+	}
+	sort.Strings(froms)
+	for _, from := range froms {
+		if to := follow(raw, from); to != from {
+			rm.Redirects = append(rm.Redirects, Redirect{From: from, To: to})
+		}
+	}
+	return rm, nil
+}
+
+// follow chases the merge chain from start to the final survivor -- the last id
+// with no onward mapping. It stops on a missing link or a cycle (returning the id
+// reached), so a malformed overlay cannot loop.
+func follow(raw map[string]string, start string) string {
+	seen := map[string]bool{}
+	cur := start
+	for {
+		to, ok := raw[cur]
+		if !ok || to == "" || seen[cur] {
+			return cur
+		}
+		seen[cur] = true
+		cur = to
+	}
+}
+
 // Project reads a catalog.nq dataset and projects each Work into a Catalog record.
 // Display/facet fields are drawn from the union of the provider's feed graph and
 // the editorial graph, so curated subjects appear alongside feed data.
