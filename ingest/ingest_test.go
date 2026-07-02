@@ -1,6 +1,7 @@
 package ingest_test
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -226,6 +227,120 @@ func TestOverdriveProviderThroughRegistry(t *testing.T) {
 	if !strings.Contains(nq, "Registry Test") {
 		t.Errorf("overdrive grains missing title:\n%s", nq)
 	}
+}
+
+// TestRunAddedRecordsMintOnlyNew is the tasks/002 acceptance for a *changed* feed:
+// re-ingesting a feed with a new record added preserves the ids (and byte-identical
+// grains) of the unchanged records and mints only the genuinely new one.
+func TestRunAddedRecordsMintOnlyNew(t *testing.T) {
+	v1 := []ingest.Record{
+		stubRecord{id: "a1", author: "Doe, Jane", title: "Alpha", lang: "eng", isbn: "9780000000001"},
+		stubRecord{id: "a2", author: "Roe, Rick", title: "Beta", lang: "eng", isbn: "9780000000002"},
+	}
+	out := t.TempDir()
+	if _, err := ingest.Run(stubProvider{feed: "acme", role: ingest.RoleIngest, recs: v1}, out); err != nil {
+		t.Fatalf("v1 Run: %v", err)
+	}
+	before := grainFiles(t, out)
+	if len(before) != 2 {
+		t.Fatalf("v1 grains = %d, want 2", len(before))
+	}
+
+	v2 := append(append([]ingest.Record{}, v1...),
+		stubRecord{id: "a3", author: "Poe, Ann", title: "Gamma", lang: "eng", isbn: "9780000000003"})
+	res, err := ingest.Run(stubProvider{feed: "acme", role: ingest.RoleIngest, recs: v2}, out)
+	if err != nil {
+		t.Fatalf("v2 Run: %v", err)
+	}
+	if res.MintedWorks != 1 || res.MintedInstances != 1 {
+		t.Errorf("changed feed minted %d/%d, want 1/1 (only the added record)", res.MintedWorks, res.MintedInstances)
+	}
+	after := grainFiles(t, out)
+	if len(after) != 3 {
+		t.Errorf("v2 grains = %d, want 3", len(after))
+	}
+	// Every prior grain persists byte-identical -> unchanged records did not churn.
+	for path, b := range before {
+		ab, ok := after[path]
+		if !ok {
+			t.Errorf("prior grain %s vanished (id churn)", path)
+		} else if !bytes.Equal(ab, b) {
+			t.Errorf("prior grain %s changed for an unchanged record", path)
+		}
+	}
+}
+
+// TestRunChangedRecordKeepsId proves a record whose content changes (new title) but
+// whose keys are stable resolves to its committed ids -- 0 minted, no new grain file,
+// only the content updates. This is the "preserves ids" half of tasks/002: identity
+// survives feed edits because the ISBN anchors it, not the (title-derived) cluster key.
+func TestRunChangedRecordKeepsId(t *testing.T) {
+	out := t.TempDir()
+	v1 := []ingest.Record{stubRecord{id: "a1", author: "Doe, Jane", title: "Original Title", lang: "eng", isbn: "9780000000001"}}
+	if _, err := ingest.Run(stubProvider{feed: "acme", role: ingest.RoleIngest, recs: v1}, out); err != nil {
+		t.Fatalf("v1 Run: %v", err)
+	}
+	before := grainFiles(t, out)
+	if len(before) != 1 {
+		t.Fatalf("v1 grains = %d, want 1", len(before))
+	}
+	var path string
+	var orig []byte
+	for p, b := range before {
+		path, orig = p, b
+	}
+
+	v2 := []ingest.Record{stubRecord{id: "a1", author: "Doe, Jane", title: "Revised Title", lang: "eng", isbn: "9780000000001"}}
+	res, err := ingest.Run(stubProvider{feed: "acme", role: ingest.RoleIngest, recs: v2}, out)
+	if err != nil {
+		t.Fatalf("v2 Run: %v", err)
+	}
+	if res.MintedWorks != 0 || res.MintedInstances != 0 {
+		t.Errorf("changed record minted %d/%d, want 0/0 (id preserved)", res.MintedWorks, res.MintedInstances)
+	}
+	after := grainFiles(t, out)
+	if len(after) != 1 {
+		t.Errorf("grains = %d, want 1 (no new file for a changed record)", len(after))
+	}
+	ab, ok := after[path]
+	if !ok {
+		t.Fatalf("grain %s vanished -> id churned on a content change", path)
+	}
+	if bytes.Equal(ab, orig) {
+		t.Error("grain content did not update for the changed record")
+	}
+	if !strings.Contains(string(ab), "Revised Title") {
+		t.Error("changed grain missing the new title")
+	}
+}
+
+// grainFiles maps each per-Work grain's dir-relative path to its bytes (skipping the
+// bulk catalog.nq), so a test can detect which grains persisted, changed, or appeared.
+func grainFiles(t *testing.T, dir string) map[string][]byte {
+	t.Helper()
+	out := map[string][]byte{}
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, ".nq") || d.Name() == "catalog.nq" {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		out[rel] = b
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk grains: %v", err)
+	}
+	return out
 }
 
 // readNQuads returns the concatenated contents of every per-Work grain under dir
