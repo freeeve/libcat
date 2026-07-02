@@ -38,9 +38,14 @@ const (
 	primaryContr  = bflcNS + "PrimaryContribution"
 )
 
+// SchemaVersion is the catalog.json / facets.json schema version. The Hugo module
+// and search-index builder read it to detect a projector/consumer mismatch.
+const SchemaVersion = 1
+
 // Catalog is the projected corpus: one record per Work, sorted by id.
 type Catalog struct {
-	Works []Work `json:"works"`
+	Version int    `json:"version"`
+	Works   []Work `json:"works"`
 }
 
 // Work is the discovery unit as the static site sees it -- the display and facet
@@ -70,6 +75,78 @@ type Instance struct {
 	ProviderIDs []string `json:"providerIds,omitempty"`
 }
 
+// Facets is the precomputed facet index: for each facetable dimension, the
+// distinct values and how many Works carry each. Emitting it saves the static
+// site from aggregating the whole corpus in templates at build time.
+type Facets struct {
+	Version         int          `json:"version"`
+	Languages       []FacetValue `json:"languages,omitempty"`
+	Subjects        []FacetValue `json:"subjects,omitempty"`
+	Contributors    []FacetValue `json:"contributors,omitempty"`
+	Classifications []FacetValue `json:"classifications,omitempty"`
+}
+
+// FacetValue is one facet value and the number of Works that carry it.
+type FacetValue struct {
+	Value string `json:"value"`
+	Count int    `json:"count"`
+}
+
+// Facets aggregates the catalog into per-dimension value counts, each value
+// counted once per Work. Values are ordered by descending count then value, so
+// the output is deterministic.
+func (c *Catalog) Facets() Facets {
+	lang, subj, contrib, cls := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
+	for _, w := range c.Works {
+		countDistinct(lang, w.Languages)
+		countDistinct(subj, w.Subjects)
+		countDistinct(cls, w.Classifications)
+		names := make([]string, len(w.Contributors))
+		for i, con := range w.Contributors {
+			names[i] = con.Name
+		}
+		countDistinct(contrib, names)
+	}
+	return Facets{
+		Version:         SchemaVersion,
+		Languages:       facetValues(lang),
+		Subjects:        facetValues(subj),
+		Contributors:    facetValues(contrib),
+		Classifications: facetValues(cls),
+	}
+}
+
+// countDistinct increments m once for each distinct non-empty value in vals.
+func countDistinct(m map[string]int, vals []string) {
+	seen := map[string]bool{}
+	for _, v := range vals {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		m[v]++
+	}
+}
+
+// facetValues turns a value->count map into a slice ordered by descending count,
+// then ascending value.
+func facetValues(m map[string]int) []FacetValue {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]FacetValue, 0, len(m))
+	for v, n := range m {
+		out = append(out, FacetValue{Value: v, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Value < out[j].Value
+	})
+	return out
+}
+
 // Project reads a catalog.nq dataset and projects each Work into a Catalog record.
 // Display/facet fields are drawn from the union of the provider's feed graph and
 // the editorial graph, so curated subjects appear alongside feed data.
@@ -82,7 +159,7 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 		feed: ds.Graph(bibframe.FeedGraph(provider)),
 		ed:   ds.Graph(bibframe.EditorialGraph()),
 	}
-	cat := &Catalog{}
+	cat := &Catalog{Version: SchemaVersion}
 	if p.feed == nil {
 		return cat, nil
 	}

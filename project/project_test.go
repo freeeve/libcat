@@ -43,6 +43,9 @@ func TestProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Project: %v", err)
 	}
+	if cat.Version != SchemaVersion {
+		t.Errorf("version = %d, want %d", cat.Version, SchemaVersion)
+	}
 	if len(cat.Works) != 1 {
 		t.Fatalf("got %d works, want 1", len(cat.Works))
 	}
@@ -76,5 +79,28 @@ func TestProject(t *testing.T) {
 	if inst.ID != "i1" || !reflect.DeepEqual(inst.ISBNs, []string{"9781668128251"}) ||
 		!reflect.DeepEqual(inst.ProviderIDs, []string{"11682058"}) {
 		t.Errorf("instance = %+v", inst)
+	}
+}
+
+func TestFacets(t *testing.T) {
+	cat, err := Project([]byte(sampleCatalog), "overdrive")
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	f := cat.Facets()
+	if f.Version != SchemaVersion {
+		t.Errorf("facets version = %d, want %d", f.Version, SchemaVersion)
+	}
+	if !reflect.DeepEqual(f.Languages, []FacetValue{{Value: "eng", Count: 1}}) {
+		t.Errorf("language facet = %+v", f.Languages)
+	}
+	if !reflect.DeepEqual(f.Contributors, []FacetValue{
+		{Value: "Byron, Grace", Count: 1}, {Value: "Endres, Nicky", Count: 1},
+	}) {
+		t.Errorf("contributor facet = %+v", f.Contributors)
+	}
+	// Both the feed subject and the editorial subject IRI are faceted.
+	if len(f.Subjects) != 2 {
+		t.Errorf("subject facet = %+v, want 2 values", f.Subjects)
 	}
 }

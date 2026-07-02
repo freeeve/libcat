@@ -33,17 +33,27 @@ func runProject(args []string) error {
 	if err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(cat, "", "  ")
-	if err != nil {
-		return err
-	}
 	if err := os.MkdirAll(*out, 0o755); err != nil {
 		return err
 	}
-	path := filepath.Join(*out, "catalog.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := writeJSON(filepath.Join(*out, "catalog.json"), cat); err != nil {
 		return err
 	}
-	fmt.Printf("projected %d works to %s\n", len(cat.Works), path)
+	facets := cat.Facets()
+	if err := writeJSON(filepath.Join(*out, "facets.json"), facets); err != nil {
+		return err
+	}
+	fmt.Printf("projected %d works to %s (schema v%d); facets: %d languages, %d subjects, %d contributors\n",
+		len(cat.Works), *out, project.SchemaVersion,
+		len(facets.Languages), len(facets.Subjects), len(facets.Contributors))
 	return nil
+}
+
+// writeJSON marshals v as indented JSON to path.
+func writeJSON(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
