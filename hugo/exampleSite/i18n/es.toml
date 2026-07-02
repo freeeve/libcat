@@ -1,0 +1,59 @@
+# Spanish UI chrome for the bilingual exampleSite (tasks/016). This is an ADOPTER
+# artifact -- the module ships only i18n/en.toml; a site translates by adding a table
+# like this one. Any key omitted here falls back to the module's English default, so
+# a partial translation still builds. No template fork required.
+
+[facets]
+other = "Facetas"
+
+[filterWorks]
+other = "Filtrar obras"
+
+[subjects]
+other = "Materias"
+
+[formats]
+other = "Formatos"
+
+[genresAndTags]
+other = "Géneros y etiquetas"
+
+[languages]
+other = "Idiomas"
+
+[classifications]
+other = "Clasificaciones"
+
+[contributors]
+other = "Colaboradores"
+
+[language]
+other = "Idioma"
+
+[classification]
+other = "Clasificación"
+
+[editionsAndFormats]
+other = "Ediciones y formatos"
+
+[isbn]
+other = "ISBN"
+
+[backToAllWorks]
+other = "Volver a todas las obras"
+
+[authorityRecordFor]
+other = "Registro de autoridad de {{ .Label }}"
+
+[searchLabel]
+other = "Buscar en el catálogo"
+
+[searchPlaceholder]
+other = "Buscar títulos, autores, materias…"
+
+[searchButton]
+other = "Buscar"
+
+[workCount]
+one = "{{ .Count }} obra"
+other = "{{ .Count }} obras"

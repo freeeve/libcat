@@ -64,6 +64,30 @@ That is the whole setup -- see `exampleSite/` for a runnable reference.
   Format (ebook / audiobook) is a per-Instance property, so a Work that clusters an
   ebook and an audiobook edition appears under both formats (tasks/011).
 
+## Multilingual
+
+The module is multilingual out of the box -- no per-language content mounts, no copy
+of the content adapter (tasks/016).
+
+- **Work pages in every language.** The content adapter calls Hugo's
+  `.EnableAllLanguages`, so it mints a full Work-page set for **each** configured
+  `[languages]` entry from the single `catalog.json`. Each language's pages localize
+  their data: a controlled subject displays `labels[<lang>]`, falling back to `en`
+  then the URI. Just declare your `[languages]` -- the module does the rest.
+- **UI chrome via i18n tables.** Facet titles, the search form, detail-page section
+  headings, and counts come from `{{ i18n }}` keys; the module ships `i18n/en.toml`
+  as the defaults. To translate, add `i18n/<lang>.toml` to your site with the same
+  keys (see `exampleSite/i18n/es.toml`). Any key you omit falls back to the default
+  content language, so a partial table still builds -- **no template fork**.
+
+`exampleSite/` is bilingual (en + es) as a runnable reference: `/works/` renders in
+English, `/es/works/` in Spanish, chrome and subject labels included.
+
+Note: taxonomy term-page headings derived from the taxonomy name itself (e.g. the
+`Subject:` prefix, the "5 subjects" term count) still use Hugo's taxonomy singular/
+plural, which are config-defined, not `i18n` keys -- override `term.html`/`taxonomy.html`
+if you need those localized.
+
 ## Schema version
 
 Both JSON files carry a top-level `version` (`project.SchemaVersion`). The adapter

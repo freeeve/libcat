@@ -9,14 +9,14 @@
   {{ end }}
 
   {{ with .Params.subjectList }}
-  <section aria-labelledby="lcat-subj"><h2 id="lcat-subj">Subjects</h2>
+  <section aria-labelledby="lcat-subj"><h2 id="lcat-subj">{{ i18n "subjects" }}</h2>
     <ul class="lcat-tags">
       {{ $lang := site.Language.Lang }}
       {{ range . }}
         {{ $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
         {{/* Facet by label; the subject's canonical link is its authority URI. */}}
         <li><a href="{{ printf "/subjects/%s/" (urlize $label) | relURL }}">{{ $label }}</a>
-          {{ if ne $label .id }}<a class="lcat-authority" href="{{ .id }}" rel="external" aria-label="Authority record for {{ $label }}">↗</a>{{ end }}
+          {{ if ne $label .id }}<a class="lcat-authority" href="{{ .id }}" rel="external" aria-label="{{ i18n "authorityRecordFor" (dict "Label" $label) }}">↗</a>{{ end }}
         </li>
       {{ end }}
     </ul>
@@ -24,7 +24,7 @@
   {{ end }}
 
   {{ with .Params.tags }}
-  <section aria-labelledby="lcat-tags"><h2 id="lcat-tags">Genres &amp; tags</h2>
+  <section aria-labelledby="lcat-tags"><h2 id="lcat-tags">{{ i18n "genresAndTags" }}</h2>
     <ul class="lcat-tags">
       {{ range . }}<li><a href="{{ printf "/tags/%s/" (urlize .) | relURL }}">{{ . }}</a></li>{{ end }}
     </ul>
@@ -32,20 +32,20 @@
   {{ end }}
 
   <dl class="lcat-meta">
-    {{ with .Params.formats }}<dt>Formats</dt><dd>
+    {{ with .Params.formats }}<dt>{{ i18n "formats" }}</dt><dd>
       {{ range $i, $f := . }}{{ if $i }}, {{ end }}<a href="{{ printf "/formats/%s/" (urlize $f) | relURL }}">{{ $f }}</a>{{ end }}
     </dd>{{ end }}
-    {{ with .Params.languages }}<dt>Language</dt><dd>{{ delimit . ", " }}</dd>{{ end }}
-    {{ with .Params.classifications }}<dt>Classification</dt><dd>{{ delimit . ", " }}</dd>{{ end }}
+    {{ with .Params.languages }}<dt>{{ i18n "language" }}</dt><dd>{{ delimit . ", " }}</dd>{{ end }}
+    {{ with .Params.classifications }}<dt>{{ i18n "classification" }}</dt><dd>{{ delimit . ", " }}</dd>{{ end }}
   </dl>
 
   {{ with .Params.instances }}
-  <section aria-labelledby="lcat-ed"><h2 id="lcat-ed">Editions &amp; formats</h2>
+  <section aria-labelledby="lcat-ed"><h2 id="lcat-ed">{{ i18n "editionsAndFormats" }}</h2>
     <ul class="lcat-editions">
       {{ range . }}
       <li class="lcat-edition" data-instance="{{ .id }}"{{ with .format }} data-format="{{ . }}"{{ end }}{{ range .providerIds }}{{ if eq .source "overdrive-reserve" }} data-overdrive-reserve="{{ .value }}"{{ end }}{{ end }}>
         {{ with .format }}<span class="lcat-format">{{ . }}</span>{{ end }}
-        {{ with .isbns }}<span class="lcat-isbn">ISBN {{ index . 0 }}</span>{{ end }}
+        {{ with .isbns }}<span class="lcat-isbn">{{ i18n "isbn" }} {{ index . 0 }}</span>{{ end }}
         {{/* Availability is fetched client-side at view time by lcat-availability.js
              (libcatalog tasks/004), keyed on data-overdrive-reserve above; it fills
              this placeholder in when the site enables [params.availability]. Without
@@ -58,6 +58,6 @@
   </section>
   {{ end }}
 
-  <p><a href="{{ "/works/" | relURL }}">&larr; Back to all works</a></p>
+  <p><a href="{{ "/works/" | relURL }}">&larr; {{ i18n "backToAllWorks" }}</a></p>
 </article>
 {{ end }}

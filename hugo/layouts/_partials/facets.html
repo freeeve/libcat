@@ -9,11 +9,11 @@
 {{- with resources.Get "facets.json" -}}{{- $facets = . | transform.Unmarshal -}}{{- end -}}
 {{- $lang := site.Language.Lang -}}
 {{- with $facets -}}
-<nav class="lcat-facets" aria-label="Filter works">
+<nav class="lcat-facets" aria-label="{{ i18n "filterWorks" }}">
   {{- /* Controlled subjects: label-keyed term pages, count from facets.json. */ -}}
   {{- with index $facets "subjects" -}}
   <details class="lcat-facet" open>
-    <summary>Subjects <span class="lcat-facet-total">{{ len . }}</span></summary>
+    <summary>{{ i18n "subjects" }} <span class="lcat-facet-total">{{ len . }}</span></summary>
     <ul>
       {{- range first 20 . }}
       {{- $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
@@ -24,11 +24,11 @@
   {{- end -}}
   {{- /* Plain {value,count} dimensions. */ -}}
   {{- $dims := slice
-    (dict "key" "formats" "label" "Formats")
-    (dict "key" "tags" "label" "Genres & tags")
-    (dict "key" "languages" "label" "Languages")
-    (dict "key" "classifications" "label" "Classifications")
-    (dict "key" "contributors" "label" "Contributors") -}}
+    (dict "key" "formats" "label" (i18n "formats"))
+    (dict "key" "tags" "label" (i18n "genresAndTags"))
+    (dict "key" "languages" "label" (i18n "languages"))
+    (dict "key" "classifications" "label" (i18n "classifications"))
+    (dict "key" "contributors" "label" (i18n "contributors")) -}}
   {{- range $dims -}}
     {{- $dim := . -}}
     {{- with index $facets $dim.key -}}

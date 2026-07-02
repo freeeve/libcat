@@ -2,6 +2,19 @@ baseURL = "https://example.org/"
 title = "libcatalog example catalog"
 languageCode = "en-us"
 
+# Bilingual demo (tasks/016): the module's content adapter calls .EnableAllLanguages,
+# so a full Work-page set is minted for BOTH languages with no per-language content
+# mount and no local copy of _content.gotmpl. UI chrome localizes from the module's
+# i18n/en.toml defaults plus this site's i18n/es.toml -- no template fork.
+defaultContentLanguage = "en"
+[languages]
+  [languages.en]
+    weight = 1
+    languageName = "English"
+  [languages.es]
+    weight = 2
+    languageName = "Español"
+
 # Import the libcatalog module (resolved locally via go.mod replace during dev).
 [module]
   [[module.imports]]

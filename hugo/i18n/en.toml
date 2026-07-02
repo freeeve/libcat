@@ -1,0 +1,63 @@
+# libcatalog Hugo module -- default (English) UI chrome (tasks/016). Hugo merges a
+# module's i18n bundle into the importing site, so these are the defaults every
+# adopter gets. To translate, add i18n/<lang>.toml with the same keys (missing keys
+# fall back to the default content language) -- no template fork. See README.
+
+# Facet sidebar + navigation
+[facets]
+other = "Facets"
+
+[filterWorks]
+other = "Filter works"
+
+[subjects]
+other = "Subjects"
+
+[formats]
+other = "Formats"
+
+[genresAndTags]
+other = "Genres & tags"
+
+[languages]
+other = "Languages"
+
+[classifications]
+other = "Classifications"
+
+[contributors]
+other = "Contributors"
+
+# Work detail page
+[language]
+other = "Language"
+
+[classification]
+other = "Classification"
+
+[editionsAndFormats]
+other = "Editions & formats"
+
+[isbn]
+other = "ISBN"
+
+[backToAllWorks]
+other = "Back to all works"
+
+[authorityRecordFor]
+other = "Authority record for {{ .Label }}"
+
+# Search form
+[searchLabel]
+other = "Search the catalog"
+
+[searchPlaceholder]
+other = "Search titles, authors, subjects…"
+
+[searchButton]
+other = "Search"
+
+# Result / term counts (CLDR plural forms; .Count is the number of works)
+[workCount]
+one = "{{ .Count }} work"
+other = "{{ .Count }} works"

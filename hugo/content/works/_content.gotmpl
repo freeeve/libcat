@@ -6,7 +6,14 @@
   truth; this JSON is a derived build artifact.
 
   The site mounts the projector output under assets/ (assets/catalog.json).
+
+  Multilingual: EnableAllLanguages makes this single adapter run once per configured
+  language (tasks/016), so an importing multi-language site gets a full Work-page set
+  in every language with no per-language content mount and no copy of this file. Each
+  run sees its own site.Language.Lang, so the localized subject labels below resolve
+  per language.
 */ -}}
+{{- .EnableAllLanguages -}}
 {{- $res := resources.Get "catalog.json" -}}
 {{- with $res -}}
   {{- $data := . | transform.Unmarshal -}}

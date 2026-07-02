@@ -5,7 +5,7 @@
   submits to /works/ and shows the full list, so search never blocks browsing.
 */ -}}
 <form class="lcat-search" role="search" action="{{ "/works/" | relURL }}" method="get">
-  <label for="lcat-q" class="lcat-visually-hidden">Search the catalog</label>
-  <input type="search" id="lcat-q" name="q" placeholder="Search titles, authors, subjects…" autocomplete="off">
-  <button type="submit">Search</button>
+  <label for="lcat-q" class="lcat-visually-hidden">{{ i18n "searchLabel" }}</label>
+  <input type="search" id="lcat-q" name="q" placeholder="{{ i18n "searchPlaceholder" }}" autocomplete="off">
+  <button type="submit">{{ i18n "searchButton" }}</button>
 </form>
