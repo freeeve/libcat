@@ -40,6 +40,18 @@ a runnable example of a real site built on it, alongside the `exampleSite/` in t
    them with `resources.Get` (not `.Site.Data`), so the corpus is not pinned in
    global site data.
 
+   **Custom fields (`extra`).** The adapter maps a fixed set of catalog fields into each
+   Work page's params. To surface adopter-specific fields (e.g. a cover URL, rating, or
+   read date) without shadowing the adapter, put them under a reserved `extra` object on a
+   Work in your projected `catalog.json`; they flow verbatim into the page's params
+   (`.Params.<field>`). The fixed set always wins, so `extra` can add keys but never
+   clobber a reserved one, and a Work without `extra` is unchanged (tasks/022):
+
+   ```jsonc
+   { "id": "w123", "title": "…",
+     "extra": { "cover": "https://…/w123.jpg", "rating": 5, "dateRead": "2026-01-15" } }
+   ```
+
 3. **Declare the facet taxonomies** in your site config. Hugo does **not** merge a
    module's `[taxonomies]`, so this block is required in the site (copy it verbatim):
 

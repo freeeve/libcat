@@ -38,24 +38,30 @@
       {{- with .labels -}}{{- $label = or (index . $lang) (index . "en") $label -}}{{- end -}}
       {{- $subjectSlugs = $subjectSlugs | append (partial "lcat-slug.html" $label) -}}
     {{- end -}}
+    {{- /* Adopter passthrough (tasks/022): fields under a Work's reserved `extra` object
+           flow verbatim into page params, so a site whose projection carries custom fields
+           (e.g. cover, rating, dateRead from Hardcover) surfaces them in templates without
+           shadowing this adapter. The fixed set below is merged last, so it always wins --
+           `extra` can add keys but never clobber a reserved one. No `extra` = unchanged. */ -}}
+    {{- $params := dict
+      "subtitle" .subtitle
+      "languages" .languages
+      "subjects" $subjectSlugs
+      "tags" $tagSlugs
+      "tagLabels" .tags
+      "formats" .formats
+      "contributors" $names
+      "classifications" .classifications
+      "contributorList" .contributors
+      "subjectList" .subjects
+      "instances" .instances
+      "workID" .id -}}
+    {{- with .extra -}}{{- $params = merge . $params -}}{{- end -}}
     {{- $.AddPage (dict
       "kind" "page"
       "path" .id
       "title" (or .title .id)
-      "params" (dict
-        "subtitle" .subtitle
-        "languages" .languages
-        "subjects" $subjectSlugs
-        "tags" $tagSlugs
-        "tagLabels" .tags
-        "formats" .formats
-        "contributors" $names
-        "classifications" .classifications
-        "contributorList" .contributors
-        "subjectList" .subjects
-        "instances" .instances
-        "workID" .id
-      )
+      "params" $params
     ) -}}
   {{- end -}}
 {{- else -}}
