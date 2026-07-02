@@ -5,10 +5,19 @@ import (
 	"testing"
 )
 
-// TestScanGrain recovers the Instance identity from a grain with distinct Work
-// and Instance ids and two typed identifiers.
+// TestScanGrain recovers Work and Instance identity from a grain with distinct
+// Work and Instance ids, a primary contribution + title + language (for the
+// cluster key), and two typed identifiers.
 func TestScanGrain(t *testing.T) {
-	grain := []byte(`<#i1Instance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:overdrive> .
+	grain := []byte(`<#w1Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:overdrive> .
+<#w1Work> <http://id.loc.gov/ontologies/bibframe/title> _:t <feed:overdrive> .
+<#w1Work> <http://id.loc.gov/ontologies/bibframe/language> <http://id.loc.gov/vocabulary/languages/eng> <feed:overdrive> .
+<#w1Work> <http://id.loc.gov/ontologies/bibframe/contribution> _:c <feed:overdrive> .
+_:t <http://id.loc.gov/ontologies/bibframe/mainTitle> "Herculine" <feed:overdrive> .
+_:c <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bflc/PrimaryContribution> <feed:overdrive> .
+_:c <http://id.loc.gov/ontologies/bibframe/agent> _:ag <feed:overdrive> .
+_:ag <http://www.w3.org/2000/01/rdf-schema#label> "Byron, Grace" <feed:overdrive> .
+<#i1Instance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:overdrive> .
 <#i1Instance> <http://id.loc.gov/ontologies/bibframe/instanceOf> <#w1Work> <feed:overdrive> .
 <#i1Instance> <http://id.loc.gov/ontologies/bibframe/identifiedBy> _:a <feed:overdrive> .
 <#i1Instance> <http://id.loc.gov/ontologies/bibframe/identifiedBy> _:b <feed:overdrive> .
@@ -18,19 +27,26 @@ _:b <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontolog
 _:b <http://www.w3.org/1999/02/22-rdf-syntax-ns#value> "od-42" <feed:overdrive> .
 `)
 
-	ids, err := ScanGrain(grain)
+	gi, err := ScanGrain(grain)
 	if err != nil {
 		t.Fatalf("ScanGrain: %v", err)
 	}
-	if len(ids) != 1 {
-		t.Fatalf("got %d identities, want 1", len(ids))
+	if len(gi.Works) != 1 {
+		t.Fatalf("got %d works, want 1", len(gi.Works))
 	}
-	got := ids[0]
-	if got.InstanceID != "i1" {
-		t.Errorf("InstanceID = %q, want i1", got.InstanceID)
+	if gi.Works[0].WorkID != "w1" {
+		t.Errorf("WorkID = %q, want w1", gi.Works[0].WorkID)
 	}
-	if got.WorkID != "w1" {
-		t.Errorf("WorkID = %q, want w1", got.WorkID)
+	if want := WorkKey("Byron, Grace", "Herculine", "eng"); gi.Works[0].ClusterKey != want {
+		t.Errorf("ClusterKey = %q, want %q", gi.Works[0].ClusterKey, want)
+	}
+
+	if len(gi.Instances) != 1 {
+		t.Fatalf("got %d instances, want 1", len(gi.Instances))
+	}
+	got := gi.Instances[0]
+	if got.InstanceID != "i1" || got.WorkID != "w1" {
+		t.Errorf("instance ids = %+v, want i1/w1", got)
 	}
 	want := []string{"id:od-42", "isbn:9780000000001"}
 	keys := append([]string(nil), got.ProviderKeys...)

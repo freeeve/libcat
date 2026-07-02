@@ -15,25 +15,26 @@ import (
 // constraints. The result is serialized by BIBFRAME.Graph, so it takes the same
 // graph shape as a record-derived BIBFRAME.
 func (it Item) BIBFRAME() *codexbf.BIBFRAME {
-	bib := &codexbf.BIBFRAME{}
+	return &codexbf.BIBFRAME{Work: it.Work(), Instance: it.Instance()}
+}
 
-	title := codexbf.Title{MainTitle: it.Title, Subtitle: it.Subtitle}
-
-	// Work: intellectual content -- content class, preferred title, agents,
-	// topical subjects, languages, and BISAC classification.
-	bib.Work.Class = workClass(it.Type.ID)
-	if title.MainTitle != "" {
-		bib.Work.Titles = append(bib.Work.Titles, title)
+// Work returns the item's Work-level BIBFRAME (intellectual content): content
+// class, preferred title, agents, topical subjects, languages, and BISAC
+// classification. When items cluster into one Work, this is the shared node.
+func (it Item) Work() codexbf.Work {
+	w := codexbf.Work{Class: workClass(it.Type.ID)}
+	if title := it.title(); title.MainTitle != "" {
+		w.Titles = append(w.Titles, title)
 	}
-	bib.Work.Contributions = it.bibContributions()
+	w.Contributions = it.bibContributions()
 	for _, s := range it.Subjects {
 		if s.Name != "" {
-			bib.Work.Subjects = append(bib.Work.Subjects, codexbf.Subject{Class: "Topic", Label: s.Name})
+			w.Subjects = append(w.Subjects, codexbf.Subject{Class: "Topic", Label: s.Name})
 		}
 	}
 	for _, l := range it.Languages {
 		if code := iso639_2(l.ID); code != "" {
-			bib.Work.Languages = append(bib.Work.Languages, code)
+			w.Languages = append(w.Languages, code)
 		}
 	}
 	// BISAC is a controlled classification. libcodex's Classification carries a
@@ -41,36 +42,43 @@ func (it Item) BIBFRAME() *codexbf.BIBFRAME {
 	// (see tasks/008); the code is retained -- which the MARC path dropped.
 	for _, b := range it.BISAC {
 		if b.Code != "" {
-			bib.Work.Classifications = append(bib.Work.Classifications,
+			w.Classifications = append(w.Classifications,
 				codexbf.Classification{Class: "Classification", Value: b.Code})
 		}
 	}
+	return w
+}
 
-	// Instance: this publication -- transcribed title, edition, provision, and
-	// identifiers (ISBNs, the OverDrive title id, and the Reserve ID).
-	if title.MainTitle != "" {
-		bib.Instance.Titles = append(bib.Instance.Titles, title)
+// Instance returns the item's Instance-level BIBFRAME (this publication):
+// transcribed title, edition, provision, and identifiers (ISBNs, the OverDrive
+// title id, and the Reserve ID). Each clustered item contributes one Instance.
+func (it Item) Instance() codexbf.Instance {
+	var inst codexbf.Instance
+	if title := it.title(); title.MainTitle != "" {
+		inst.Titles = append(inst.Titles, title)
 	}
-	bib.Instance.EditionStatement = it.Edition
+	inst.EditionStatement = it.Edition
 	if p := it.provisionBF(); p != nil {
-		bib.Instance.Provision = p
+		inst.Provision = p
 	}
 	for _, isbn := range it.ISBNs() {
-		bib.Instance.Identifiers = append(bib.Instance.Identifiers,
-			codexbf.Identifier{Class: "Isbn", Value: isbn})
+		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Isbn", Value: isbn})
 	}
 	// The OverDrive title id and Reserve ID are local identifiers. They land as
 	// bf:Identifier; the scheme that distinguishes them (overdrive vs the Thunder
 	// availability key) awaits libcodex Identifier source support (tasks/008).
 	if it.ID != "" {
-		bib.Instance.Identifiers = append(bib.Instance.Identifiers,
-			codexbf.Identifier{Class: "Identifier", Value: it.ID})
+		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Identifier", Value: it.ID})
 	}
 	if it.ReserveID != "" {
-		bib.Instance.Identifiers = append(bib.Instance.Identifiers,
-			codexbf.Identifier{Class: "Identifier", Value: it.ReserveID})
+		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Identifier", Value: it.ReserveID})
 	}
-	return bib
+	return inst
+}
+
+// title is the item's transcribed title, shared by the Work and each Instance.
+func (it Item) title() codexbf.Title {
+	return codexbf.Title{MainTitle: it.Title, Subtitle: it.Subtitle}
 }
 
 // WorkID returns a stable, IRI- and filesystem-safe id for the item, taken from

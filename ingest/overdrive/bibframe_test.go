@@ -92,17 +92,18 @@ func TestIdentityRoundTrip(t *testing.T) {
 	it := sampleItem()
 	grain := it.BIBFRAME().Graph(it.WorkID()).NQuads(rdf.NewIRI("feed:overdrive"))
 
-	ids, err := identity.ScanGrain(grain)
+	gi, err := identity.ScanGrain(grain)
 	if err != nil {
 		t.Fatalf("ScanGrain: %v", err)
 	}
-	if len(ids) != 1 {
-		t.Fatalf("recovered %d instances, want 1", len(ids))
+	if len(gi.Instances) != 1 {
+		t.Fatalf("recovered %d instances, want 1", len(gi.Instances))
 	}
-	scanned, ingest := toSet(ids[0].ProviderKeys), toSet(it.Identity().ProviderKeys)
+	inst := gi.Instances[0]
+	scanned, ingest := toSet(inst.ProviderKeys), toSet(it.Identity().ProviderKeys)
 	for k := range ingest {
 		if !scanned[k] {
-			t.Errorf("ingest key %q not recovered from grain (keys: %v)", k, ids[0].ProviderKeys)
+			t.Errorf("ingest key %q not recovered from grain (keys: %v)", k, inst.ProviderKeys)
 		}
 	}
 	for k := range scanned {
@@ -110,9 +111,14 @@ func TestIdentityRoundTrip(t *testing.T) {
 			t.Errorf("grain key %q not produced by ingest", k)
 		}
 	}
-	// A Phase 0 grain shares the base between Work and Instance.
-	if ids[0].InstanceID != it.WorkID() || ids[0].WorkID != it.WorkID() {
-		t.Errorf("ids = %+v, want both = %q", ids[0], it.WorkID())
+	// A single-item grain shares the base between Work and Instance.
+	if inst.InstanceID != it.WorkID() || inst.WorkID != it.WorkID() {
+		t.Errorf("ids = %+v, want both = %q", inst, it.WorkID())
+	}
+	// The recovered cluster key must match what ingest would compute.
+	rec := it.Identity()
+	if want := identity.WorkKey(rec.Author, rec.Title, rec.Lang); len(gi.Works) != 1 || gi.Works[0].ClusterKey != want {
+		t.Errorf("work cluster key = %+v, want %q", gi.Works, want)
 	}
 }
 
