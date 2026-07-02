@@ -50,6 +50,12 @@ func TestBIBFRAMECrosswalk(t *testing.T) {
 	if bib.Instance.EditionStatement != "Unabridged" {
 		t.Errorf("EditionStatement = %q", bib.Instance.EditionStatement)
 	}
+	// Format lives on the Instance (tasks/011): an audiobook carries RDA media "audio"
+	// and an online-resource carrier, so the projector can facet it independently of
+	// the (clustered) Work class.
+	if bib.Instance.Media != "audio" || bib.Instance.Carrier != "online resource" {
+		t.Errorf("Instance media/carrier = %q/%q, want audio/online resource", bib.Instance.Media, bib.Instance.Carrier)
+	}
 	if p := bib.Instance.Provision; p == nil || p.Publisher != "Simon & Schuster Audio" || p.Date != "2025" {
 		t.Errorf("Provision = %+v", p)
 	}
@@ -72,6 +78,7 @@ func TestBIBFRAMECrosswalk(t *testing.T) {
 	nq := string(bib.Graph(it.WorkID()).NQuads(rdf.NewIRI("feed:overdrive")))
 	for _, want := range []string{
 		"http://id.loc.gov/ontologies/bibframe/Audio",
+		"http://id.loc.gov/ontologies/bibframe/media", // per-Instance format (tasks/011)
 		"http://id.loc.gov/vocabulary/languages/eng",
 		"9781668128251",
 		"feed:overdrive",

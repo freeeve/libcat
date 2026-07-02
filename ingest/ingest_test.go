@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/freeeve/libcatalog/identity"
 	"github.com/freeeve/libcatalog/ingest"
 	"github.com/freeeve/libcatalog/ingest/overdrive"
-	"github.com/freeeve/libcatalog/identity"
 	codexbf "github.com/freeeve/libcodex/bibframe"
 )
 
@@ -55,8 +55,8 @@ type stubProvider struct {
 	recs []ingest.Record
 }
 
-func (p stubProvider) Name() string                                   { return p.feed }
-func (p stubProvider) Role() ingest.Role                              { return p.role }
+func (p stubProvider) Name() string                                     { return p.feed }
+func (p stubProvider) Role() ingest.Role                                { return p.role }
 func (p stubProvider) Records(context.Context) ([]ingest.Record, error) { return p.recs, nil }
 
 func stubFactory(recs []ingest.Record) ingest.Factory {

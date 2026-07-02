@@ -71,6 +71,12 @@ func (it Item) Instance() codexbf.Instance {
 		inst.Titles = append(inst.Titles, title)
 	}
 	inst.EditionStatement = it.Edition
+	// Format lives on the Instance, not just the Work content class (tasks/011): when
+	// an ebook and audiobook cluster into one Work, the Work class reflects only the
+	// first edition, so per-edition format must be an Instance property. Both are
+	// digital ("online resource" carrier); the RDA media type distinguishes them.
+	inst.Media = rdaMedia(it.Type.ID)
+	inst.Carrier = "online resource"
 	if p := it.provisionBF(); p != nil {
 		inst.Provision = p
 	}
@@ -188,12 +194,26 @@ func (it Item) provisionBF() *codexbf.Provision {
 
 // workClass maps an OverDrive media type to the BIBFRAME class refining bf:Work:
 // nonmusical audio for an audiobook, text otherwise. It mirrors libcodex's
-// leader-byte crosswalk ('i' -> Audio, 'a' -> Text).
+// leader-byte crosswalk ('i' -> Audio, 'a' -> Text). The Work class is retained for
+// single-format Works, but the projector's format facet reads the Instance media
+// type (rdaMedia) so a clustered mixed-format Work exposes each edition's format
+// (tasks/011).
 func workClass(typeID string) string {
 	if typeID == "audiobook" {
 		return "Audio"
 	}
 	return "Text"
+}
+
+// rdaMedia maps an OverDrive media type to the RDA media term for bf:media: "audio"
+// for an audiobook, "computer" for an ebook. This is the per-Instance discriminant
+// the projector maps to a discovery format (audiobook vs ebook), so format survives
+// edition clustering (tasks/011).
+func rdaMedia(typeID string) string {
+	if typeID == "audiobook" {
+		return "audio"
+	}
+	return "computer"
 }
 
 // sanitizeID keeps the characters valid in an IRI fragment and a filename,

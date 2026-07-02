@@ -38,6 +38,9 @@ _:id2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontol
 _:id2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#value> "11682058" <feed:overdrive> .
 _:id2 <http://id.loc.gov/ontologies/bibframe/source> _:src2 <feed:overdrive> .
 _:src2 <http://www.w3.org/2000/01/rdf-schema#label> "overdrive" <feed:overdrive> .
+<#i1Instance> <http://id.loc.gov/ontologies/bibframe/media> _:m1 <feed:overdrive> .
+_:m1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Media> <feed:overdrive> .
+_:m1 <http://www.w3.org/2000/01/rdf-schema#label> "computer" <feed:overdrive> .
 <https://homosaurus.org/v3/homoit0000669> <http://www.w3.org/2004/02/skos/core#prefLabel> "Transgender people"@en <authority:homosaurus> .
 <https://homosaurus.org/v3/homoit0000669> <http://www.w3.org/2004/02/skos/core#prefLabel> "Personas trans"@es <authority:homosaurus> .
 `
@@ -87,9 +90,56 @@ func TestProject(t *testing.T) {
 		t.Fatalf("got %d instances, want 1", len(w.Instances))
 	}
 	inst := w.Instances[0]
-	if inst.ID != "i1" || !reflect.DeepEqual(inst.ISBNs, []string{"9781668128251"}) ||
+	if inst.ID != "i1" || inst.Format != "ebook" || !reflect.DeepEqual(inst.ISBNs, []string{"9781668128251"}) ||
 		!reflect.DeepEqual(inst.ProviderIDs, []ProviderID{{Source: "overdrive", Value: "11682058"}}) {
 		t.Errorf("instance = %+v", inst)
+	}
+	// The Instance's RDA media type "computer" projects to the ebook format, and the
+	// Work's formats facet is the union of its Instances' formats (tasks/011).
+	if !reflect.DeepEqual(w.Formats, []string{"ebook"}) {
+		t.Errorf("formats = %v, want [ebook]", w.Formats)
+	}
+}
+
+// clusteredFormats is one Work with two Instances -- an ebook (media "computer") and
+// an audiobook (media "audio") -- the edition-clustering case tasks/011 targets.
+const clusteredFormats = `<#w9Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:overdrive> .
+<#w9Work> <http://id.loc.gov/ontologies/bibframe/hasInstance> <#i9aInstance> <feed:overdrive> .
+<#w9Work> <http://id.loc.gov/ontologies/bibframe/hasInstance> <#i9bInstance> <feed:overdrive> .
+<#i9aInstance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:overdrive> .
+<#i9aInstance> <http://id.loc.gov/ontologies/bibframe/media> _:ma <feed:overdrive> .
+_:ma <http://www.w3.org/2000/01/rdf-schema#label> "computer" <feed:overdrive> .
+<#i9bInstance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:overdrive> .
+<#i9bInstance> <http://id.loc.gov/ontologies/bibframe/media> _:mb <feed:overdrive> .
+_:mb <http://www.w3.org/2000/01/rdf-schema#label> "audio" <feed:overdrive> .
+`
+
+// TestClusteredFormats is the tasks/011 acceptance: a clustered ebook+audiobook Work
+// exposes both formats via its Instances, and both appear in the Work-level union and
+// the formats facet.
+func TestClusteredFormats(t *testing.T) {
+	cat, err := Project([]byte(clusteredFormats), "overdrive")
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(cat.Works) != 1 {
+		t.Fatalf("got %d works, want 1", len(cat.Works))
+	}
+	w := cat.Works[0]
+	byID := map[string]string{}
+	for _, inst := range w.Instances {
+		byID[inst.ID] = inst.Format
+	}
+	if byID["i9a"] != "ebook" || byID["i9b"] != "audiobook" {
+		t.Errorf("instance formats = %+v, want i9a=ebook i9b=audiobook", byID)
+	}
+	// Union is sorted: audiobook before ebook.
+	if !reflect.DeepEqual(w.Formats, []string{"audiobook", "ebook"}) {
+		t.Errorf("work formats = %v, want [audiobook ebook]", w.Formats)
+	}
+	f := cat.Facets()
+	if !reflect.DeepEqual(f.Formats, []FacetValue{{Value: "audiobook", Count: 1}, {Value: "ebook", Count: 1}}) {
+		t.Errorf("format facet = %+v", f.Formats)
 	}
 }
 
@@ -155,6 +205,9 @@ func TestFacets(t *testing.T) {
 	}
 	if !reflect.DeepEqual(f.Tags, []FacetValue{{Value: "Fiction", Count: 1}}) {
 		t.Errorf("tag facet = %+v, want [{Fiction 1}]", f.Tags)
+	}
+	if !reflect.DeepEqual(f.Formats, []FacetValue{{Value: "ebook", Count: 1}}) {
+		t.Errorf("format facet = %+v, want [{ebook 1}]", f.Formats)
 	}
 }
 

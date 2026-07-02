@@ -33,6 +33,8 @@ const (
 	pClassPortion = bfNS + "classificationPortion"
 	pHasInstance  = bfNS + "hasInstance"
 	pIdentifiedBy = bfNS + "identifiedBy"
+	pMedia        = bfNS + "media"
+	pCarrier      = bfNS + "carrier"
 	pSource       = bfNS + "source"
 	classIsbn     = bfNS + "Isbn"
 	pLabel        = rdfsNS + "label"
@@ -45,8 +47,10 @@ const (
 // The Hugo module and search-index builder read it to detect a projector/consumer
 // mismatch. v2 added the per-Instance identifier scheme (ProviderID.Source) for the
 // availability adapter (tasks/004/008). v3 split controlled subjects (authority
-// URIs + resolved labels) from uncontrolled feed tags (tasks/012).
-const SchemaVersion = 3
+// URIs + resolved labels) from uncontrolled feed tags (tasks/012). v4 added
+// per-Instance format (from the Instance's RDA media type) and the Work-level
+// formats facet, so a clustered mixed-format Work exposes each format (tasks/011).
+const SchemaVersion = 4
 
 // Catalog is the projected corpus: one record per Work, sorted by id.
 type Catalog struct {
@@ -65,7 +69,10 @@ type Work struct {
 	Tags            []string      `json:"tags,omitempty"`
 	Languages       []string      `json:"languages,omitempty"`
 	Classifications []string      `json:"classifications,omitempty"`
-	Instances       []Instance    `json:"instances,omitempty"`
+	// Formats is the union of the Work's Instances' formats (e.g. ebook, audiobook),
+	// so a clustered mixed-format Work is faceted under each format it offers.
+	Formats   []string   `json:"formats,omitempty"`
+	Instances []Instance `json:"instances,omitempty"`
 }
 
 // Contributor is an agent's display name and role.
@@ -84,10 +91,11 @@ type Subject struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// Instance is one edition/format: its id, ISBNs, and the scheme-tagged provider
-// ids the runtime availability adapter keys on.
+// Instance is one edition/format: its id, format (from its RDA media type), ISBNs,
+// and the scheme-tagged provider ids the runtime availability adapter keys on.
 type Instance struct {
 	ID          string       `json:"id"`
+	Format      string       `json:"format,omitempty"`
 	ISBNs       []string     `json:"isbns,omitempty"`
 	ProviderIDs []ProviderID `json:"providerIds,omitempty"`
 }
@@ -109,6 +117,7 @@ type Facets struct {
 	Languages       []FacetValue   `json:"languages,omitempty"`
 	Subjects        []SubjectFacet `json:"subjects,omitempty"`
 	Tags            []FacetValue   `json:"tags,omitempty"`
+	Formats         []FacetValue   `json:"formats,omitempty"`
 	Contributors    []FacetValue   `json:"contributors,omitempty"`
 	Classifications []FacetValue   `json:"classifications,omitempty"`
 }
@@ -133,10 +142,12 @@ type SubjectFacet struct {
 // the output is deterministic.
 func (c *Catalog) Facets() Facets {
 	lang, tag, contrib, cls := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
+	fmts := map[string]int{}
 	subj := map[string]*SubjectFacet{}
 	for _, w := range c.Works {
 		countDistinct(lang, w.Languages)
 		countDistinct(tag, w.Tags)
+		countDistinct(fmts, w.Formats)
 		countDistinct(cls, w.Classifications)
 		names := make([]string, len(w.Contributors))
 		for i, con := range w.Contributors {
@@ -162,6 +173,7 @@ func (c *Catalog) Facets() Facets {
 		Languages:       facetValues(lang),
 		Subjects:        subjectFacets(subj),
 		Tags:            facetValues(tag),
+		Formats:         facetValues(fmts),
 		Contributors:    facetValues(contrib),
 		Classifications: facetValues(cls),
 	}
@@ -321,7 +333,20 @@ func (p *projector) work(w rdf.Term) Work {
 	wk.Languages = p.languages(w)
 	wk.Classifications = p.classifications(w)
 	wk.Instances = p.instances(w)
+	wk.Formats = formatUnion(wk.Instances)
 	return wk
+}
+
+// formatUnion is the deduped, sorted set of the Work's Instances' formats -- the
+// Work-level formats facet. A clustered ebook+audiobook yields both (tasks/011).
+func formatUnion(insts []Instance) []string {
+	set := map[string]bool{}
+	for _, i := range insts {
+		if i.Format != "" {
+			set[i.Format] = true
+		}
+	}
+	return sortedKeys(set)
 }
 
 // contributors returns the Work's agents, primary contributions first (as a MARC
@@ -468,7 +493,7 @@ func (p *projector) classifications(w rdf.Term) []string {
 func (p *projector) instances(w rdf.Term) []Instance {
 	var out []Instance
 	for _, inst := range p.feed.Objects(w, pHasInstance) {
-		i := Instance{ID: fragID(inst.Value, "Instance")}
+		i := Instance{ID: fragID(inst.Value, "Instance"), Format: p.instanceFormat(inst)}
 		var isbns []string
 		var pids []ProviderID
 		for _, id := range p.feed.Objects(inst, pIdentifiedBy) {
@@ -503,6 +528,53 @@ func (p *projector) identifierSource(id rdf.Term) string {
 		if label, ok := p.feed.Literal(src, pLabel); ok {
 			return label
 		}
+	}
+	return ""
+}
+
+// instanceFormat reads the Instance's RDA media type (bf:media -> a bf:Media with an
+// rdfs:label) and maps it to a discovery format. It falls back to the carrier label
+// when no media is present, and to "" when neither is (format omitted).
+func (p *projector) instanceFormat(inst rdf.Term) string {
+	if m, ok := p.feed.Object(inst, pMedia); ok {
+		if label, ok := p.feed.Literal(m, pLabel); ok && label != "" {
+			return formatFromRDA(label)
+		}
+	}
+	if c, ok := p.feed.Object(inst, pCarrier); ok {
+		if label, ok := p.feed.Literal(c, pLabel); ok {
+			return formatFromCarrier(label)
+		}
+	}
+	return ""
+}
+
+// formatFromRDA maps an RDA media type (bf:media) to a discovery format token. The
+// mapping is general RDA, not provider-specific: any provider emitting bf:media
+// benefits. Digital ebooks and audiobooks share the "online resource" carrier, so
+// the media type is what distinguishes them. An unrecognized media type passes
+// through so nothing is silently dropped.
+func formatFromRDA(media string) string {
+	switch media {
+	case "audio":
+		return "audiobook"
+	case "computer":
+		return "ebook"
+	case "video":
+		return "video"
+	case "unmediated":
+		return "print"
+	default:
+		return media
+	}
+}
+
+// formatFromCarrier is the fallback when an Instance carries no media type: a coarse
+// carrier -> format guess. "online resource" alone cannot tell ebook from audiobook,
+// so it yields "" rather than mislabel; "volume" is print.
+func formatFromCarrier(carrier string) string {
+	if carrier == "volume" {
+		return "print"
 	}
 	return ""
 }
