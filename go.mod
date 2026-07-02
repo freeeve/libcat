@@ -17,8 +17,4 @@ require (
 	github.com/mschoch/smat v0.2.0 // indirect
 )
 
-// Local replaces while libcodex/roaringrange and libcatalog are co-developed;
-// drop once consuming a published tag.
-replace github.com/freeeve/libcodex => ../libcodex
-
 replace github.com/freeeve/roaringrange => ../roaringrange

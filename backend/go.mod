@@ -46,5 +46,3 @@ require (
 )
 
 replace github.com/freeeve/libcatalog => ../
-
-replace github.com/freeeve/libcodex => ../../libcodex
