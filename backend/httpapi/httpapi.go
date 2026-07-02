@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -20,12 +21,22 @@ type Deps struct {
 	// Blob is the grain store. Record and export handlers (later tasks)
 	// read and publish through it.
 	Blob blob.Store
+	// Verifier authenticates staff bearer tokens (an auth.Multi when both
+	// SSO and local users are configured). nil leaves staff routes
+	// unregistered.
+	Verifier auth.TokenVerifier
+	// AuthExchange, when set, serves POST /v1/auth/exchange -- the OIDC
+	// PKCE token-exchange proxy for SPA logins against an external issuer.
+	AuthExchange http.Handler
 }
 
 // New assembles the routed, middleware-wrapped API handler.
 func New(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/healthz", handleHealthz)
+	if deps.AuthExchange != nil {
+		mux.Handle("POST /v1/auth/exchange", deps.AuthExchange)
+	}
 	return wrap(mux, deps.Logger)
 }
 
