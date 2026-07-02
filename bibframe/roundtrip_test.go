@@ -27,21 +27,24 @@ var marcExpressSamples = []string{
 // carries them: the identifiers, primary/added agents, title, publication, extent,
 // carrier, summary, subjects, genre, and access link an adopter judges fidelity by.
 var coreFields = []string{
-	"001", "020", "100", "245", "250", "260", "300", "337", "338",
-	"520", "650", "655", "700", "856",
+	"001", "008", "020", "100", "245", "250", "260", "300", "336", "337",
+	"338", "500", "520", "650", "655", "700", "856",
 }
 
 // knownLostFields are the tags that do NOT survive the round-trip, measured and
-// explained in docs/marc-fidelity.md. Coded/fixed fields (006/007/008), the
-// cataloging-source and acquisition fields (037/040), BISAC-in-084, content type
-// (336), the extra carrier detail (306/347), series (490), notes (500/511/521/533/
-// 538), and the linking entry (776). A round-trip that loses anything NOT in this
-// set is an unexplained regression; update the doc and this set together when the
-// crosswalk changes.
+// explained in docs/marc-fidelity.md. The remaining coded/fixed fields (006/007),
+// the cataloging-source and acquisition fields (037/040), BISAC-in-084, the extra
+// carrier detail (306/347), series (490), the specialized notes (511/521/533/538
+// -- their content may survive as bf:Note but does not reconstruct its original
+// tag), and the linking entry (776). libcodex v0.9.0 moved 008, 336, and 500 from
+// this set into coreFields (tasks/053). A round-trip that loses anything NOT in
+// this set is an unexplained regression -- and a field listed here that survives
+// is a stale table (TestMARCRoundTripLossTableCurrent); update the doc and this
+// set together when the crosswalk changes.
 var knownLostFields = map[string]bool{
-	"006": true, "007": true, "008": true, "037": true, "040": true,
-	"084": true, "306": true, "336": true, "347": true, "490": true,
-	"500": true, "511": true, "521": true, "533": true, "538": true, "776": true,
+	"006": true, "007": true, "037": true, "040": true,
+	"084": true, "306": true, "347": true, "490": true,
+	"511": true, "521": true, "533": true, "538": true, "776": true,
 }
 
 // roundTripTags round-trips every record in a sample and returns how many times each
@@ -103,6 +106,29 @@ func TestMARCRoundTripNoUndocumentedLoss(t *testing.T) {
 			if out[tag] == 0 && !knownLostFields[tag] {
 				t.Errorf("%s: field %s lost by round-trip but not in the known-loss table (docs/marc-fidelity.md); measure and document it", sample, tag)
 			}
+		}
+	}
+}
+
+// TestMARCRoundTripLossTableCurrent is the reverse gate: a field listed as
+// known-lost that actually survives on every sample means the crosswalk
+// improved and the table (and docs/marc-fidelity.md) is overdue for a
+// re-measure -- the loss contract must stay honest in both directions.
+func TestMARCRoundTripLossTableCurrent(t *testing.T) {
+	stillLost := map[string]bool{}
+	present := map[string]bool{}
+	for _, sample := range marcExpressSamples {
+		in, out := roundTripTags(t, sample)
+		for tag := range in {
+			present[tag] = true
+			if out[tag] == 0 {
+				stillLost[tag] = true
+			}
+		}
+	}
+	for tag := range knownLostFields {
+		if present[tag] && !stillLost[tag] {
+			t.Errorf("field %s is listed as known-lost but now survives the round-trip; move it to coreFields and update docs/marc-fidelity.md", tag)
 		}
 	}
 }

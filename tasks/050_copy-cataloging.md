@@ -3,16 +3,28 @@
 ## Context
 
 Koha's Z39.50/SRU copy cataloging and staged-import workflow. The protocol
-clients live in libcodex, not here. **SRU shipped in libcodex v0.9.0**:
-`sru.NewClient(baseURL)` (configurable version/schema/maxRecords),
-`Client.SearchRetrieve(ctx, sru.Request{Query, StartRecord, MaximumRecords})`
--> `Response{Records, NumberOfRecords}` with `Record.Decode() (*codex.Record,
-error)` (MARCXML handled internally), a streaming `Client.NewReader(ctx,
-query)` implementing `codex.RecordReader` with `All() iter.Seq2`, and
-`sru.Quote` for CQL terms. Z39.50 is tracked upstream (libcodex tasks/075,
-YAZ as an external test oracle -- not cgo); the external-search half here can
-proceed on SRU now (needs the libcodex v0.9.0 bump, tasks/053). The staged
-file-import half (.mrc upload) is independent of both.
+clients live in libcodex, not here -- and **both have now shipped**, so this
+task is fully unblocked once tasks/053 bumps the dependency.
+
+**SRU (libcodex v0.9.0)**: `sru.NewClient(baseURL)` (configurable
+version/schema/maxRecords), `Client.SearchRetrieve(ctx, sru.Request{Query,
+StartRecord, MaximumRecords})` -> `Response{Records, NumberOfRecords}` with
+`Record.Decode() (*codex.Record, error)` (MARCXML handled internally), a
+streaming `Client.NewReader(ctx, query)` implementing `codex.RecordReader`
+with `All() iter.Seq2`, and `sru.Quote` for CQL terms.
+
+**Z39.50 (libcodex v0.10.0, pure Go -- no YAZ/cgo)**: `z3950.NewClient
+(target)` -> `Connect(ctx) (*Conn)` -> `Conn.Search(ctx, Query)` /
+`Present(ctx, start, count)`; `Record.Decode() (*codex.Record, error)`;
+streaming `Client.NewReader(ctx, q)` mirroring the SRU reader; composable
+bib-1 queries (`z3950.Term(index, term)`, `And/Or/AndNot`, modifiers
+`.Phrase()/.Word()/.Truncated()/.Exact()`); idPass/open auth in Initialize.
+The plan's YAZ-gateway-container escape hatch is now moot -- delete that
+language from the design when implementing; targets config gains a
+`protocol: sru|z3950` field and both routes converge on `*codex.Record ->
+FromRecord -> editor draft`.
+
+The staged file-import half (.mrc upload) remains independent of both.
 
 ## Scope
 

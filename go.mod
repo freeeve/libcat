@@ -1,10 +1,10 @@
 module github.com/freeeve/libcatalog
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/RoaringBitmap/roaring/v2 v2.14.4
-	github.com/freeeve/libcodex v0.8.0
+	github.com/freeeve/libcodex v0.10.0
 	github.com/freeeve/roaringrange v0.27.0
 )
 

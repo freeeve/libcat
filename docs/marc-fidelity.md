@@ -32,13 +32,15 @@ changes.
 | Tag | Field | Notes |
 |-----|-------|-------|
 | 001 | Control number | |
+| 008 | Fixed-length data elements | since libcodex v0.9.0 -- reconstructed from typed properties (tasks/053) |
 | 020 | ISBN | qualifier text (e.g. `(electronic bk)`) rides in the value |
 | 100 / 700 | Primary / added agent | 700 present on the audiobook sample |
 | 245 | Title statement | |
 | 250 | Edition statement | audiobook sample |
 | 260 | Publication (AACR2) | |
 | 300 | Physical description / extent | |
-| 337 / 338 | Media / carrier type | 337 partially collapses on multi-337 records |
+| 336 / 337 / 338 | Content / media / carrier type | 336 kept since libcodex v0.9.0; 337 partially collapses on multi-337 records |
+| 500 | General note | since libcodex v0.9.0 (5XX -> bf:Note) |
 | 520 | Summary | |
 | 650 | Topical subject | |
 | 655 | Genre/form | |
@@ -51,15 +53,14 @@ subjects, genre, and access link -- the fields discovery is built on.
 
 | Tag | Field | Why it is lost / where it lives instead |
 |-----|-------|------------------------------------------|
-| 006 / 007 / 008 | Fixed-length coded elements | BIBFRAME models these as typed properties, not the packed coded form; some (e.g. language) re-emerge as **041**, see below |
+| 006 / 007 | Fixed-length coded elements (additional/physical) | BIBFRAME models these as typed properties, not the packed coded form; some (e.g. language) re-emerge as **041**, see below. 008 reconstructs since libcodex v0.9.0 |
 | 037 | Source of acquisition / **Reserve ID** | **the OverDrive availability key** -- lost via MARC, but the *direct* JSON→BIBFRAME path keeps it as a `bf:source`-tagged identifier (`tasks/008`) |
 | 040 | Cataloging source | provenance is modeled as named graphs, not a 040 |
 | 084 | Other classification (**BISAC** in MARC Express) | **lost via MARC**; the direct path keeps BISAC as a `bf:Classification` with `bf:source "bisacsh"` (libcodex reads BISAC from 072, not 084) |
 | 306 | Playing time | audiobook |
-| 336 | Content type | 337/338 survive; 336 does not |
 | 347 | Digital file characteristics | audiobook |
 | 490 | Series statement | |
-| 500 / 511 / 521 / 533 / 538 | Notes (general / participant / audience / reproduction / system details) | 520 summary survives; other notes do not |
+| 511 / 521 / 533 / 538 | Specialized notes (participant / audience / reproduction / system details) | content may survive as a generic bf:Note but does not reconstruct its original tag; 500 and 520 survive |
 | 776 | Additional physical form entry | |
 
 ### Relocated, not lost

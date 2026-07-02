@@ -1,18 +1,20 @@
-# 053 -- libcodex v0.9.0 bump (SRU client + crosswalk gains)
+# 053 -- libcodex v0.10.0 bump (SRU + Z39.50 clients, crosswalk gains)
 
 ## Context
 
-libcodex tagged v0.9.0 (local sibling HEAD, `replace ../libcodex` active):
-the SRU searchRetrieve client (unblocks tasks/050 external search), plus
-crosswalk improvements that change what survives MARC round-trips -- 5XX note
-family -> `bf:Note`, 76X-78X linking entries -> `bf:relation`, title
-completeness (nonSortNum, uniform parts, 246). Same shape as the v0.7.0 bump
-(tasks/013): move the require line, verify no grain drift OR characterize it,
-and re-measure fidelity.
+libcodex has moved v0.8.0 -> v0.10.0 (local sibling HEAD, `replace
+../libcodex` active). v0.9.0 brought the SRU client plus crosswalk
+improvements that change what survives MARC round-trips -- 5XX note family ->
+`bf:Note`, 76X-78X linking entries -> `bf:relation`, title completeness
+(nonSortNum, uniform parts, 246). v0.10.0 adds the pure-Go `z3950` package
+(no crosswalk changes v0.9->v0.10). Together they fully unblock tasks/050.
+Same shape as the v0.7.0 bump (tasks/013): move the require line, verify no
+grain drift OR characterize it, and re-measure fidelity.
 
 ## Scope
 
-1. go.mod v0.8.0 -> v0.9.0 (keep the local replace).
+1. go.mod v0.8.0 -> v0.10.0 in both modules (core + backend; keep the local
+   replaces).
 2. Re-run the corpus: fresh ingest, re-ingest no-churn gate, serialize/
    project/index -- characterize any grain changes from the new crosswalk
    triples (new bf:Note/bf:relation quads are *expected* on the MARC provider
