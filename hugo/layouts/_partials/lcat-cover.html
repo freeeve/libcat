@@ -1,0 +1,21 @@
+{{- /*
+  Optional cover-art slot (tasks/025). Renders a Work's cover image when the catalog
+  carries one (via the adapter `extra.cover` passthrough, tasks/022), else a graceful
+  lettered placeholder from the title's first character. Gated by the caller on
+  `[params] covers = true`, so a catalog without cover art is unchanged by default.
+
+  Call with a dict: {"url": <cover url>, "title": <work title>, "variant": "card"|"detail"}.
+  alt is empty because the adjacent title already names the Work (decorative image,
+  WCAG H67) -- avoids a redundant screen-reader announcement; the placeholder is hidden
+  from assistive tech for the same reason.
+*/ -}}
+{{- $url := .url -}}
+{{- $title := .title | default "" -}}
+{{- $variant := .variant | default "card" -}}
+{{- $cls := printf "lcat-cover lcat-cover--%s" $variant -}}
+{{- if $url -}}
+<img class="{{ $cls }}" src="{{ $url }}" alt="" loading="lazy" width="200" height="300">
+{{- else -}}
+{{- $letter := "?" -}}{{- with $title -}}{{- $letter = substr . 0 1 | upper -}}{{- end -}}
+<span class="{{ $cls }} lcat-cover--placeholder" aria-hidden="true">{{ $letter }}</span>
+{{- end -}}

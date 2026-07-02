@@ -225,6 +225,37 @@ excluded from the automated run (jsdom has no layout) -- verify it in a real bro
 (see "Search"). Like the a11y audit, it is optional post-build tooling -- Hugo never
 consumes it.
 
+## Theming
+
+The default theme is desktop-credible out of the box and **token-driven**, so the usual
+way to re-brand is to re-set the `--lcat-*` custom properties in your own stylesheet
+(loaded after the module's `lcat.css`) -- every component re-themes from them, with no CSS
+fork (tasks/025):
+
+| Token | Role |
+| --- | --- |
+| `--lcat-fg` / `--lcat-bg` | body ink / page background |
+| `--lcat-accent` | links, buttons, active states (keep >=4.5:1 on `--lcat-bg`) |
+| `--lcat-accent-ink` | darker accent for headings / large text |
+| `--lcat-muted` | secondary text, counts |
+| `--lcat-border` | hairlines, card/panel borders |
+| `--lcat-surface` / `--lcat-surface-alt` | raised cards & facet panel / chips & subtle fills |
+| `--lcat-radius`, `--lcat-shadow` | corner radius, elevation |
+| `--lcat-gap`, `--lcat-maxw` | layout column gap, max content measure |
+
+```css
+/* your-site/assets/site.css, loaded after lcat.css */
+:root { --lcat-accent: #115c52; --lcat-bg: #fbf9f4; --lcat-maxw: 72rem; }
+```
+
+### Cover art (optional)
+
+Set `[params] covers = true` and result cards + Work detail pages render a cover slot from
+each Work's `cover` param -- supply it via the adapter `extra` passthrough (see "Provide the
+projected data") as an `https://` image URL. A Work without a cover shows a graceful lettered
+placeholder in the list. Covers are **off by default**, so a catalog without cover art is
+unchanged.
+
 ## Overriding
 
 Everything is a plain template or asset, so a site or theme layers cleanly on top:

@@ -6,6 +6,7 @@
        unless the site sets [params.search] engine = "pagefind" and runs the index
        step; the attributes are harmless otherwise. */ -}}
 <article class="lcat-work" data-pagefind-body>
+  {{- if and site.Params.covers .Params.cover }}{{ partial "lcat-cover.html" (dict "url" .Params.cover "title" .Title "variant" "detail") }}{{ end }}
   <h1 data-pagefind-meta="title">{{ .Title }}{{ with .Params.subtitle }} <span class="lcat-subtitle">{{ . }}</span>{{ end }}</h1>
 
   {{ with .Params.contributorList }}

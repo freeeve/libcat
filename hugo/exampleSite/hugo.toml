@@ -23,6 +23,13 @@ defaultContentLanguage = "en"
 [pagination]
   pagerSize = 10
 
+# Cover art (tasks/025): opt in and the result cards + Work detail pages render a cover
+# slot from each Work's `extra.cover` (forwarded to page params, tasks/022), falling back
+# to a lettered placeholder when a Work has no cover. Off by default; this reference turns
+# it on to show the slot (most works here have no cover, so they show the placeholder).
+[params]
+  covers = true
+
 # Search engine (tasks/017). "pagefind" swaps the header search box to the Pagefind
 # Component UI -- real ranked, per-language, CJK-capable full-text over the built
 # HTML. It needs one post-build step (`npm run search:index`, run after `hugo`).
