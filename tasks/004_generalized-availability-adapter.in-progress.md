@@ -83,7 +83,9 @@ for Tier 1 or a Tier 2 add-on.
 - [ ] One physical-ILS adapter renders `locations[]` through the proxy.
 - [x] A results page issues one batched call per provider, caches within TTL, and
   never blocks render on a failed fetch.
-- [ ] Published feasibility matrix covering at least OverDrive + one physical ILS.
+- [x] Published feasibility matrix covering at least OverDrive + one physical ILS.
+  See `docs/availability-providers.md` (OverDrive/Thunder verified; DAIA/ILS-DI physical
+  ILS; digital vendors reasoned + flagged for per-deployment CORS/auth verification).
 
 ## Delivered -- OverDrive reference adapter (commit `45f5acd`)
 
@@ -123,6 +125,16 @@ availability via both transports produces `deepEqual` models, to different URLs)
 Config: `[params.availability.overdrive] transport = "proxied", proxyUrl = "..."`.
 Proxy contract documented in `hugo/README.md` (## Direct vs proxied transport);
 exampleSite carries the commented option. 17 availability tests pass.
+
+## Delivered -- provider feasibility matrix (commit pending)
+
+`docs/availability-providers.md` publishes the per-provider transport/auth/batch/CORS
+matrix with confidence markers: OverDrive/Thunder verified (unauth, `<=25` batch, real
+endpoint) with CORS flagged for per-origin checking; DAIA and ILS-DI/PAIA physical ILS
+(proxied, scoped-token, `locations[]`); hoopla / Boundless(Axis 360) / cloudLibrary
+reasoned as proxied patron-authed. It documents how the transport choice flows to the
+adapter and the digital-vs-physical superset. Satisfies acceptance item 4 (OverDrive +
+one physical ILS); the digital-vendor cells are marked for per-deployment verification.
 
 ## Remaining (deferred)
 
