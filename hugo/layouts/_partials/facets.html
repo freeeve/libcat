@@ -17,7 +17,7 @@
     <ul>
       {{- range first 20 . }}
       {{- $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
-      <li><a href="{{ printf "/subjects/%s/" (urlize $label) | relURL }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ .count }}</span></a></li>
+      <li><a href="{{ printf "/subjects/%s/" (partial "lcat-slug.html" $label | urlize) | relLangURL }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ .count }}</span></a></li>
       {{- end }}
     </ul>
   </details>
@@ -36,7 +36,7 @@
       <summary>{{ $dim.label }} <span class="lcat-facet-total">{{ len . }}</span></summary>
       <ul>
         {{- range first 20 . }}
-        <li><a href="{{ printf "/%s/%s/" $dim.key (urlize .value) | relURL }}"><span class="lcat-facet-value">{{ .value }}</span> <span class="lcat-count">{{ .count }}</span></a></li>
+        <li><a href="{{ printf "/%s/%s/" $dim.key (partial "lcat-slug.html" .value | urlize) | relLangURL }}"><span class="lcat-facet-value">{{ .value }}</span> <span class="lcat-count">{{ .count }}</span></a></li>
         {{- end }}
       </ul>
     </details>

@@ -197,7 +197,11 @@ cd exampleSite && hugo --destination public
 cd .. && npm install && npm run test:a11y   # audits every built page, exits non-zero on a violation
 ```
 
-`npm run test:js` runs the availability adapter's unit tests. `color-contrast` is
+`npm run test:js` runs the availability adapter's unit tests. `npm run test:links`
+walks the built site and asserts every internal facet/term/work link resolves to a
+generated page -- guarding the URL-safe facet slugs (facet and term links are slugified
+through one shared function so a subject/tag label with `+`, `/`, etc. never 404s on a
+CDN that mis-decodes those in a path; tasks/023). `color-contrast` is
 excluded from the automated run (jsdom has no layout) -- verify it in a real browser
 (Lighthouse / axe DevTools), and re-check contrast whenever you override `assets/lcat.css`.
 

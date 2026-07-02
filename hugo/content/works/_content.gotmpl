@@ -25,14 +25,18 @@
   {{- range $data.works -}}
     {{- $names := slice -}}
     {{- range .contributors -}}{{- $names = $names | append .name -}}{{- end -}}
-    {{- /* Controlled subjects taxonomy-index by their localized label (v3): pick
-           labels[siteLang], else labels.en, else the URI. Full subject objects
-           (URI + labels) are kept in subjectList for the detail page. */ -}}
-    {{- $subjectLabels := slice -}}
+    {{- /* Free-text subjects and tags can carry characters `urlize` leaves unsafe in a
+           URL path (`+`, `/`, ...), which a CDN mis-decodes into a 404. Taxonomy-index
+           them by a URL-safe slug (the shared lcat-slug partial, tasks/023) so the term
+           page Hugo mints matches the facet links, which slug identically. Human labels
+           are preserved for display: subjectList (detail page) and tagLabels (tags). */ -}}
+    {{- $tagSlugs := slice -}}
+    {{- range .tags -}}{{- $tagSlugs = $tagSlugs | append (partial "lcat-slug.html" .) -}}{{- end -}}
+    {{- $subjectSlugs := slice -}}
     {{- range .subjects -}}
       {{- $label := .id -}}
       {{- with .labels -}}{{- $label = or (index . $lang) (index . "en") $label -}}{{- end -}}
-      {{- $subjectLabels = $subjectLabels | append $label -}}
+      {{- $subjectSlugs = $subjectSlugs | append (partial "lcat-slug.html" $label) -}}
     {{- end -}}
     {{- $.AddPage (dict
       "kind" "page"
@@ -41,8 +45,9 @@
       "params" (dict
         "subtitle" .subtitle
         "languages" .languages
-        "subjects" $subjectLabels
-        "tags" .tags
+        "subjects" $subjectSlugs
+        "tags" $tagSlugs
+        "tagLabels" .tags
         "formats" .formats
         "contributors" $names
         "classifications" .classifications

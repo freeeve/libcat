@@ -21,7 +21,7 @@
       {{ range . }}
         {{ $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
         {{/* Facet by label; the subject's canonical link is its authority URI. */}}
-        <li><a href="{{ printf "/subjects/%s/" (urlize $label) | relURL }}" data-pagefind-filter="subject">{{ $label }}</a>
+        <li><a href="{{ printf "/subjects/%s/" (partial "lcat-slug.html" $label | urlize) | relLangURL }}" data-pagefind-filter="subject">{{ $label }}</a>
           {{ if ne $label .id }}<a class="lcat-authority" href="{{ .id }}" rel="external" aria-label="{{ i18n "authorityRecordFor" (dict "Label" $label) }}" data-pagefind-ignore>↗</a>{{ end }}
         </li>
       {{ end }}
@@ -29,17 +29,17 @@
   </section>
   {{ end }}
 
-  {{ with .Params.tags }}
+  {{ with .Params.tagLabels }}
   <section aria-labelledby="lcat-tags"><h2 id="lcat-tags">{{ i18n "genresAndTags" }}</h2>
     <ul class="lcat-tags">
-      {{ range . }}<li><a href="{{ printf "/tags/%s/" (urlize .) | relURL }}" data-pagefind-filter="tag">{{ . }}</a></li>{{ end }}
+      {{ range . }}<li><a href="{{ printf "/tags/%s/" (partial "lcat-slug.html" . | urlize) | relLangURL }}" data-pagefind-filter="tag">{{ . }}</a></li>{{ end }}
     </ul>
   </section>
   {{ end }}
 
   <dl class="lcat-meta">
     {{ with .Params.formats }}<dt>{{ i18n "formats" }}</dt><dd>
-      {{ range $i, $f := . }}{{ if $i }}, {{ end }}<a href="{{ printf "/formats/%s/" (urlize $f) | relURL }}" data-pagefind-filter="format">{{ $f }}</a>{{ end }}
+      {{ range $i, $f := . }}{{ if $i }}, {{ end }}<a href="{{ printf "/formats/%s/" (partial "lcat-slug.html" $f | urlize) | relLangURL }}" data-pagefind-filter="format">{{ $f }}</a>{{ end }}
     </dd>{{ end }}
     {{ with .Params.languages }}<dt>{{ i18n "language" }}</dt><dd>{{ range $i, $l := . }}{{ if $i }}, {{ end }}<span data-pagefind-filter="language">{{ $l }}</span>{{ end }}</dd>{{ end }}
     {{ with .Params.classifications }}<dt>{{ i18n "classification" }}</dt><dd>{{ range $i, $c := . }}{{ if $i }}, {{ end }}<span data-pagefind-filter="classification">{{ $c }}</span>{{ end }}</dd>{{ end }}

@@ -6,6 +6,7 @@
   "scripts": {
     "test:a11y": "node a11y_audit.js exampleSite/public",
     "test:js": "node availability_test.cjs",
+    "test:links": "node link_check.cjs exampleSite/public",
     "search:index": "npx -y pagefind --site exampleSite/public"
   },
   "devDependencies": {
