@@ -3,10 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"regexp"
 
 	"github.com/freeeve/libcatalog/backend/auth"
+	"github.com/freeeve/libcatalog/backend/publish"
 	"github.com/freeeve/libcatalog/backend/suggest"
 	"github.com/freeeve/libcatalog/backend/vocab"
 )
@@ -14,10 +16,37 @@ import (
 var monthPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
 
 // registerReview mounts the staff moderation surface: the queue, batch
-// review, manual/folk term governance, and the audit trail.
-func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.TokenVerifier) {
+// review, manual/folk term governance, publishing, and the audit trail.
+func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.TokenVerifier, publisher GraphPublisher) {
 	moderator := auth.Require(verifier, auth.RoleModerator)
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
+
+	runPublish := func(w http.ResponseWriter, r *http.Request, actor string) (map[string]any, bool) {
+		if publisher == nil {
+			pending, _ := svc.ApprovedUnpublished(r.Context())
+			return map[string]any{
+				"published": 0, "approvedPending": len(pending),
+				"publishNote": "publisher not configured; approvals queued",
+			}, true
+		}
+		result, err := publisher.PublishApproved(r.Context(), actor)
+		if errors.Is(err, publish.ErrIngestActive) {
+			return map[string]any{"published": 0, "publishNote": "ingest in progress; publish deferred"}, true
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "publish failed")
+			return nil, false
+		}
+		return map[string]any{"published": result.Published, "skipped": result.Skipped}, true
+	}
+
+	mux.Handle("POST /v1/publish", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		resp, ok := runPublish(w, r, id.Email)
+		if ok {
+			writeJSON(w, http.StatusOK, resp)
+		}
+	})))
 
 	mux.Handle("GET /v1/queue", moderator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := suggest.QueueQuery{
@@ -61,15 +90,13 @@ func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.Toke
 			writeError(w, http.StatusInternalServerError, "review failed")
 			return
 		}
-		resp := map[string]any{"reviewed": len(req.Decisions), "published": false}
+		resp := map[string]any{"reviewed": len(req.Decisions)}
 		if req.Publish {
-			// The publish pipeline lands with tasks/036; approvals are
-			// durable in the queue until then.
-			pending, err := svc.ApprovedUnpublished(r.Context())
-			if err == nil {
-				resp["approvedPending"] = len(pending)
+			pubResp, ok := runPublish(w, r, id.Email)
+			if !ok {
+				return
 			}
-			resp["publishNote"] = "publisher not yet configured; approvals queued"
+			maps.Copy(resp, pubResp)
 		}
 		writeJSON(w, http.StatusOK, resp)
 	})))

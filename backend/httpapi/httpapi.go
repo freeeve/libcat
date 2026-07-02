@@ -6,11 +6,13 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/auth/local"
+	"github.com/freeeve/libcatalog/backend/publish"
 	"github.com/freeeve/libcatalog/backend/suggest"
 	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/storage/blob"
@@ -41,6 +43,15 @@ type Deps struct {
 	// (challenge, submit, public counts).
 	Suggest *suggest.Service
 	Abuse   *suggest.Abuse
+	// Publisher, when set, carries approved decisions into the grain store
+	// (POST /v1/publish and the review publish flag).
+	Publisher GraphPublisher
+}
+
+// GraphPublisher is the publish pipeline seam (publish.Publisher in
+// production; fakes in tests).
+type GraphPublisher interface {
+	PublishApproved(ctx context.Context, actor string) (publish.Result, error)
 }
 
 // New assembles the routed, middleware-wrapped API handler.
@@ -60,7 +71,7 @@ func New(deps Deps) http.Handler {
 		registerSuggestions(mux, deps.Suggest, deps.Abuse)
 	}
 	if deps.Suggest != nil && deps.Verifier != nil {
-		registerReview(mux, deps.Suggest, deps.Verifier)
+		registerReview(mux, deps.Suggest, deps.Verifier, deps.Publisher)
 	}
 	return wrap(mux, deps.Logger)
 }

@@ -34,7 +34,22 @@ convenience.
    k8s deployments need no AWS messaging.
 6. **Secrets/config**: env-only today; review k8s secret mounting and
    whether file-based config (LCATD_CONFIG_FILE) is worth adding.
-7. **Decide scope**: which pieces are core-repo deliverables vs deployment-
+7. **Hugo-watcher dev loop (maintainer idea)**: exploit `hugo server`'s file
+   watcher as the local preview of the whole editorial cycle. Shape: a local
+   `trigger.Notifier` (e.g. `trigger.Command` or a small `lcatd --dev`
+   built-in) that, on grains-changed, runs `lcat serialize && lcat project`
+   into the running Hugo site's data dir -- the watcher sees catalog.json
+   change and live-reloads, so an edit published in the cataloging UI appears
+   in the discovery site within seconds, no cloud, no CI. Assessment so far:
+   -- rebuild loop: YES, cheap and high-value; it is just a Notifier impl
+      plus docs (hugo already watches the data dir).
+   -- hosting the admin/review SPA *through* hugo: workable for integration
+      demos (drop the built dist/ under static/admin/), but day-to-day SPA
+      dev wants Vite's dev server (HMR) and production wants lcatd's
+      go:embed; recommend documenting all three rather than making hugo the
+      SPA host.
+   Scope the Notifier impl + a `docs/local-dev.md` walkthrough here.
+8. **Decide scope**: which pieces are core-repo deliverables vs deployment-
    repo examples, and fold the result into tasks/040 or supersede it.
 
 ## Acceptance

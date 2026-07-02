@@ -43,6 +43,11 @@ const (
 	pBroader      = skosNS + "broader"
 	pValue        = rdfNS + "value"
 	primaryContr  = bflcNS + "PrimaryContribution"
+	// pTag is libcatalog's blank-free folksonomy-tag predicate
+	// (bibframe.PredTag): editorial-class graphs cannot carry the feed's
+	// labeled-blank-node tag shape, so approved community tags arrive as
+	// plain literals on this predicate instead.
+	pTag = "https://github.com/freeeve/libcatalog/ns#tag"
 )
 
 // SchemaVersion is the catalog.json / facets.json / redirects.json schema version.
@@ -432,6 +437,11 @@ func (p *projector) subjectsAndTags(w rdf.Term) ([]Subject, []string) {
 				}
 			} else if label, ok := g.Literal(s, pLabel); ok && label != "" {
 				tags[label] = true
+			}
+		}
+		for _, tag := range g.Objects(w, pTag) {
+			if tag.IsLiteral() && tag.Value != "" {
+				tags[tag.Value] = true
 			}
 		}
 	}

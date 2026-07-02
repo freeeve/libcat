@@ -14,6 +14,32 @@ const (
 	skosBroaderIRI   = "http://www.w3.org/2004/02/skos/core#broader"
 )
 
+// PredTag carries an uncontrolled folksonomy tag as a plain literal on a
+// Work. Feed tags arrive as labeled blank bf:Topic nodes, but editorial-class
+// statements must be blank-free, so approved community tags use this
+// predicate instead; the projector folds both shapes into the same Tags
+// dimension (tasks/012).
+const PredTag = LcatNS + "tag"
+
+// TagQuad builds the editorial statement for one approved folksonomy tag.
+func TagQuad(workID, tag string) rdf.Quad {
+	return rdf.Quad{
+		S: rdf.NewIRI(WorkIRI(workID)),
+		P: rdf.NewIRI(PredTag),
+		O: rdf.NewLiteral(tag, "", ""),
+	}
+}
+
+// SubjectQuad builds the editorial statement linking a Work to a controlled
+// subject's authority URI.
+func SubjectQuad(workID, termURI string) rdf.Quad {
+	return rdf.Quad{
+		S: rdf.NewIRI(WorkIRI(workID)),
+		P: rdf.NewIRI(bfSubjectIRI),
+		O: rdf.NewIRI(termURI),
+	}
+}
+
 // AuthorityGraph returns the named-graph term for a controlled vocabulary's
 // statements: the authority:<vocab> provenance class from ARCHITECTURE §5
 // (term labels, definitions, hierarchy). Like editorial:, authority graphs

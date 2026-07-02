@@ -22,8 +22,10 @@ import (
 	"github.com/freeeve/libcatalog/backend/auth/oidc"
 	"github.com/freeeve/libcatalog/backend/config"
 	"github.com/freeeve/libcatalog/backend/httpapi"
+	"github.com/freeeve/libcatalog/backend/publish"
 	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
+	"github.com/freeeve/libcatalog/backend/trigger"
 	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
@@ -86,6 +88,17 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		}
 		deps.Abuse = abuse
 		deps.Suggest = suggest.New(db, deps.Vocab, suggest.Caps{})
+	}
+	if deps.Suggest != nil && deps.Blob != nil {
+		var notifier trigger.Notifier = trigger.Noop{}
+		if cfg.WebhookURL != "" {
+			notifier = trigger.Webhook{URL: cfg.WebhookURL, Secret: []byte(cfg.WebhookSecret)}
+		}
+		deps.Publisher = &publish.Publisher{
+			Blob: deps.Blob, Queue: deps.Suggest, Vocab: deps.Vocab,
+			Trigger: notifier, Lease: publish.NewLease(db, "ingest", 15*time.Minute),
+			Logger: logger,
+		}
 	}
 	verifiers := map[string]auth.TokenVerifier{}
 	if cfg.LocalAuth {
