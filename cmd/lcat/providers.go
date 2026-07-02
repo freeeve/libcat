@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/freeeve/libcatalog/ingest"
+	"github.com/freeeve/libcatalog/ingest/marc"
 	"github.com/freeeve/libcatalog/ingest/overdrive"
 )
 
@@ -14,6 +15,7 @@ func providerRegistry() *ingest.Registry {
 	// Register errors only on an empty name, a nil factory, or a duplicate key --
 	// all build-composition bugs in this fixed built-in set, so fail loudly.
 	must(reg.Register(overdrive.ProviderName, overdrive.New))
+	must(reg.Register(marc.ProviderName, marc.New))
 	return reg
 }
 

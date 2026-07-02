@@ -66,7 +66,10 @@ func main() {
 	}
 }
 
-// runBuild ingests a MARC file into canonical grains + catalog.nq under --out.
+// runBuild ingests a MARC file into canonical grains + catalog.nq under --out. This
+// is the legacy Phase-0 path: one grain per record, keyed on the MARC 001, with no
+// minted two-tier identity or clustering. For the modern clustered path (opaque ids,
+// edition clustering, editorial preservation) use `lcat ingest --provider marc`.
 func runBuild(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	marc := fs.String("marc", "", "path to an ISO 2709 MARC file (e.g. an OverDrive MARC Express export)")
@@ -97,8 +100,9 @@ func runBuild(args []string) error {
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>]")
+	fmt.Fprintln(os.Stderr, "      providers: overdrive (--source <page-cache dir>), marc (--source <file.mrc>)")
 	fmt.Fprintln(os.Stderr, "  lcat overdrive --cache <dir> --out <dir> [--marc <file.mrc>] [--provider <name>]")
-	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]")
+	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]   (legacy; see `ingest --provider marc`)")
 	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat serialize --dir <grains>   (regenerate catalog.nq from committed grains)")
 	fmt.Fprintln(os.Stderr, "  lcat index --catalog <catalog.json> [--out <dir>]")

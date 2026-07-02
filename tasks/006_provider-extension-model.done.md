@@ -62,12 +62,20 @@ the `overdrive`-built tree minted **0** and left it **byte-identical** -- one sh
 deterministic pipeline. `--feed hoopla` routes to `feed:hoopla`; unknown provider and
 missing `--out` error cleanly.
 
-## Remaining (deferred, tracked)
+## Follow-up delivered
 
-- **MARC as a `Provider`.** `lcat build` still uses the record-based
-  `bibframe.BuildMARC` path (libcodex `FromRecord`), not the direct-BIBFRAME
-  resolve/cluster pipeline; making MARC yield `Work()`/`Instance()` records is a
-  follow-on tied to `tasks/003`/`tasks/007`.
+- **MARC as a `Provider` -- DONE** (commit pending). `ingest/marc` reads an ISO 2709
+  stream, crosswalks each record to BIBFRAME via libcodex `FromRecord`, and yields it
+  as an `ingest.Record` (identity keys = MARC 001 first, then ISBN/ISSN as the
+  cross-provider merge key). Registered as `marc.New`, so `lcat ingest --provider marc
+  --source <file.mrc>` runs MARC through the **same** two-tier identity + clustering +
+  editorial-preserving pipeline as OverDrive -- the parity the legacy per-record
+  `bibframe.BuildMARC` (`lcat build`, kept as the Phase-0 path) never had. Validated on
+  the vendored OverDrive MARC Express sample (15 records -> feed:marc grains, byte-
+  stable re-ingest, projects to catalog.json v4) + unit tests (synthetic clustering,
+  feed override, `recordIdentity`).
+
+## Remaining (deferred, tracked)
 - **Full config unification (scope items 3-4).** A single `lcat` config file
   listing enabled build-time providers **and** enabled runtime JS availability
   adapters, with the projector emitting the adapter-enable list into the Hugo
