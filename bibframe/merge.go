@@ -69,23 +69,13 @@ func datasetMerges(ds *rdf.Dataset) []identity.Merge {
 // Work grain's N-Quads and returns the re-canonicalized grain, so the decision is
 // recorded durably in the survivor's grain and preserved across re-ingest. It is
 // idempotent: a grain that already records this merge is returned unchanged
-// (re-canonicalized).
+// (re-canonicalized). Thin wrapper over ApplyEditorialPatch.
 func AddMergeMarker(grainNQ []byte, from, to string) ([]byte, error) {
-	ds, err := rdf.ParseNQuads(grainNQ)
-	if err != nil {
-		return nil, err
-	}
-	s := rdf.NewIRI(WorkIRI(from))
-	p := rdf.NewIRI(PredMergedInto)
-	o := rdf.NewIRI(WorkIRI(to))
-	ed := EditorialGraph()
-	for _, q := range ds.Quads {
-		if q.G == ed && q.S == s && q.P == p && q.O == o {
-			return ds.Canonical()
-		}
-	}
-	ds.Add(s, p, o, ed)
-	return ds.Canonical()
+	return ApplyEditorialPatch(grainNQ, Patch{Add: []rdf.Quad{{
+		S: rdf.NewIRI(WorkIRI(from)),
+		P: rdf.NewIRI(PredMergedInto),
+		O: rdf.NewIRI(WorkIRI(to)),
+	}}})
 }
 
 // ScanPins recovers the editorial split pins in one grain's N-Quads: every
@@ -111,18 +101,22 @@ func ScanPins(nq []byte) ([]identity.Pin, error) {
 // lcat:workAssignment pin per Instance, all in the editorial graph, and returns the
 // re-canonicalized grain. Adding a marker that already exists is a no-op, so it is
 // idempotent. Recorded in the source Work's grain, the pins are recovered on the
-// next ingest and force the pinned Instances onto newWork.
+// next ingest and force the pinned Instances onto newWork. Thin wrapper over
+// ApplyEditorialPatch.
 func AddSplitMarkers(grainNQ []byte, newWork, fromWork string, instanceIDs []string) ([]byte, error) {
-	ds, err := rdf.ParseNQuads(grainNQ)
-	if err != nil {
-		return nil, err
-	}
-	ed := EditorialGraph()
-	addUnique(ds, rdf.NewIRI(WorkIRI(newWork)), rdf.NewIRI(PredSplitFrom), rdf.NewIRI(WorkIRI(fromWork)), ed)
+	patch := Patch{Add: []rdf.Quad{{
+		S: rdf.NewIRI(WorkIRI(newWork)),
+		P: rdf.NewIRI(PredSplitFrom),
+		O: rdf.NewIRI(WorkIRI(fromWork)),
+	}}}
 	for _, inst := range instanceIDs {
-		addUnique(ds, rdf.NewIRI(InstanceIRI(inst)), rdf.NewIRI(PredWorkAssignment), rdf.NewIRI(WorkIRI(newWork)), ed)
+		patch.Add = append(patch.Add, rdf.Quad{
+			S: rdf.NewIRI(InstanceIRI(inst)),
+			P: rdf.NewIRI(PredWorkAssignment),
+			O: rdf.NewIRI(WorkIRI(newWork)),
+		})
 	}
-	return ds.Canonical()
+	return ApplyEditorialPatch(grainNQ, patch)
 }
 
 // addUnique appends a quad to the dataset only if it is not already present.
