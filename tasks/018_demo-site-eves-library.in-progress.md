@@ -1,5 +1,16 @@
 # 018 -- Demo site: "Eve's Library" (libcatalog + Hugo showcase)
 
+## Progress
+
+Kicked off: the demo lives in its own repo, **https://github.com/freeeve/libcatalog-demo**
+(public), scaffolded as a libcatalog Hugo-module adopter -- config, taxonomies, Pagefind
+search enabled (tasks/017), a placeholder schema-v5 catalog (public-domain classics) +
+generated facets, and a build that verifies (6 Work pages, Pagefind indexed). The granular
+follow-up work is tracked in that repo's `tasks/`: 001 Hardcover data pipeline, 002
+generic-library chrome/branding, 003 S3+CloudFront deploy, 004 controlled-subject mapping,
+005 quality/SEO/a11y + link-back. This libcatalog-side task tracks the effort to "live at
+libcatalog.evefreeman.com"; close it when the demo is deployed and the READMEs link to it.
+
 ## Context
 
 libcatalog has a runnable `hugo/exampleSite`, but it is a **minimal fixture** (3 hand-
