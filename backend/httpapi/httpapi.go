@@ -54,10 +54,13 @@ func New(deps Deps) http.Handler {
 		registerLocalAuth(mux, deps.Local, deps.Verifier)
 	}
 	if deps.Vocab != nil {
-		registerTerms(mux, deps.Vocab)
+		registerTerms(mux, deps.Vocab, deps.Suggest)
 	}
 	if deps.Suggest != nil && deps.Abuse != nil {
 		registerSuggestions(mux, deps.Suggest, deps.Abuse)
+	}
+	if deps.Suggest != nil && deps.Verifier != nil {
+		registerReview(mux, deps.Suggest, deps.Verifier)
 	}
 	return wrap(mux, deps.Logger)
 }
