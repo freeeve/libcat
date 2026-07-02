@@ -211,6 +211,27 @@ Everything is a plain template or asset, so a site or theme layers cleanly on to
 shadow `layouts/_partials/work-card.html`, `assets/lcat.css`, etc. from the project
 root and Hugo's module precedence uses yours.
 
+### Injection hooks (no `baseof.html` copy)
+
+To add site-wide chrome without shadowing the base template, override these
+empty-by-default hooks. They add nothing to the output until you do, so a site that
+ignores them is byte-for-byte unchanged (tasks/020):
+
+- **`layouts/_partials/head-extra.html`** -- injected into `<head>` after the module
+  stylesheet. Add a canonical link, Open Graph / Twitter cards, JSON-LD, or favicons
+  here without redefining `<title>`.
+- **`layouts/_partials/footer.html`** -- rendered after the main layout, before the
+  deferred scripts. Add a site-wide footer.
+- **`hero` block** -- a full-width slot between the header and the faceted layout,
+  filled by a layout `define` (e.g. an intro on the home page):
+
+  ```
+  {{ define "hero" }}<section class="lcat-hero">…</section>{{ end }}
+  ```
+
+Overriding a hook never requires copying `baseof.html`, so a module bump stays
+merge-free.
+
 ## Integration points still stubbed
 
 - **Search** -- the search box is wired to `assets/lcat-search.js`, an interim

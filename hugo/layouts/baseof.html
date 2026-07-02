@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }} · {{ site.Title }}{{ end }}</title>
-  {{ with resources.Get "lcat.css" }}<link rel="stylesheet" href="{{ .RelPermalink }}">{{ end }}
+  {{ with resources.Get "lcat.css" }}<link rel="stylesheet" href="{{ .RelPermalink }}">{{ end }}{{ partial "head-extra.html" . }}
   {{ block "head" . }}{{ end }}
 </head>
 <body>
@@ -12,13 +12,13 @@
   <header class="lcat-header" data-pagefind-ignore>
     <a class="lcat-brand" href="{{ "/" | relURL }}">{{ site.Title }}</a>
     {{ partial "search.html" . }}
-  </header>
+  </header>{{ block "hero" . }}{{ end }}
   <div class="lcat-layout">
     {{ block "sidebar" . }}{{ end }}
     <main id="lcat-main" class="lcat-main" tabindex="-1">
       {{ block "main" . }}{{ .Content }}{{ end }}
     </main>
-  </div>
+  </div>{{ partial "footer.html" . }}
   {{- /* The interim substring filter loads only for the default search path; the
          Pagefind path (tasks/017) ships its own UI from the search partial. */ -}}
   {{ if ne (site.Params.search.engine | default "") "pagefind" }}{{ with resources.Get "lcat-search.js" }}<script src="{{ .RelPermalink }}" defer></script>{{ end }}{{ end }}
