@@ -56,9 +56,40 @@ above (037, 084, 650 _7 $2 OverDrive) or delete it in favor of path 1.
 
 ## Acceptance
 
-- [ ] Decide: direct JSON->BIBFRAME provider vs. keep the MARC writer.
+- [x] Decide: direct JSON->BIBFRAME provider vs. keep the MARC writer. **Decided +
+      implemented: direct JSON->BIBFRAME (path 1).** See Status below.
 - [ ] If MARC writer stays: emit 037 (reserve id), 084 (BISAC), 650 _7 $2 OverDrive.
+      **Pending directional call** -- delete the leftover `--marc` writer vs. align it
+      (see Status).
 - [ ] MARC-import provider reads 037/084/650 correctly; golden test against the
-      vendored `testdata/marc-express/*.mrc`.
+      vendored `testdata/marc-express/*.mrc`. **BLOCKED on libcodex `tasks/057`**
+      (`bibframe.FromRecord` does not yet read 037/084/650 _7).
 - [ ] `tasks/003` known-loss updated with the JSON->MARC->BIBFRAME lossiness
-      demonstrated here.
+      demonstrated here. Lossiness argument is captured in "The real conclusion"
+      above; `docs/marc-fidelity.md` (`tasks/003`) documents MARC->BIBFRAME loss.
+
+## Status (2026-07-02)
+
+**Path 1 is the live ingest path.** `ingest/overdrive/provider.go` (the
+`ingest.Provider`) and `ingest/overdrive/bibframe.go` (`Item.Work()`/`Item.Instance()`)
+map the cached Thunder JSON **directly to BIBFRAME** grains -- no MARC round-trip.
+Both `lcat ingest --provider overdrive` and `lcat overdrive --out` run through it
+(`tasks/006`, `tasks/011`). BISAC stays a classification, per-format ISBNs stay
+distinct Instances, `bf:media`/`bf:carrier` carry format. The direct path is the
+decided direction; the MARC-writer contrivance is retired from the ingest flow.
+
+**The leftover MARC writer** (`overdrive.go` `Records`/`Item.Record()` -> `codex.Record`,
+exposed only via `lcat overdrive --marc <path>`) is now the sole remaining consumer of
+the JSON->MARC crosswalk. Two options remain (item 2), a directional call left for the
+maintainer rather than taken autonomously:
+  - **Delete it** (leaning here): path 1 is authoritative, and the **real vendored
+    MARC Express samples** (`testdata/marc-express/*.mrc`, 15+15 records) are the
+    authentic fixtures for the MARC-import ramp -- so a hand-aligned synthetic writer
+    buys nothing. Removing it drops the `--marc` flag, `writeOverdriveMARC`, and the
+    `codex.Record` crosswalk helpers in `overdrive.go` used only by `Record()`.
+  - **Align it** to real MARC Express (037/084/650 _7 `$2 OverDrive`) so it is a
+    faithful path-2 stand-in -- weaker than the vendored samples, and still can't be
+    round-trip-verified until libcodex `tasks/057` lands the read side.
+
+Item 3 (MARC-import reads 037/084/650 + golden test over the vendored samples) is
+the substantive remaining work and is **blocked on libcodex `tasks/057`**.
