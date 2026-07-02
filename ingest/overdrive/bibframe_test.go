@@ -40,10 +40,10 @@ func TestBIBFRAMECrosswalk(t *testing.T) {
 	if n := len(bib.Work.Contributions); n != 2 {
 		t.Fatalf("Contributions count = %d, want 2", n)
 	}
-	if c := bib.Work.Contributions[0]; !c.Primary || c.Label != "Byron, Grace" || c.Role != "author" {
+	if c := bib.Work.Contributions[0]; !c.Primary || c.Label != "Byron, Grace" || !hasRole(c, relatorVocab+"aut", "author") {
 		t.Errorf("primary contribution = %+v", c)
 	}
-	if c := bib.Work.Contributions[1]; c.Primary || c.Label != "Endres, Nicky" || c.Role != "narrator" {
+	if c := bib.Work.Contributions[1]; c.Primary || c.Label != "Endres, Nicky" || !hasRole(c, relatorVocab+"nrt", "narrator") {
 		t.Errorf("narrator contribution = %+v", c)
 	}
 
@@ -53,11 +53,14 @@ func TestBIBFRAMECrosswalk(t *testing.T) {
 	// Format lives on the Instance (tasks/011): an audiobook carries RDA media "audio"
 	// and an online-resource carrier, so the projector can facet it independently of
 	// the (clustered) Work class.
-	if bib.Instance.Media != "audio" || bib.Instance.Carrier != "online resource" {
-		t.Errorf("Instance media/carrier = %q/%q, want audio/online resource", bib.Instance.Media, bib.Instance.Carrier)
+	if m := bib.Instance.Media; len(m) != 1 || m[0].Label != "audio" || m[0].Code != "s" {
+		t.Errorf("Instance media = %+v, want [{s audio}]", bib.Instance.Media)
 	}
-	if p := bib.Instance.Provision; p == nil || p.Publisher != "Simon & Schuster Audio" || p.Date != "2025" {
-		t.Errorf("Provision = %+v", p)
+	if c := bib.Instance.Carrier; len(c) != 1 || c[0].Label != "online resource" || c[0].Code != "cr" {
+		t.Errorf("Instance carrier = %+v, want [{cr online resource}]", bib.Instance.Carrier)
+	}
+	if ps := bib.Instance.Provisions; len(ps) != 1 || ps[0].Class != "Publication" || ps[0].Publisher != "Simon & Schuster Audio" || ps[0].Date != "2025" {
+		t.Errorf("Provisions = %+v", bib.Instance.Provisions)
 	}
 	if !hasIdentifier(bib.Instance.Identifiers, "Isbn", "9781668128251", "") {
 		t.Error("missing ISBN identifier")
@@ -85,6 +88,8 @@ func TestBIBFRAMECrosswalk(t *testing.T) {
 		SourceBISAC,     // bf:source "bisacsh" on the BISAC classification
 		SourceReserveID, // bf:source "overdrive-reserve" on the Reserve ID
 		"http://id.loc.gov/ontologies/bibframe/source",
+		relatorVocab + "aut", // relator IRI on the primary contribution (tasks/019)
+		relatorVocab + "nrt", // relator IRI on the narrator contribution (tasks/019)
 	} {
 		if !strings.Contains(nq, want) {
 			t.Errorf("n-quads missing %q", want)
@@ -131,6 +136,17 @@ func TestIdentityRoundTrip(t *testing.T) {
 	if want := identity.WorkKey(rec.Author, rec.Title, rec.Lang); len(gi.Works) != 1 || gi.Works[0].ClusterKey != want {
 		t.Errorf("work cluster key = %+v, want %q", gi.Works, want)
 	}
+}
+
+// hasRole reports whether the contribution carries a role with the given relator IRI
+// and term -- the direct-to-BIBFRAME path mirrors the MARC $4 relator (tasks/019).
+func hasRole(c codexbf.Contribution, iri, term string) bool {
+	for _, r := range c.Roles {
+		if r.IRI == iri && r.Term == term {
+			return true
+		}
+	}
+	return false
 }
 
 func toSet(ss []string) map[string]bool {

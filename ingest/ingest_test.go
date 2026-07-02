@@ -35,7 +35,7 @@ func (r stubRecord) Work() codexbf.Work {
 		Class:  "Text",
 		Titles: []codexbf.Title{{MainTitle: r.title}},
 		Contributions: []codexbf.Contribution{
-			{Primary: true, Class: "Person", Label: r.author, Role: "author"},
+			{Primary: true, Class: "Person", Label: r.author, Roles: []codexbf.Role{{Term: "author"}}},
 		},
 		Languages: []string{r.lang},
 	}

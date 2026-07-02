@@ -26,6 +26,37 @@ the change, then adapt libcatalog's call sites to the released shape.
 - libcodex landing + tagging the contribution/relator refactor (its own task). Until
   then the target API is unstable.
 
+## Discovered API deltas (from the in-flight libcodex tree)
+
+The refactor is broader than the 057 read-side; these `bibframe` struct changes affect
+libcatalog's `ingest/overdrive/bibframe.go`:
+
+1. `Contribution.Role string` -> `Contribution.Roles []Role`, where
+   `Role{IRI, Term}` (relator IRI + label term). **Adapted (staged).**
+2. `Instance.Provision *Provision` -> `Instance.Provisions []Provision`, and a
+   `Provision` now carries a `Class` ("Publication"/...). **Adapted (staged).**
+3. `Instance.Media`/`Instance.Carrier`: `string` -> `[]RDATerm` (seen mid-edit;
+   `rdaCode`/`rdaTerm`/`content06` still undefined in the tree). **Pending** -- update
+   `rdaMedia`/`Carrier` assignment in `bibframe.go` and the `Media`/`Carrier` assertions
+   in `bibframe_test.go` once the `RDATerm` shape is final.
+
+## Status (2026-07-02) -- DONE
+
+libcodex **v0.8.0** is released (clean, green). All three deltas adapted in
+`ingest/overdrive/bibframe.go`:
+- Contributions build `Roles []Role{IRI, Term}` from the relator map (author ->
+  `.../relators/aut`, narrator -> `nrt`); `Term` = the role label.
+- Instance provision -> `Provisions []Provision` with `Class: "Publication"`.
+- Instance media/carrier -> `[]RDATerm`: media `{Code, Label}` = `{s, audio}` (audiobook)
+  / `{c, computer}` (ebook); carrier `{cr, online resource}`.
+
+`go.mod` bumped to `libcodex v0.8.0` (local `replace` kept for co-dev). Tests updated:
+`bibframe_test.go` asserts the new Roles/Provisions/RDATerm shapes and that the relator
+IRIs reach the serialized n-quads; `ingest_test.go` stub updated. **Verified:** `go build
+./...` clean; `go test ./...` all green -- incl. `./search` (the tasks/010 gate) and
+`./project` (catalog.json's contributor role label + format facet still project
+correctly); `gofmt -s` clean.
+
 ## Scope (once libcodex releases)
 
 1. **Bump** the `github.com/freeeve/libcodex` require in `go.mod` to the released version
