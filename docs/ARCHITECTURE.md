@@ -182,9 +182,10 @@ the graph.
   script-agnostic, but it does **no word segmentation**. Space/delimiter scripts
   (Latin, Cyrillic, Greek, Arabic, ...) tokenize into words; scriptio-continua
   scripts (CJK, Thai, Khmer, Lao) collapse an unbroken run into a single term, so
-  word-level BM25 does not work for them -- route those to the trigram (`RRS`)
-  n-gram index, which also serves substring/fuzzy (not yet wired Go-side). Stemming
-  is Snowball: 18 languages (en es ar da nl fi fr de el hu it no pt ro ru sv ta tr)
+  word-level BM25 does not work for them -- `lcat index` routes those declared
+  languages to a trigram (`RRSI`, `.rrs`) n-gram index instead, which also serves
+  substring/fuzzy. Stemming is Snowball: 18 languages (en es ar da nl fi fr de el hu
+  it no pt ro ru sv ta tr)
   stem on **both** the Go build side and the Rust reader as of roaringrange v0.27.0,
   so `lcat index` builds a correctly-stemmed index in any of them (its `iso639` map
   covers all 18). The build also emits a BM25 impact sidecar (`.rrb`, RRSB) paired

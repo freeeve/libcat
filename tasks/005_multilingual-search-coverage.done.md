@@ -47,9 +47,10 @@ stands (ARCHITECTURE.md §8):
 - [x] A non-English (e.g. Spanish or French) corpus builds a correctly stemmed index
   via `lcat`, verified against the Rust reader (build/query stem symmetry). **Done**
   (see Delivered below).
-- [ ] A CJK sample is searchable via the trigram index with reasonable recall.
-  **Remaining** -- the trigram (`RRS`) arm is not wired Go-side (not part of
-  roaringrange `073`).
+- [x] A CJK sample is searchable via the trigram index with reasonable recall.
+  **Done** -- unsegmented-script languages route to a trigram (`RRSI`) index; a
+  Chinese sample's substring query recalls its doc through roaringrange's Go RRSI
+  reader (`TestTrigramRecall`). See Delivered below.
 - [x] ARCHITECTURE.md §8 and any deployment docs state the coverage accurately
   (§8 updated: all 18 stem Go-side + Rust reader as of roaringrange v0.27.0).
 
@@ -67,11 +68,25 @@ index/routing structure from `tasks/010` did the rest. Validated: the corpus's `
 index now builds stemmed (`stemmed:true`, 373 works); manifest records per-index
 `termLanguage`/`stemmed` so the reader tokenizes queries identically.
 
-**Remaining:** the CJK/scriptio-continua path -- emit the trigram (`RRS`) index for
-unsegmented scripts (item 3) and route CJK/Thai/Khmer/Lao to it -- plus per-language
-stop words (item 4, roaringrange `tasks/055`). Both are independent of `073`; neither
-is exercised by the current eng/spa corpus. The query-time index-selection sub-question
-(item 2) also stays open, tied to the `tasks/009` browser reader.
+## Delivered -- trigram (RRSI) arm for unsegmented scripts (item 3)
+
+`search/search.go` now routes by script: a language whose script is scriptio-continua
+(`unsegmented` set: Chinese chi/zho, Japanese jpn, Thai tha, Khmer khm, Lao lao,
+Burmese mya/bur, Tibetan bod/tib -- Korean excluded, Hangul is space-delimited) builds
+a **trigram (`RRSI`, `.rrs`) index** via `rr.NewTrigramMonolithBuilder` instead of a
+word-level RRTI, since word tokenization collapses an unbroken run into one useless
+token. `buildLangIndex` dispatches to `buildTrigramIndex` or `buildTermIndex`; the
+manifest records `kind` ("terms"|"trigram") + `gramSize` so the reader picks the query
+path (`NgramKeys` for trigram). **Manifest SchemaVersion 2 -> 3.** Recall proven
+Go-side (no browser): `TestTrigramRecall` builds a Chinese corpus, opens the `.rrs`
+through roaringrange's `rr.Open` RRSI reader, and asserts the trigram keys of a
+substring query recall the matching doc and reject the other. The real eng/spa corpus
+has no CJK, so every index there stays `kind:terms` (v3 manifest confirmed).
+
+**Remaining:** per-language stop words (item 4, roaringrange `tasks/055`) -- non-English
+`stopwords=true` currently applies whatever roaringrange has (English list until 055
+lands language-keyed sets). The query-time index-selection sub-question (item 2) stays
+open, tied to the `tasks/009` browser reader (which is also `010`'s last gate).
 
 ## Notes
 Upstream drift flagged in roaringrange: `TERMS.md` still says the header

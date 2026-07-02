@@ -28,8 +28,8 @@ A `search/` package wiring roaringrange (`github.com/freeeve/roaringrange`):
 ## Acceptance
 
 - [x] `lcat` builds per-language indexes + the routing map from the projected data
-      (now with a **BM25 impact sidecar** per language + **all-18 Snowball stemming**,
-      manifest v2 -- see "v2 shipped" below).
+      (now with a **BM25 impact sidecar** per language + **all-18 Snowball stemming**
+      + a **trigram (RRSI) arm** for unsegmented scripts, manifest v3 -- see below).
 - [ ] The roaringrange WASM reader answers a query in the browser over the emitted
       index (smoke test in the Hugo module, `tasks/009`). **Remaining gate** -- the
       build side is complete; this is browser/WASM front-end wiring.
@@ -68,9 +68,12 @@ Re-validated on the corpus: 5659 Works -> `eng(5286)` + `spa(373)`; each emits a
 `.rrt` + `.rrb` (RRSB magic verified), `spa stemmed:true`, manifest **v2**; re-index
 is **byte-identical** (deterministic). `go test ./search` passes.
 
-3. **Still no trigram (`RRS`) arm** for unsegmented scripts (CJK/Thai) -- **not** part
-   of `073`; those still fall to word-level. Remains future work (see `tasks/005`); no
-   CJK in the current corpus so it is unexercised.
+3. **Trigram (`RRSI`) arm now wired** (delivered under `tasks/005`, done): unsegmented
+   -script languages route to a `.rrs` trigram index instead of a word-level `.rrt`.
+   The manifest gained `kind` ("terms"|"trigram") + `gramSize`, advancing **SchemaVersion
+   2 -> 3**. No CJK in the current eng/spa corpus, so every index there stays
+   `kind:terms`; recall is proven by a Go-reader unit test (`TestTrigramRecall`).
 
-Manifest carries `version` + per-index tokenizer flags + `impacts` so the WASM reader
-tokenizes queries identically and loads the sidecar.
+Manifest (v3) carries `version` + per-index `kind` + tokenizer flags + `impacts`/`gramSize`
+so the WASM reader picks the query path (term tokenizer vs `NgramKeys`), tokenizes
+identically, and loads the BM25 sidecar.

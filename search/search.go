@@ -1,10 +1,11 @@
 // Package search builds the catalog's lexical search index from the projected
-// catalog (ARCHITECTURE §8). Per corpus language it emits a roaringrange term
-// index (.rrt, boolean whole-word presence) paired with a BM25 impact sidecar
-// (.rrb) for relevance ranking, plus a manifest routing each language to its
-// index -- the data the browser's WASM reader queries. Building is the only half
-// done in Go: roaringrange has no Go term-index reader, so queries run in the
-// Rust/WASM reader the Hugo module ships.
+// catalog (ARCHITECTURE §8). Per corpus language it emits, by script: a
+// roaringrange term index (.rrt, boolean whole-word presence) paired with a BM25
+// impact sidecar (.rrb) for segmented scripts, or a trigram index (.rrs, RRSI) for
+// unsegmented scripts (CJK/Thai/...) where word-level tokenization fails. A manifest
+// routes each language to its index and kind -- the data the browser's reader
+// queries. Building is done in Go; term-index queries run in the Rust/WASM reader
+// the Hugo module ships, while the trigram (RRSI) index has a Go reader too.
 package search
 
 import (
@@ -21,8 +22,9 @@ import (
 )
 
 // SchemaVersion is the search-manifest schema version, checked by the reader. v2
-// adds the per-language BM25 impact sidecar (IndexInfo.Impacts).
-const SchemaVersion = 2
+// adds the per-language BM25 impact sidecar (IndexInfo.Impacts); v3 adds the
+// trigram (RRSI) index kind for unsegmented scripts (IndexInfo.Kind/GramSize).
+const SchemaVersion = 3
 
 // undetermined is the index key for Works with no declared language.
 const undetermined = "und"
@@ -34,24 +36,52 @@ type Manifest struct {
 	Indexes []IndexInfo `json:"indexes"`
 }
 
-// IndexInfo describes one per-language term index and how it was tokenized, so
-// the reader tokenizes queries identically.
+// IndexInfo describes one per-language index and how it was tokenized, so the
+// reader tokenizes queries identically. Kind selects the query path: "terms" is a
+// word-level RRTI index (.rrt) with optional stemming + BM25 sidecar; "trigram" is
+// an RRSI n-gram index (.rrs) for unsegmented scripts, queried by NgramKeys.
 type IndexInfo struct {
-	Language     string `json:"language"`     // ISO 639-2 code, or "und" when undeclared
-	TermLanguage uint8  `json:"termLanguage"` // roaringrange stemmer-language byte
-	Stemmed      bool   `json:"stemmed"`
-	Stopwords    bool   `json:"stopwords"`
-	Index        string `json:"index"`   // .rrt filename
-	Impacts      string `json:"impacts"` // .rrb BM25 impact sidecar filename
-	Docs         string `json:"docs"`    // JSON array: doc id (index) -> Work id
+	Language     string `json:"language"`           // ISO 639-2 code, or "und" when undeclared
+	Kind         string `json:"kind"`               // "terms" (RRTI) or "trigram" (RRSI)
+	TermLanguage uint8  `json:"termLanguage"`       // terms: roaringrange stemmer-language byte
+	Stemmed      bool   `json:"stemmed"`            // terms only
+	Stopwords    bool   `json:"stopwords"`          // terms only
+	GramSize     int    `json:"gramSize,omitempty"` // trigram: n-gram size
+	Index        string `json:"index"`              // .rrt or .rrs filename
+	Impacts      string `json:"impacts,omitempty"`  // terms: .rrb BM25 impact sidecar
+	Docs         string `json:"docs"`               // JSON array: doc id (index) -> Work id
 	DocCount     int    `json:"docCount"`
 }
 
-// BuildIndexes writes one term index (+ its BM25 sidecar) per corpus language
-// into sink, plus a doc-id->Work-id list per index and a search-manifest.json
-// routing map. A Work is indexed once per language it declares; a Work with none
-// goes to the undetermined index. Doc ids are dense from 0 in the projected
-// (sorted) order.
+// Index kinds recorded in IndexInfo.Kind.
+const (
+	kindTerms   = "terms"   // word-level RRTI term index (.rrt)
+	kindTrigram = "trigram" // n-gram RRSI index (.rrs) for unsegmented scripts
+)
+
+// trigramGramSize is the n-gram size for the unsegmented-script index (trigrams).
+const trigramGramSize = 3
+
+// unsegmented lists ISO 639-2 codes whose script is scriptio-continua (no word
+// delimiters), so word-level tokenization collapses a run into one term and fails.
+// These route to the trigram (RRSI) index instead of a word-level RRTI (§8). Korean
+// is intentionally absent: Hangul is space-delimited, so it word-tokenizes fine.
+var unsegmented = map[string]bool{
+	"chi": true, "zho": true, // Chinese
+	"jpn": true,              // Japanese
+	"tha": true,              // Thai
+	"khm": true,              // Khmer
+	"lao": true,              // Lao
+	"mya": true, "bur": true, // Burmese
+	"bod": true, "tib": true, // Tibetan
+}
+
+// BuildIndexes writes one index per corpus language into sink -- a word-level term
+// index (+ BM25 sidecar) for segmented scripts, or a trigram (RRSI) index for
+// unsegmented ones -- plus a doc-id->Work-id list per index and a
+// search-manifest.json routing map. A Work is indexed once per language it declares;
+// a Work with none goes to the undetermined index. Doc ids are dense from 0 in the
+// projected (sorted) order.
 func BuildIndexes(cat *project.Catalog, sink storage.Sink) (Manifest, error) {
 	byLang := map[string][]project.Work{}
 	for _, w := range cat.Works {
@@ -84,11 +114,20 @@ func BuildIndexes(cat *project.Catalog, sink storage.Sink) (Manifest, error) {
 	return m, nil
 }
 
-// buildLangIndex builds and writes the term index and its BM25 sidecar for one
+// buildLangIndex routes one language group to the index kind its script needs: a
+// trigram (RRSI) index for unsegmented scripts, otherwise a word-level term index.
+func buildLangIndex(sink storage.Sink, lang string, works []project.Work) (IndexInfo, error) {
+	if unsegmented[lang] {
+		return buildTrigramIndex(sink, lang, works)
+	}
+	return buildTermIndex(sink, lang, works)
+}
+
+// buildTermIndex builds and writes the term index and its BM25 sidecar for one
 // language group. The presence postings (for the .rrt) and the impact statistics
 // (per-doc length + term frequency, for the .rrb) are gathered over the same
 // tokenizer so both address the identical vocabulary and dense doc-id order.
-func buildLangIndex(sink storage.Sink, lang string, works []project.Work) (IndexInfo, error) {
+func buildTermIndex(sink storage.Sink, lang string, works []project.Work) (IndexInfo, error) {
 	tl, stem := termLanguage(lang)
 	stopwords := tl != rr.TermLanguageNone
 	tok := rr.NewTermTokenizerFull(tl, stem, stopwords, true)
@@ -128,6 +167,7 @@ func buildLangIndex(sink storage.Sink, lang string, works []project.Work) (Index
 	}
 	return IndexInfo{
 		Language:     lang,
+		Kind:         kindTerms,
 		TermLanguage: uint8(tl),
 		Stemmed:      stem,
 		Stopwords:    stopwords,
@@ -136,6 +176,57 @@ func buildLangIndex(sink storage.Sink, lang string, works []project.Work) (Index
 		Docs:         docsName,
 		DocCount:     len(works),
 	}, nil
+}
+
+// buildTrigramIndex builds and writes the trigram (RRSI) index for one unsegmented
+// -script language group. Word-level tokenization fails for scriptio-continua text,
+// so each Work's search text is indexed as overlapping n-grams; the reader queries
+// it via NgramKeys, which also serves substring/fuzzy. Doc ids stay dense from 0 in
+// works order, aligned with the doc map.
+func buildTrigramIndex(sink storage.Sink, lang string, works []project.Work) (IndexInfo, error) {
+	b := rr.NewTrigramMonolithBuilder(trigramGramSize, 0) // stride 0 -> roaringrange default
+	docIDs := make([]string, len(works))
+	for i, w := range works {
+		docIDs[i] = w.ID
+		b.AddText(searchText(w)) // doc id == i
+	}
+
+	idxName := "trigram-" + lang + ".rrs"
+	docsName := "trigram-" + lang + ".docs.json"
+	if err := writeTrigram(sink, idxName, b); err != nil {
+		return IndexInfo{}, err
+	}
+	if err := writeJSON(sink, docsName, docIDs); err != nil {
+		return IndexInfo{}, err
+	}
+	return IndexInfo{
+		Language: lang,
+		Kind:     kindTrigram,
+		GramSize: trigramGramSize,
+		Index:    idxName,
+		Docs:     docsName,
+		DocCount: len(works),
+	}, nil
+}
+
+// writeTrigram seals the accumulated trigram postings into an RRSI index (.rrs).
+// The builder emits many small posting writes, so the sink writer is buffered and
+// flushed before close.
+func writeTrigram(sink storage.Sink, name string, b *rr.TrigramMonolithBuilder) error {
+	w, err := sink.Create(name)
+	if err != nil {
+		return err
+	}
+	bw := bufio.NewWriter(w)
+	if err := b.Write(bw); err != nil {
+		w.Close()
+		return fmt.Errorf("write trigram index %s: %w", name, err)
+	}
+	if err := bw.Flush(); err != nil {
+		w.Close()
+		return err
+	}
+	return w.Close()
 }
 
 // writeTermIndex writes the boolean whole-word term index (.rrt) and returns its
