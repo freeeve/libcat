@@ -1,0 +1,65 @@
+[
+  {
+    "id": 9001,
+    "rating": 5,
+    "last_read_date": "2026-01-15",
+    "first_read_date": "2026-01-02",
+    "book": {
+      "id": 100,
+      "slug": "herculine",
+      "title": "Herculine",
+      "subtitle": "A Novel",
+      "description": "A haunting debut novel.",
+      "image": { "url": "https://covers.example.org/herculine.jpg" },
+      "contributions": [
+        { "contribution": "author", "author": { "name": "Grace Byron" } },
+        { "contribution": "narrator", "author": { "name": "Nicky Endres" } }
+      ],
+      "cached_tags": { "Genre": [ { "tag": "Fiction", "count": 10 }, { "tag": "LGBTQ", "count": 8 }, { "tag": "Horror", "count": 3 } ] },
+      "editions": [
+        { "id": 1001, "isbn_13": "9781668128251", "isbn_10": "", "reading_format_id": 4, "edition_format": "", "physical_format": "", "image": { "url": "https://covers.example.org/herculine-ebook.jpg" } },
+        { "id": 1002, "isbn_13": "", "isbn_10": "", "reading_format_id": 2, "edition_format": "", "physical_format": "", "image": null }
+      ]
+    }
+  },
+  {
+    "id": 9002,
+    "rating": 4.5,
+    "last_read_date": "",
+    "first_read_date": "2025-06-01",
+    "book": {
+      "id": 200,
+      "slug": "the-left-hand-of-darkness",
+      "title": "The Left Hand of Darkness",
+      "subtitle": "",
+      "description": "",
+      "image": null,
+      "contributions": [
+        { "contribution": "Author", "author": { "name": "Le Guin, Ursula K." } }
+      ],
+      "cached_tags": "{ \"Genre\": [ { \"tag\": \"Science Fiction\", \"count\": 20 } ] }",
+      "editions": [
+        { "id": 2001, "isbn_13": "9780441478125", "isbn_10": "0441478123", "reading_format_id": 1, "edition_format": "", "physical_format": "Mass Market Paperback", "image": { "url": "https://covers.example.org/lhod.jpg" } }
+      ]
+    }
+  },
+  {
+    "id": 9003,
+    "rating": null,
+    "last_read_date": "",
+    "first_read_date": "",
+    "book": {
+      "id": 300,
+      "slug": "ambient-novel",
+      "title": "Ambient Novel",
+      "subtitle": "",
+      "description": "",
+      "image": null,
+      "contributions": [],
+      "cached_tags": null,
+      "editions": [
+        { "id": 3001, "isbn_13": "9790000000003", "isbn_10": "", "reading_format_id": null, "edition_format": "Kindle Edition", "physical_format": "", "image": null }
+      ]
+    }
+  }
+]

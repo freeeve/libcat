@@ -35,6 +35,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat overdrive:", err)
 			os.Exit(1)
 		}
+	case "hardcover":
+		if err := runHardcover(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat hardcover:", err)
+			os.Exit(1)
+		}
 	case "project":
 		if err := runProject(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "lcat project:", err)
@@ -102,6 +107,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>]")
 	fmt.Fprintln(os.Stderr, "      providers: overdrive (--source <page-cache dir>), marc (--source <file.mrc>)")
 	fmt.Fprintln(os.Stderr, "  lcat overdrive --cache <dir> --out <dir> [--marc <file.mrc>] [--provider <name>]")
+	fmt.Fprintln(os.Stderr, "  lcat hardcover --out <dir> [--token <tok>|$HARDCOVER_API_TOKEN] [--limit <n>] [--source <shelf.json>] [--introspect <type>]")
 	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]   (legacy; see `ingest --provider marc`)")
 	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat serialize --dir <grains>   (regenerate catalog.nq from committed grains)")

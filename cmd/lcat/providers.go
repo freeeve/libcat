@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/freeeve/libcatalog/ingest"
+	"github.com/freeeve/libcatalog/ingest/hardcover"
 	"github.com/freeeve/libcatalog/ingest/marc"
 	"github.com/freeeve/libcatalog/ingest/overdrive"
 )
@@ -16,6 +17,7 @@ func providerRegistry() *ingest.Registry {
 	// all build-composition bugs in this fixed built-in set, so fail loudly.
 	must(reg.Register(overdrive.ProviderName, overdrive.New))
 	must(reg.Register(marc.ProviderName, marc.New))
+	must(reg.Register(hardcover.ProviderName, hardcover.New))
 	return reg
 }
 
