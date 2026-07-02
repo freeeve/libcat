@@ -84,6 +84,39 @@ func TestProject(t *testing.T) {
 	}
 }
 
+// contribTieBreak has two non-primary contributions by the same agent, listed
+// role "editor" before "author" -- so a sort that falls back to statement order
+// would emit them in that order. A total order (by role) must not.
+const contribTieBreak = `<#w2Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:overdrive> .
+<#w2Work> <http://id.loc.gov/ontologies/bibframe/contribution> _:cA <feed:overdrive> .
+_:cA <http://id.loc.gov/ontologies/bibframe/agent> _:agA <feed:overdrive> .
+_:agA <http://www.w3.org/2000/01/rdf-schema#label> "Doe, Sam" <feed:overdrive> .
+_:cA <http://id.loc.gov/ontologies/bibframe/role> _:rA <feed:overdrive> .
+_:rA <http://www.w3.org/2000/01/rdf-schema#label> "editor" <feed:overdrive> .
+<#w2Work> <http://id.loc.gov/ontologies/bibframe/contribution> _:cB <feed:overdrive> .
+_:cB <http://id.loc.gov/ontologies/bibframe/agent> _:agB <feed:overdrive> .
+_:agB <http://www.w3.org/2000/01/rdf-schema#label> "Doe, Sam" <feed:overdrive> .
+_:cB <http://id.loc.gov/ontologies/bibframe/role> _:rB <feed:overdrive> .
+_:rB <http://www.w3.org/2000/01/rdf-schema#label> "author" <feed:overdrive> .
+`
+
+// TestContributorsDeterministicOrder guards projection determinism: contributions
+// sharing an agent name must sort by role, not by graph statement order, so two
+// equivalent serializations project identically (surfaced by lcat serialize).
+func TestContributorsDeterministicOrder(t *testing.T) {
+	cat, err := Project([]byte(contribTieBreak), "overdrive")
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(cat.Works) != 1 {
+		t.Fatalf("got %d works, want 1", len(cat.Works))
+	}
+	want := []Contributor{{Name: "Doe, Sam", Role: "author"}, {Name: "Doe, Sam", Role: "editor"}}
+	if !reflect.DeepEqual(cat.Works[0].Contributors, want) {
+		t.Errorf("contributors = %+v, want role-sorted %+v", cat.Works[0].Contributors, want)
+	}
+}
+
 func TestFacets(t *testing.T) {
 	cat, err := Project([]byte(sampleCatalog), "overdrive")
 	if err != nil {

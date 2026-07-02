@@ -287,11 +287,17 @@ func (p *projector) contributors(w rdf.Term) []Contributor {
 		}
 		es = append(es, entry{Contributor{Name: name, Role: role}, p.feed.HasType(node, primaryContr)})
 	}
-	sort.SliceStable(es, func(i, j int) bool {
+	// Sort by (primary desc, name, role) -- a total order over the distinguishing
+	// fields, so the projection is independent of contribution statement order: two
+	// equivalent serializations of the same graph must yield identical catalog.json.
+	sort.Slice(es, func(i, j int) bool {
 		if es[i].primary != es[j].primary {
 			return es[i].primary
 		}
-		return es[i].c.Name < es[j].c.Name
+		if es[i].c.Name != es[j].c.Name {
+			return es[i].c.Name < es[j].c.Name
+		}
+		return es[i].c.Role < es[j].c.Role
 	})
 	out := make([]Contributor, len(es))
 	for i, e := range es {
