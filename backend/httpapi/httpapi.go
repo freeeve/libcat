@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/freeeve/libcatalog/backend/auth"
+	"github.com/freeeve/libcatalog/backend/auth/local"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -28,6 +29,9 @@ type Deps struct {
 	// AuthExchange, when set, serves POST /v1/auth/exchange -- the OIDC
 	// PKCE token-exchange proxy for SPA logins against an external issuer.
 	AuthExchange http.Handler
+	// Local, when set, mounts built-in user auth (login/refresh/logout)
+	// and, with Verifier, admin user management.
+	Local *local.Service
 }
 
 // New assembles the routed, middleware-wrapped API handler.
@@ -36,6 +40,9 @@ func New(deps Deps) http.Handler {
 	mux.HandleFunc("GET /v1/healthz", handleHealthz)
 	if deps.AuthExchange != nil {
 		mux.Handle("POST /v1/auth/exchange", deps.AuthExchange)
+	}
+	if deps.Local != nil {
+		registerLocalAuth(mux, deps.Local, deps.Verifier)
 	}
 	return wrap(mux, deps.Logger)
 }

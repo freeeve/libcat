@@ -5,7 +5,11 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,8 +17,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/freeeve/libcatalog/backend/auth"
+	"github.com/freeeve/libcatalog/backend/auth/local"
+	"github.com/freeeve/libcatalog/backend/auth/oidc"
 	"github.com/freeeve/libcatalog/backend/config"
 	"github.com/freeeve/libcatalog/backend/httpapi"
+	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -25,17 +33,18 @@ func main() {
 		logger.Error("config", "err", err)
 		os.Exit(1)
 	}
-	deps := httpapi.Deps{Logger: logger}
-	if cfg.BlobDir != "" {
-		deps.Blob = blob.NewDir(cfg.BlobDir)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	deps, err := buildDeps(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("setup", "err", err)
+		os.Exit(1)
 	}
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           httpapi.New(deps),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -49,4 +58,80 @@ func main() {
 		logger.Error("serve", "err", err)
 		os.Exit(1)
 	}
+}
+
+// buildDeps assembles the handler dependencies from configuration. The
+// datastore is in-memory for now; the DynamoDB selection arrives with the
+// deployment task.
+func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi.Deps, error) {
+	deps := httpapi.Deps{Logger: logger}
+	if cfg.BlobDir != "" {
+		deps.Blob = blob.NewDir(cfg.BlobDir)
+	}
+	db := store.NewMem()
+	verifiers := map[string]auth.TokenVerifier{}
+	if cfg.LocalAuth {
+		key, err := signingKey(cfg.LocalSigningKey, logger)
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		svc, err := local.New(db, key, cfg.LocalIssuer)
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		if err := svc.Bootstrap(ctx, cfg.BootstrapAdmin); err != nil {
+			return httpapi.Deps{}, fmt.Errorf("bootstrap admin: %w", err)
+		}
+		deps.Local = svc
+		verifiers[cfg.LocalIssuer] = svc
+	}
+	if cfg.OIDCIssuer != "" {
+		roleMap := map[string]auth.Role{}
+		for from, to := range cfg.OIDCRoleMap {
+			roleMap[from] = auth.Role(to)
+		}
+		verifier, err := oidc.New(ctx, oidc.Config{
+			Issuer:    cfg.OIDCIssuer,
+			Audience:  cfg.OIDCAudience,
+			RoleClaim: cfg.OIDCRoleClaim,
+			RoleMap:   roleMap,
+		})
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		verifiers[cfg.OIDCIssuer] = verifier
+		deps.AuthExchange = oidc.ExchangeHandler(oidc.ExchangeConfig{
+			Issuer:       cfg.OIDCIssuer,
+			ClientID:     cfg.OIDCClientID,
+			ClientSecret: cfg.OIDCClientSecret,
+		})
+	}
+	if len(verifiers) > 0 {
+		deps.Verifier = auth.NewMulti(verifiers)
+	}
+	return deps, nil
+}
+
+// signingKey decodes the configured Ed25519 key (seed or full private key,
+// base64 std or raw-url), or generates an ephemeral one for dev.
+func signingKey(encoded string, logger *slog.Logger) (ed25519.PrivateKey, error) {
+	if encoded == "" {
+		logger.Warn("LCATD_LOCAL_SIGNING_KEY unset; generating ephemeral key (sessions die on restart)")
+		_, key, err := ed25519.GenerateKey(rand.Reader)
+		return key, err
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		raw, err = base64.RawURLEncoding.DecodeString(encoded)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("decode signing key: %w", err)
+	}
+	switch len(raw) {
+	case ed25519.SeedSize:
+		return ed25519.NewKeyFromSeed(raw), nil
+	case ed25519.PrivateKeySize:
+		return ed25519.PrivateKey(raw), nil
+	}
+	return nil, fmt.Errorf("signing key must be a %d-byte seed or %d-byte private key", ed25519.SeedSize, ed25519.PrivateKeySize)
 }

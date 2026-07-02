@@ -8,6 +8,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Config is the resolved backend configuration.
@@ -18,16 +19,65 @@ type Config struct {
 	// BlobDir, when set, selects a local-directory grain store rooted there.
 	// Cloud blob stores are selected by their own variables in later tasks.
 	BlobDir string
+
+	// LocalAuth enables built-in user management.
+	LocalAuth bool
+	// LocalIssuer is the built-in issuer string (must differ from any OIDC
+	// issuer). Default "lcatd-local".
+	LocalIssuer string
+	// LocalSigningKey is the base64 (raw url or std) Ed25519 seed or private
+	// key for access tokens. Empty = ephemeral key per boot (dev only:
+	// restarts invalidate sessions).
+	LocalSigningKey string
+	// BootstrapAdmin is an "email:password" spec ensuring a first admin
+	// exists at boot.
+	BootstrapAdmin string
+
+	// OIDCIssuer enables external-SSO verification when set.
+	OIDCIssuer string
+	// OIDCAudience, when set, must appear in tokens' aud.
+	OIDCAudience string
+	// OIDCRoleClaim is the role-bearing claim. Default "role".
+	OIDCRoleClaim string
+	// OIDCRoleMap maps issuer role names to backend roles
+	// ("subject_moderator=moderator,staff=librarian").
+	OIDCRoleMap map[string]string
+	// OIDCClientID and OIDCClientSecret configure the PKCE token-exchange
+	// proxy; an empty secret leaves the proxy returning 503.
+	OIDCClientID     string
+	OIDCClientSecret string
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
 func FromEnv() (Config, error) {
 	cfg := Config{
-		ListenAddr: envOr("LCATD_LISTEN_ADDR", ":8080"),
-		BlobDir:    os.Getenv("LCATD_BLOB_DIR"),
+		ListenAddr:       envOr("LCATD_LISTEN_ADDR", ":8080"),
+		BlobDir:          os.Getenv("LCATD_BLOB_DIR"),
+		LocalAuth:        os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
+		LocalIssuer:      envOr("LCATD_LOCAL_ISSUER", "lcatd-local"),
+		LocalSigningKey:  os.Getenv("LCATD_LOCAL_SIGNING_KEY"),
+		BootstrapAdmin:   os.Getenv("LCATD_BOOTSTRAP_ADMIN"),
+		OIDCIssuer:       os.Getenv("LCATD_OIDC_ISSUER"),
+		OIDCAudience:     os.Getenv("LCATD_OIDC_AUDIENCE"),
+		OIDCRoleClaim:    envOr("LCATD_OIDC_ROLE_CLAIM", "role"),
+		OIDCClientID:     os.Getenv("LCATD_OIDC_CLIENT_ID"),
+		OIDCClientSecret: os.Getenv("LCATD_OIDC_CLIENT_SECRET"),
 	}
 	if cfg.ListenAddr == "" {
 		return Config{}, fmt.Errorf("config: empty LCATD_LISTEN_ADDR")
+	}
+	if raw := os.Getenv("LCATD_OIDC_ROLE_MAP"); raw != "" {
+		cfg.OIDCRoleMap = map[string]string{}
+		for pair := range strings.SplitSeq(raw, ",") {
+			from, to, ok := strings.Cut(strings.TrimSpace(pair), "=")
+			if !ok || from == "" || to == "" {
+				return Config{}, fmt.Errorf("config: bad LCATD_OIDC_ROLE_MAP entry %q", pair)
+			}
+			cfg.OIDCRoleMap[from] = to
+		}
+	}
+	if cfg.LocalAuth && cfg.OIDCIssuer != "" && cfg.LocalIssuer == cfg.OIDCIssuer {
+		return Config{}, fmt.Errorf("config: local and OIDC issuers must differ")
 	}
 	return cfg, nil
 }
