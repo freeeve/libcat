@@ -25,6 +25,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat build:", err)
 			os.Exit(1)
 		}
+	case "ingest":
+		if err := runIngestCmd(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat ingest:", err)
+			os.Exit(1)
+		}
 	case "overdrive":
 		if err := runOverdrive(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "lcat overdrive:", err)
@@ -91,6 +96,7 @@ func runBuild(args []string) error {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
+	fmt.Fprintln(os.Stderr, "  lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat overdrive --cache <dir> --out <dir> [--marc <file.mrc>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <name>]")
