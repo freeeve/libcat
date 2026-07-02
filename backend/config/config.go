@@ -62,6 +62,10 @@ type Config struct {
 	// each publish (WebhookSecret signs them).
 	WebhookURL    string
 	WebhookSecret string
+
+	// Provider names the primary feed graph (CSV export projection).
+	// Default "overdrive".
+	Provider string
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
@@ -82,6 +86,7 @@ func FromEnv() (Config, error) {
 		AbuseSecret:       os.Getenv("LCATD_ABUSE_SECRET"),
 		WebhookURL:        os.Getenv("LCATD_WEBHOOK_URL"),
 		WebhookSecret:     os.Getenv("LCATD_WEBHOOK_SECRET"),
+		Provider:          envOr("LCATD_PROVIDER", "overdrive"),
 	}
 	if raw := os.Getenv("LCATD_VOCAB_SCHEMES"); raw != "" {
 		for s := range strings.SplitSeq(raw, ",") {

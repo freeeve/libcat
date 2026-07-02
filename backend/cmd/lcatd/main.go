@@ -21,6 +21,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/auth/local"
 	"github.com/freeeve/libcatalog/backend/auth/oidc"
 	"github.com/freeeve/libcatalog/backend/config"
+	"github.com/freeeve/libcatalog/backend/export"
 	"github.com/freeeve/libcatalog/backend/httpapi"
 	"github.com/freeeve/libcatalog/backend/publish"
 	"github.com/freeeve/libcatalog/backend/store"
@@ -140,6 +141,28 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 	}
 	if len(verifiers) > 0 {
 		deps.Verifier = auth.NewMulti(verifiers)
+	}
+	if deps.Blob != nil && cfg.AbuseSecret != "" {
+		exports, err := export.New(db, deps.Blob, cfg.Provider, []byte(cfg.AbuseSecret))
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		deps.Exports = exports
+		// Container worker: drain queued export jobs on a ticker.
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if _, err := exports.RunQueued(ctx); err != nil && ctx.Err() == nil {
+						logger.Error("export worker", "err", err)
+					}
+				}
+			}
+		}()
 	}
 	return deps, nil
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/auth/local"
+	"github.com/freeeve/libcatalog/backend/export"
 	"github.com/freeeve/libcatalog/backend/publish"
 	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
@@ -50,6 +51,8 @@ type Deps struct {
 	// DB is the document store backing drafts (and, with Blob and Verifier,
 	// enables the record-editing surface).
 	DB store.Store
+	// Exports, when set, mounts the export-job surface.
+	Exports *export.Service
 }
 
 // GraphPublisher is the publish pipeline seam (publish.Publisher in
@@ -79,6 +82,9 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Blob != nil && deps.DB != nil && deps.Verifier != nil {
 		registerRecords(mux, deps.Blob, deps.DB, deps.Suggest, deps.Verifier)
+	}
+	if deps.Exports != nil && deps.Verifier != nil {
+		registerExports(mux, deps.Exports, deps.Verifier)
 	}
 	return wrap(mux, deps.Logger)
 }
