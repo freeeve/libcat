@@ -35,8 +35,30 @@ Then, in this repo:
 
 ## Acceptance
 
-- [ ] libcodex `Identifier`/`Classification` carry a source; `bf:source` emitted.
-- [ ] BISAC nodes carry `bf:source "bisacsh"`.
-- [ ] Reserve ID is unambiguously recoverable from a grain (or intentionally
-      moved out of the feed grain per the availability model).
-- [ ] Grain golden test updated.
+- [x] libcodex `Identifier`/`Classification` carry a source; `bf:source` emitted.
+      (libcodex v0.6.0, `tasks/037`; renders across all four serializations.)
+- [x] BISAC nodes carry `bf:source "bisacsh"`.
+- [x] Reserve ID is unambiguously recoverable from a grain: it carries
+      `bf:source "overdrive-reserve"` (the title id carries `"overdrive"`). Kept
+      in the feed grain -- the Reserve ID is a stable per-edition key, not
+      volatile availability data, so §5 keeps it in the graph; only the live
+      copies/holds/wait stay out (fetched client-side by `tasks/004`).
+- [x] Grain golden test updated (`ingest/overdrive/bibframe_test.go`: asserts the
+      BISAC source, both identifier sources, and the `bf:source` scheme labels in
+      the serialized N-Quads).
+
+## Done
+
+`ingest/overdrive/bibframe.go` sets `Source` on the BISAC classification and the
+two OverDrive identifiers, via exported constants `SourceBISAC` /
+`SourceOverDrive` / `SourceReserveID` (so downstream consumers select nodes by
+scheme). Corpus: 27073 `bf:source` quads (14567 bisacsh + 6253 title + 6253
+reserve); clustering unchanged (5659 works, zero id churn), re-ingest
+byte-identical -- scheme is additive rendering, and identity keys are recovered
+by identifier type+value, not source.
+
+Handoff to `tasks/004`: the projector still flattens all non-ISBN identifiers into
+`Instance.ProviderIDs` (a `[]string`), so catalog.json does not yet distinguish the
+Reserve ID by scheme. Surfacing it there is a schema decision the availability
+adapter should own (what shape it needs), so it is deferred to `tasks/004` rather
+than bumping the catalog schema here.
