@@ -27,6 +27,70 @@ type WorkGroup struct {
 	// ExtraPred, so their origin is tracked like every other feed statement. Empty
 	// when the provider supplies none, leaving the grain byte-for-byte unchanged.
 	Extras map[string]string
+	// Subjects are controlled-vocabulary subjects (authority URI + localized labels +
+	// skos:broader) a provider derived for the Work, e.g. by promoting genre tags
+	// through an authority table (tasks/026). They are emitted into the feed graph as
+	// a bf:subject link to the URI plus the authority's prefLabel/broader statements,
+	// so the projector resolves them as controlled subjects (tasks/012/015). Empty
+	// when the provider supplies none.
+	Subjects []AuthoritySubject
+}
+
+// AuthoritySubject is one controlled-vocabulary subject a provider asserts for a Work: a
+// stable authority URI, its human labels by language tag, and its skos:broader parent
+// URIs. It is the graph-emission shape behind ingest.SubjectEnricher (tasks/026).
+type AuthoritySubject struct {
+	URI     string
+	Labels  map[string]string // language tag -> label (e.g. "en", "es")
+	Broader []string          // parent authority URIs (skos:broader)
+}
+
+// Controlled-subject vocabulary the graph emission uses; mirrors libcodex's stable IRIs
+// and the projector's read side.
+const (
+	predSubject   = "http://id.loc.gov/ontologies/bibframe/subject"
+	predPrefLabel = "http://www.w3.org/2004/02/skos/core#prefLabel"
+	predBroader   = "http://www.w3.org/2004/02/skos/core#broader"
+)
+
+// addControlledSubjects attaches a Work's controlled subjects to its feed graph: a
+// bf:subject link from the Work to each authority URI, plus the URI's localized
+// skos:prefLabel and skos:broader statements, so the projector resolves them as
+// controlled subjects with labels and hierarchy (tasks/012/015). Statements are added in
+// deterministic order (by URI, language, parent); a no-op for an empty slice.
+func addControlledSubjects(g *rdf.Graph, workID string, subs []AuthoritySubject) {
+	if len(subs) == 0 {
+		return
+	}
+	w := rdf.NewIRI(WorkIRI(workID))
+	ordered := append([]AuthoritySubject(nil), subs...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].URI < ordered[j].URI })
+	seen := map[string]bool{}
+	for _, s := range ordered {
+		if s.URI == "" || seen[s.URI] {
+			continue
+		}
+		seen[s.URI] = true
+		uri := rdf.NewIRI(s.URI)
+		g.Add(w, rdf.NewIRI(predSubject), uri)
+		langs := make([]string, 0, len(s.Labels))
+		for lang := range s.Labels {
+			langs = append(langs, lang)
+		}
+		sort.Strings(langs)
+		for _, lang := range langs {
+			if label := s.Labels[lang]; label != "" {
+				g.Add(uri, rdf.NewIRI(predPrefLabel), rdf.NewLiteral(label, lang, ""))
+			}
+		}
+		parents := append([]string(nil), s.Broader...)
+		sort.Strings(parents)
+		for _, p := range parents {
+			if p != "" {
+				g.Add(uri, rdf.NewIRI(predBroader), rdf.NewIRI(p))
+			}
+		}
+	}
 }
 
 // ExtraPred is the reserved predicate namespace for adopter "extras": per-Work fields
@@ -117,6 +181,7 @@ func BuildWorks(sink storage.Sink, works []WorkGroup, provider string) (BuildSta
 		}
 		g := wi.Graph(wg.WorkID, bases)
 		addWorkExtras(g, wg.WorkID, wg.Extras)
+		addControlledSubjects(g, wg.WorkID, wg.Subjects)
 		grain, err := grainWithEditorial(g, feed, wg.Editorial)
 		if err != nil {
 			return stats, fmt.Errorf("grain %s: %w", wg.WorkID, err)

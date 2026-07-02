@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/identity"
 	codexbf "github.com/freeeve/libcodex/bibframe"
 )
@@ -72,6 +73,24 @@ type Record interface {
 // Work the first record's extras win, matching how shared Work metadata is taken.
 type ExtraProvider interface {
 	Extras() map[string]string
+}
+
+// AuthoritySubject is one controlled-vocabulary subject a provider asserts for a Work
+// (authority URI + localized labels + skos:broader parents). It is an alias of the
+// bibframe emission type, defined in bibframe to avoid an ingest<-bibframe import cycle
+// while keeping the capability's shape visible here.
+type AuthoritySubject = bibframe.AuthoritySubject
+
+// SubjectEnricher is an optional capability a Record may implement to contribute
+// controlled-vocabulary subjects for its Work -- e.g. by promoting free genre tags
+// through an authority table (tasks/026). Run emits each as a bf:subject link to the
+// authority URI plus its skos:prefLabel/broader statements in the feed graph, so the
+// projector resolves them as controlled subjects with labels and hierarchy
+// (tasks/012/015). For a clustered Work the first record's subjects win, matching how
+// shared Work metadata and extras are taken; a Record that does not implement it
+// contributes none.
+type SubjectEnricher interface {
+	ControlledSubjects() []AuthoritySubject
 }
 
 // Config carries a provider's build-time configuration into its Factory. Feed

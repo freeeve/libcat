@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/identity"
 	codexbf "github.com/freeeve/libcodex/bibframe"
 )
@@ -28,11 +29,21 @@ func (r record) Work() codexbf.Work {
 		w.Titles = append(w.Titles, t)
 	}
 	w.Contributions = b.contributions()
-	for _, g := range b.genres() {
+	// Genres that map to a controlled authority become controlled subjects (see
+	// ControlledSubjects); the rest stay uncontrolled tags, so both dimensions coexist
+	// without duplicating a genre (tasks/026).
+	for _, g := range b.tags() {
 		w.Subjects = append(w.Subjects, codexbf.Subject{Class: "Topic", Label: g})
 	}
 	w.Languages = []string{"eng"}
 	return w
+}
+
+// ControlledSubjects promotes the book's mapped genres to controlled-vocabulary subjects
+// (authority URI + localized labels + skos:broader) via the shipped table, so the shared
+// pipeline emits them into the graph as first-class subjects (tasks/026, ingest.SubjectEnricher).
+func (r record) ControlledSubjects() []bibframe.AuthoritySubject {
+	return r.ub.Book.controlledSubjects()
 }
 
 // Instance returns this edition format's Instance-level BIBFRAME: transcribed title,

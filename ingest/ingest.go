@@ -80,6 +80,11 @@ func Run(prov Provider, out string) (Result, error) {
 			if ep, ok := rec.(ExtraProvider); ok {
 				wg.Extras = ep.Extras()
 			}
+			// The first record likewise contributes the Work's controlled subjects
+			// (authority URIs + labels + broader), emitted into the feed graph (tasks/026).
+			if se, ok := rec.(SubjectEnricher); ok {
+				wg.Subjects = se.ControlledSubjects()
+			}
 			byWork[a.WorkID] = wg
 		}
 		if seenInstance[a.InstanceID] {

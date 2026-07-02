@@ -1,0 +1,104 @@
+{
+  "_comment": "Controlled-subject table for the Hardcover provider (tasks/026), ported from the libcatalog-demo pipeline. Data-driven, not hardcoded per Work: `genreToSubject` maps a lowercased genre tag to a controlled-subject authority URI; `authorities` holds each URI's localized labels and optional skos:broader parents. LCSH URIs are id.loc.gov; Homosaurus is homosaurus.org. Spanish labels are supplied to demonstrate localized subject labels. A genre with no entry stays uncontrolled in tags[] so both dimensions coexist.",
+
+  "genreToSubject": {
+    "fiction": "https://id.loc.gov/authorities/subjects/sh2026001126",
+    "science fiction": "https://id.loc.gov/authorities/subjects/sh85118629",
+    "sci-fi": "https://id.loc.gov/authorities/subjects/sh85118629",
+    "horror": "https://id.loc.gov/authorities/subjects/sh85062084",
+    "romance": "https://id.loc.gov/authorities/subjects/sh85078595",
+    "essays": "https://id.loc.gov/authorities/subjects/sh85044914",
+    "fantasy": "https://id.loc.gov/authorities/subjects/sh85047114",
+    "mystery": "https://id.loc.gov/authorities/subjects/sh85037260",
+    "thriller": "https://id.loc.gov/authorities/subjects/sh98004883",
+    "suspense": "https://id.loc.gov/authorities/subjects/sh98004883",
+    "historical fiction": "https://id.loc.gov/authorities/subjects/sh85061165",
+    "biography": "https://id.loc.gov/authorities/subjects/sh85014152",
+    "memoir": "https://id.loc.gov/authorities/subjects/sh85014152",
+    "poetry": "https://id.loc.gov/authorities/subjects/sh2026001184",
+    "young adult": "https://id.loc.gov/authorities/subjects/sh85149267",
+    "ya": "https://id.loc.gov/authorities/subjects/sh85149267",
+    "dystopia": "https://id.loc.gov/authorities/subjects/sh85040350",
+    "dystopian": "https://id.loc.gov/authorities/subjects/sh85040350",
+    "adventure": "https://id.loc.gov/authorities/subjects/sh85001072",
+    "short stories": "https://id.loc.gov/authorities/subjects/sh85121813",
+    "lgbtq": "https://homosaurus.org/v3/homoit0000827",
+    "lgbtq+": "https://homosaurus.org/v3/homoit0000827",
+    "lgbtqia+": "https://homosaurus.org/v3/homoit0000827",
+    "queer": "https://homosaurus.org/v3/homoit0000827"
+  },
+
+  "authorities": {
+    "https://id.loc.gov/authorities/subjects/sh2026001126": {
+      "labels": { "en": "Fiction", "es": "Ficción" }
+    },
+    "https://id.loc.gov/authorities/subjects/sh85118629": {
+      "labels": { "en": "Science fiction", "es": "Ciencia ficción" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85062084": {
+      "labels": { "en": "Horror tales", "es": "Cuentos de terror" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85078595": {
+      "labels": { "en": "Romance fiction", "es": "Novela romántica" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85044914": {
+      "labels": { "en": "Essays", "es": "Ensayos" }
+    },
+    "https://id.loc.gov/authorities/subjects/sh85047114": {
+      "labels": { "en": "Fantasy fiction", "es": "Literatura fantástica" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85037260": {
+      "labels": { "en": "Detective and mystery stories", "es": "Novela policíaca" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh98004883": {
+      "labels": { "en": "Suspense fiction", "es": "Novela de suspenso" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85061165": {
+      "labels": { "en": "Historical fiction", "es": "Novela histórica" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85014152": {
+      "labels": { "en": "Biography", "es": "Biografía" }
+    },
+    "https://id.loc.gov/authorities/subjects/sh2026001184": {
+      "labels": { "en": "Poetry", "es": "Poesía" }
+    },
+    "https://id.loc.gov/authorities/subjects/sh85149267": {
+      "labels": { "en": "Young adult fiction", "es": "Ficción para adultos jóvenes" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85040350": {
+      "labels": { "en": "Dystopias", "es": "Distopías" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh85118629"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85001072": {
+      "labels": { "en": "Adventure stories", "es": "Novela de aventuras" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85121813": {
+      "labels": { "en": "Short stories", "es": "Cuentos" },
+      "broader": ["https://id.loc.gov/authorities/subjects/sh2026001126"]
+    },
+    "https://id.loc.gov/authorities/subjects/sh85123921": {
+      "labels": { "en": "Social classes", "es": "Clases sociales" }
+    },
+    "https://id.loc.gov/authorities/subjects/sh85086994": {
+      "labels": { "en": "Monsters", "es": "Monstruos" }
+    },
+    "https://id.loc.gov/authorities/subjects/sh85141948": {
+      "labels": { "en": "Vampires", "es": "Vampiros" }
+    },
+    "https://id.loc.gov/authorities/subjects/sh85047741": {
+      "labels": { "en": "Feminism", "es": "Feminismo" }
+    },
+    "https://homosaurus.org/v3/homoit0000827": {
+      "labels": { "en": "LGBTQ books", "es": "Libros LGBTQ" }
+    }
+  }
+}

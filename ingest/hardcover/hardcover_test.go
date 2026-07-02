@@ -112,8 +112,29 @@ func TestEndToEndProjection(t *testing.T) {
 	if !reflect.DeepEqual(h.Contributors, wantContribs) {
 		t.Errorf("Herculine contributors = %v, want %v", h.Contributors, wantContribs)
 	}
-	if !reflect.DeepEqual(h.Tags, []string{"Fiction", "Horror", "LGBTQ"}) {
-		t.Errorf("Herculine tags = %v, want [Fiction Horror LGBTQ]", h.Tags)
+	// Fiction/Horror/LGBTQ all map to controlled subjects, so they leave tags[] and
+	// become subjects with authority labels + skos:broader (tasks/026).
+	if len(h.Tags) != 0 {
+		t.Errorf("Herculine tags = %v, want none (all promoted to subjects)", h.Tags)
+	}
+	gotSubjectIDs := map[string]project.Subject{}
+	for _, s := range h.Subjects {
+		gotSubjectIDs[s.ID] = s
+	}
+	for _, wantID := range []string{
+		"https://homosaurus.org/v3/homoit0000827",
+		"https://id.loc.gov/authorities/subjects/sh2026001126",
+		"https://id.loc.gov/authorities/subjects/sh85062084",
+	} {
+		if _, ok := gotSubjectIDs[wantID]; !ok {
+			t.Errorf("Herculine missing controlled subject %s; got %v", wantID, h.Subjects)
+		}
+	}
+	if lg := gotSubjectIDs["https://homosaurus.org/v3/homoit0000827"]; lg.Labels["en"] != "LGBTQ books" {
+		t.Errorf("LGBTQ subject label = %q, want %q", lg.Labels["en"], "LGBTQ books")
+	}
+	if horror := gotSubjectIDs["https://id.loc.gov/authorities/subjects/sh85062084"]; !reflect.DeepEqual(horror.Broader, []string{"https://id.loc.gov/authorities/subjects/sh2026001126"}) {
+		t.Errorf("Horror broader = %v, want [Fiction]", horror.Broader)
 	}
 	wantExtra := map[string]string{
 		"cover":       "https://covers.example.org/herculine.jpg",
@@ -137,8 +158,19 @@ func TestEndToEndProjection(t *testing.T) {
 	if len(l.Contributors) != 1 || l.Contributors[0].Name != "Le Guin, Ursula K." {
 		t.Errorf("Left Hand contributors = %v, want [{Le Guin, Ursula K. author}]", l.Contributors)
 	}
-	if !reflect.DeepEqual(l.Tags, []string{"Science Fiction"}) {
-		t.Errorf("Left Hand tags = %v, want [Science Fiction] (string-wrapped cached_tags)", l.Tags)
+	// "Science Fiction" (from the string-wrapped cached_tags) maps to a controlled
+	// subject with a broader parent, so it leaves tags[].
+	if len(l.Tags) != 0 {
+		t.Errorf("Left Hand tags = %v, want none (Science Fiction promoted)", l.Tags)
+	}
+	if len(l.Subjects) != 1 || l.Subjects[0].ID != "https://id.loc.gov/authorities/subjects/sh85118629" {
+		t.Fatalf("Left Hand subjects = %v, want [sh85118629]", l.Subjects)
+	}
+	if l.Subjects[0].Labels["en"] != "Science fiction" {
+		t.Errorf("Science fiction label = %q, want %q", l.Subjects[0].Labels["en"], "Science fiction")
+	}
+	if !reflect.DeepEqual(l.Subjects[0].Broader, []string{"https://id.loc.gov/authorities/subjects/sh2026001126"}) {
+		t.Errorf("Science fiction broader = %v, want [Fiction]", l.Subjects[0].Broader)
 	}
 	if l.Extra["rating"] != "4.5" || l.Extra["dateRead"] != "2025-06-01" {
 		t.Errorf("Left Hand extra = %v, want rating 4.5 / dateRead 2025-06-01", l.Extra)
