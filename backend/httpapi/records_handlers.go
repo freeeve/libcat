@@ -1,0 +1,296 @@
+package httpapi
+
+import (
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/freeeve/libcatalog/bibframe"
+	"github.com/freeeve/libcatalog/identity"
+	"github.com/freeeve/libcatalog/storage/blob"
+
+	"github.com/freeeve/libcatalog/backend/auth"
+	"github.com/freeeve/libcatalog/backend/editor"
+	"github.com/freeeve/libcatalog/backend/store"
+	"github.com/freeeve/libcatalog/backend/suggest"
+)
+
+// grainView is the read shape of a record: raw canonical N-Quads plus the
+// concurrency token. The typed WorkDoc rides on top in tasks/041.
+type grainView struct {
+	WorkID string `json:"workId"`
+	ETag   string `json:"etag"`
+	NQuads string `json:"nquads"`
+}
+
+// registerRecords mounts the librarian record-editing surface: grain
+// read/write with ETag optimistic locking, dry-run validation, drafts,
+// merge/split, and quad-level batch edits.
+func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *suggest.Service, verifier auth.TokenVerifier) {
+	librarian := auth.Require(verifier, auth.RoleLibrarian)
+
+	readGrain := func(w http.ResponseWriter, r *http.Request) ([]byte, string, string, bool) {
+		workID := r.PathValue("id")
+		if !workIDPattern.MatchString(workID) {
+			writeError(w, http.StatusBadRequest, "bad work id")
+			return nil, "", "", false
+		}
+		grain, etag, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
+		if errors.Is(err, blob.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "no such work")
+			return nil, "", "", false
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "grain read failed")
+			return nil, "", "", false
+		}
+		return grain, etag, workID, true
+	}
+
+	mux.Handle("GET /v1/works/{id}", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grain, etag, workID, ok := readGrain(w, r)
+		if !ok {
+			return
+		}
+		w.Header().Set("ETag", etag)
+		writeJSON(w, http.StatusOK, grainView{WorkID: workID, ETag: etag, NQuads: string(grain)})
+	})))
+
+	// PUT applies an editorial patch under the client's If-Match token. No
+	// silent retry: a concurrent write returns 412 with the fresh state so
+	// the client can rebase deliberately.
+	mux.Handle("PUT /v1/works/{id}", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		ifMatch := r.Header.Get("If-Match")
+		if ifMatch == "" {
+			writeError(w, http.StatusPreconditionRequired, "If-Match required")
+			return
+		}
+		var patch editor.Patch
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&patch); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if err := patch.Validate(nil); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		grain, etag, workID, ok := readGrain(w, r)
+		if !ok {
+			return
+		}
+		if etag != ifMatch {
+			w.Header().Set("ETag", etag)
+			writeJSON(w, http.StatusPreconditionFailed, grainView{WorkID: workID, ETag: etag, NQuads: string(grain)})
+			return
+		}
+		updated, err := bibframe.ApplyEditorialPatch(grain, patch.ToBibframe())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		newTag, err := bs.Put(r.Context(), bibframe.GrainPath(workID), updated, blob.PutOptions{
+			IfMatch: etag, ContentType: "application/n-quads",
+		})
+		if errors.Is(err, blob.ErrPreconditionFailed) {
+			fresh, freshTag, _, ok := readGrain(w, r)
+			if !ok {
+				return
+			}
+			w.Header().Set("ETag", freshTag)
+			writeJSON(w, http.StatusPreconditionFailed, grainView{WorkID: workID, ETag: freshTag, NQuads: string(fresh)})
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "grain write failed")
+			return
+		}
+		if queue != nil {
+			queue.WriteAudit(r.Context(), suggest.AuditEntry{
+				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
+			})
+		}
+		w.Header().Set("ETag", newTag)
+		writeJSON(w, http.StatusOK, map[string]string{"workId": workID, "etag": newTag})
+	})))
+
+	// Dry-run: the exact quad delta the patch would make, nothing written.
+	mux.Handle("POST /v1/works/{id}/validate", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var patch editor.Patch
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&patch); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if err := patch.Validate(nil); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		grain, etag, _, ok := readGrain(w, r)
+		if !ok {
+			return
+		}
+		diff, _, err := editor.ComputeDiff(grain, patch)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"etag": etag, "diff": diff})
+	})))
+
+	mux.Handle("POST /v1/works/merge", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		var req struct{ From, To string }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
+			!workIDPattern.MatchString(req.From) || !workIDPattern.MatchString(req.To) || req.From == req.To {
+			writeError(w, http.StatusBadRequest, "merge needs distinct from and to work ids")
+			return
+		}
+		// The marker lives in the survivor's grain (tasks/001 semantics).
+		etag, err := mutateWorkGrain(r, bs, req.To, func(grain []byte) ([]byte, error) {
+			return bibframe.AddMergeMarker(grain, req.From, req.To)
+		})
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if queue != nil {
+			queue.WriteAudit(r.Context(), suggest.AuditEntry{
+				WorkID: req.To, Action: "MERGE", Actor: id.Email,
+				Note: "merged " + req.From + " into " + req.To, ETag: etag,
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"from": req.From, "to": req.To, "etag": etag})
+	})))
+
+	mux.Handle("POST /v1/works/split", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		var req struct {
+			From      string   `json:"from"`
+			Instances []string `json:"instances"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
+			!workIDPattern.MatchString(req.From) || len(req.Instances) == 0 {
+			writeError(w, http.StatusBadRequest, "split needs a source work and instance ids")
+			return
+		}
+		newWork := identity.Mint(identity.WorkPrefix)
+		etag, err := mutateWorkGrain(r, bs, req.From, func(grain []byte) ([]byte, error) {
+			return bibframe.AddSplitMarkers(grain, newWork, req.From, req.Instances)
+		})
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if queue != nil {
+			queue.WriteAudit(r.Context(), suggest.AuditEntry{
+				WorkID: req.From, Action: "SPLIT", Actor: id.Email,
+				Note: "split " + newWork + " from " + req.From, ETag: etag,
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"from": req.From, "newWork": newWork, "instances": req.Instances, "etag": etag})
+	})))
+
+	// Batch: one patch applied to many works, per-work results.
+	mux.Handle("POST /v1/batch", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		var req struct {
+			WorkIDs []string     `json:"workIds"`
+			Patch   editor.Patch `json:"patch"`
+			DryRun  bool         `json:"dryRun"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if len(req.WorkIDs) == 0 || len(req.WorkIDs) > 500 {
+			writeError(w, http.StatusBadRequest, "1-500 work ids per batch")
+			return
+		}
+		if err := req.Patch.Validate(nil); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		type itemResult struct {
+			WorkID string       `json:"workId"`
+			ETag   string       `json:"etag,omitempty"`
+			Diff   *editor.Diff `json:"diff,omitempty"`
+			Error  string       `json:"error,omitempty"`
+		}
+		results := make([]itemResult, 0, len(req.WorkIDs))
+		for _, workID := range req.WorkIDs {
+			if !workIDPattern.MatchString(workID) {
+				results = append(results, itemResult{WorkID: workID, Error: "bad work id"})
+				continue
+			}
+			if req.DryRun {
+				grain, _, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
+				if err != nil {
+					results = append(results, itemResult{WorkID: workID, Error: "no such work"})
+					continue
+				}
+				diff, _, err := editor.ComputeDiff(grain, req.Patch)
+				if err != nil {
+					results = append(results, itemResult{WorkID: workID, Error: err.Error()})
+					continue
+				}
+				results = append(results, itemResult{WorkID: workID, Diff: &diff})
+				continue
+			}
+			etag, err := mutateWorkGrain(r, bs, workID, func(grain []byte) ([]byte, error) {
+				return bibframe.ApplyEditorialPatch(grain, req.Patch.ToBibframe())
+			})
+			if err != nil {
+				results = append(results, itemResult{WorkID: workID, Error: err.Error()})
+				continue
+			}
+			results = append(results, itemResult{WorkID: workID, ETag: etag})
+		}
+		if !req.DryRun && queue != nil {
+			queue.WriteAudit(r.Context(), suggest.AuditEntry{
+				Action: "BATCH_EDIT", Actor: id.Email,
+				Note: batchNote(results),
+			})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"results": results})
+	})))
+
+	registerDrafts(mux, db, librarian)
+}
+
+// mutateWorkGrain CAS-updates one work's grain, retrying from fresh (server-
+// initiated edits like merge/split/batch own their concurrency, unlike the
+// client-token PUT).
+func mutateWorkGrain(r *http.Request, bs blob.Store, workID string, mutate func([]byte) ([]byte, error)) (string, error) {
+	path := bibframe.GrainPath(workID)
+	for attempt := range 6 {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt*attempt) * 5 * time.Millisecond)
+		}
+		grain, etag, err := bs.Get(r.Context(), path)
+		if err != nil {
+			return "", errors.New("no such work")
+		}
+		updated, err := mutate(grain)
+		if err != nil {
+			return "", err
+		}
+		newTag, err := bs.Put(r.Context(), path, updated, blob.PutOptions{IfMatch: etag, ContentType: "application/n-quads"})
+		if errors.Is(err, blob.ErrPreconditionFailed) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		return newTag, nil
+	}
+	return "", errors.New("write kept conflicting")
+}
+
+func batchNote(results any) string {
+	b, _ := json.Marshal(results)
+	if len(b) > 512 {
+		b = b[:512]
+	}
+	return string(b)
+}

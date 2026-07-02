@@ -81,6 +81,7 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		}
 	}
 	db := store.NewMem()
+	deps.DB = db
 	if cfg.AbuseSecret != "" {
 		abuse, err := suggest.NewAbuse([]byte(cfg.AbuseSecret))
 		if err != nil {

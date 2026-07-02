@@ -13,6 +13,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/auth/local"
 	"github.com/freeeve/libcatalog/backend/publish"
+	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
 	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/storage/blob"
@@ -46,6 +47,9 @@ type Deps struct {
 	// Publisher, when set, carries approved decisions into the grain store
 	// (POST /v1/publish and the review publish flag).
 	Publisher GraphPublisher
+	// DB is the document store backing drafts (and, with Blob and Verifier,
+	// enables the record-editing surface).
+	DB store.Store
 }
 
 // GraphPublisher is the publish pipeline seam (publish.Publisher in
@@ -72,6 +76,9 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Suggest != nil && deps.Verifier != nil {
 		registerReview(mux, deps.Suggest, deps.Verifier, deps.Publisher)
+	}
+	if deps.Blob != nil && deps.DB != nil && deps.Verifier != nil {
+		registerRecords(mux, deps.Blob, deps.DB, deps.Suggest, deps.Verifier)
 	}
 	return wrap(mux, deps.Logger)
 }
