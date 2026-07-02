@@ -93,9 +93,30 @@ holdsCount, estimatedWaitDays, actionUrl }`, caches briefly, de-dups in-flight r
 and fills each `.lcat-availability` placeholder. A failed or slow fetch degrades to
 `unknown` (blank) and never blocks render; with the config absent the placeholder stays
 inert. A new source plugs in via `registerAdapter({ providerKey, domAttr, batchSize,
-fetchBatch })` -- the runtime sibling of an ingest provider (`tasks/006`). A `proxied`
-transport (for sources without permissive CORS) and a physical-ILS adapter share the
-same interface and are future work (`tasks/004`).
+fetchBatch })` -- the runtime sibling of an ingest provider (`tasks/006`).
+
+### Direct vs proxied transport
+
+If the source's CORS does not permit a browser call from your deploy origin (or you
+want to keep the source behind an edge function), switch that provider to a proxy:
+
+```toml
+  [params.availability.overdrive]
+    transport = "proxied"
+    proxyUrl  = "https://your-edge-function.example/availability"
+    slug      = "your-overdrive-library-slug"   # still used for the borrow deep link
+```
+
+**Proxy contract.** With `transport = "proxied"` the adapter POSTs each batch to
+`proxyUrl` as `{ "provider": "overdrive", "slug": "...", "ids": [...] }` instead of
+calling the source directly. The proxy is a thin, stateless forwarder: it uses
+`provider`+`slug` to call the source, strips any secrets, and returns the source's
+**raw response verbatim** (OverDrive: `{ "items": [...] }`). Because the client
+normalizes that same response either way, a proxied fetch yields **identical** models
+to a direct one -- the only difference is the URL. The proxy function itself is a
+deployment artifact (an edge/serverless handler), not shipped by this module; enable
+it per provider so a pure-`direct` deployment stays backend-free. A physical-ILS
+adapter (DAIA/ILS-DI, populating `locations[]`) is future work (`tasks/004`).
 
 ## Accessibility
 

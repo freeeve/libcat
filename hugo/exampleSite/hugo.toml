@@ -27,3 +27,7 @@ languageCode = "en-us"
   enabled = false
   [params.availability.overdrive]
     slug = "queerliblib"
+    # If Thunder's CORS blocks the deploy origin, route through a proxy instead
+    # (same normalized output); the proxy function is a deployment artifact:
+    #   transport = "proxied"
+    #   proxyUrl  = "https://your-edge-function.example/availability"

@@ -78,7 +78,8 @@ for Tier 1 or a Tier 2 add-on.
 
 ## Acceptance
 - [x] OverDrive availability renders from a `direct` adapter with no committed
-  secret. (Proxy fallback: interface reserved, not yet implemented -- see Remaining.)
+  secret; proxy fallback produces identical normalized output (client-side `proxied`
+  transport delivered; the proxy *function* is a deployment artifact -- see Remaining).
 - [ ] One physical-ILS adapter renders `locations[]` through the proxy.
 - [x] A results page issues one batched call per provider, caches within TTL, and
   never blocks render on a failed fetch.
@@ -111,11 +112,24 @@ Hugo module (in-repo), grounded in the real Thunder API (verified against deepli
   Hugo module-context double-encoded-JSON quirk). Validated the real Hugo build output
   parses through `readConfig` to a usable config.
 
+## Delivered -- proxied transport (commit pending)
+
+Client-side `proxied` transport added to `lcat-availability.js`: `overdriveRequest`
+splits the batch URL/body by `transport` -- `direct` hits Thunder, `proxied` POSTs
+`{provider, slug, ids}` to a configured `proxyUrl`. The proxy is a thin forwarder that
+returns the source's **raw** `{items}` response, so the client's shared normalize path
+yields **identical** models either way (proven by a node test: `resolve` over the same
+availability via both transports produces `deepEqual` models, to different URLs).
+Config: `[params.availability.overdrive] transport = "proxied", proxyUrl = "..."`.
+Proxy contract documented in `hugo/README.md` (## Direct vs proxied transport);
+exampleSite carries the commented option. 17 availability tests pass.
+
 ## Remaining (deferred)
 
-- **Proxy transport** (`proxied`) + the stateless edge/serverless proxy artifact --
-  for sources without permissive CORS (and to strip secrets). Interface is reserved;
-  the proxy function itself is a deployment-repo artifact.
+- **The proxy *function*** -- a stateless edge/serverless handler that receives
+  `{provider, slug, ids}`, calls the source, strips secrets, and returns the raw
+  response. This is a deployment-repo artifact (the client contract is now defined and
+  tested); ship it only for `proxied` providers so pure-`direct` stays backend-free.
 - **Physical-ILS adapter** (DAIA / ILS-DI) populating `locations[]` -- proves the
   digital/physical superset; needs the proxy.
 - **Feasibility matrix** (CORS/auth/batch/rate-limit per source: OverDrive,

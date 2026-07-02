@@ -155,6 +155,40 @@ test("fetchOverdriveBatch: POSTs ids to the library availability endpoint", asyn
   assert.equal(map.r9.estimatedWaitDays, 21);
 });
 
+test("overdriveRequest: direct hits Thunder, proxied hits the proxy", () => {
+  const direct = A.overdriveRequest(["r1"], { slug: "queerliblib" });
+  assert.equal(direct.url, "https://thunder.api.overdrive.com/v2/libraries/queerliblib/media/availability");
+  assert.deepEqual(direct.body, { ids: ["r1"] });
+
+  const proxied = A.overdriveRequest(["r1", "r2"], { transport: "proxied", proxyUrl: "https://edge.example/avail", slug: "queerliblib" });
+  assert.equal(proxied.url, "https://edge.example/avail");
+  assert.deepEqual(proxied.body, { provider: "overdrive", slug: "queerliblib", ids: ["r1", "r2"] });
+});
+
+test("overdriveRequest: proxied without proxyUrl errors; direct without slug errors", () => {
+  assert.throws(() => A.overdriveRequest(["r1"], { transport: "proxied" }));
+  assert.throws(() => A.overdriveRequest(["r1"], {}));
+});
+
+test("proxied transport yields identical normalized models to direct", async () => {
+  // Same underlying availability, fetched two ways -> the models must match exactly
+  // (tasks/004: "proxy fallback produces identical normalized output").
+  const table = { r1: { id: "r1", ownedCopies: 3, availableCopies: 0, holdsCount: 5, estimatedWaitDays: 12, availabilityType: "normal" } };
+  const directCfg = { slug: "queerliblib" };
+  const proxiedCfg = { transport: "proxied", proxyUrl: "https://edge.example/avail", slug: "queerliblib" };
+
+  const dFetch = makeFetch(table);
+  const pFetch = makeFetch(table);
+  const d = await A.resolve("overdrive", ["r1"], directCfg, { fetch: dFetch, now: NOW, store: A.makeStore(60000) });
+  const p = await A.resolve("overdrive", ["r1"], proxiedCfg, { fetch: pFetch, now: NOW, store: A.makeStore(60000) });
+
+  assert.deepEqual(p.r1, d.r1, "proxied model must equal direct model");
+  assert.equal(d.r1.status, "holdable");
+  // ...and they went to different URLs.
+  assert.equal(dFetch.calls[0].url, "https://thunder.api.overdrive.com/v2/libraries/queerliblib/media/availability");
+  assert.equal(pFetch.calls[0].url, "https://edge.example/avail");
+});
+
 // fakeDoc returns a minimal document exposing one config script by id.
 function fakeDoc(textContent) {
   return {

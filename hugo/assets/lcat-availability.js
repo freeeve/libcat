@@ -84,31 +84,52 @@
     };
   }
 
-  // fetchOverdriveBatch POSTs one <=25-id batch to Thunder and returns an id->model
-  // map. It aborts on a timeout and rejects on a non-2xx response so the caller can
-  // degrade the whole batch to "unknown". deps.fetch / deps.now are injectable.
+  // overdriveRequest builds the {url, body} for a batch by transport. "direct" hits
+  // Thunder's public endpoint; "proxied" posts to a configured proxy (for origins
+  // where Thunder's CORS is not permissive, or to keep the source behind an edge
+  // function) that forwards to the source and returns the *same* {items} response --
+  // so normalization is identical either way (tasks/004 proxy contract).
+  function overdriveRequest(ids, cfg) {
+    if (cfg.transport === "proxied") {
+      if (!cfg.proxyUrl) {
+        throw new Error("lcat-availability: overdrive.proxyUrl required for proxied transport");
+      }
+      return { url: cfg.proxyUrl, body: { provider: "overdrive", slug: cfg.slug, ids: ids } };
+    }
+    if (!cfg.slug) throw new Error("lcat-availability: overdrive.slug not configured");
+    var base = cfg.baseUrl || THUNDER_BASE;
+    return {
+      url: base + "/libraries/" + encodeURIComponent(cfg.slug) + "/media/availability",
+      body: { ids: ids },
+    };
+  }
+
+  // fetchOverdriveBatch fetches one <=25-id batch and returns an id->model map. The
+  // transport (direct vs proxied) only changes the URL and request envelope; the
+  // response is the source's {items} shape and normalization is shared, so a proxy
+  // fallback yields identical models. It aborts on a timeout and rejects on a non-2xx
+  // response so the caller can degrade the whole batch to "unknown". deps.fetch /
+  // deps.now are injectable.
   async function fetchOverdriveBatch(ids, cfg, deps) {
     var fetchFn = (deps && deps.fetch) || (typeof fetch !== "undefined" ? fetch : null);
     if (!fetchFn) throw new Error("lcat-availability: no fetch available");
-    if (!cfg || !cfg.slug) throw new Error("lcat-availability: overdrive.slug not configured");
     var now = (deps && deps.now) || Date.now();
-    var base = cfg.baseUrl || THUNDER_BASE;
-    var url = base + "/libraries/" + encodeURIComponent(cfg.slug) + "/media/availability";
+    var req = overdriveRequest(ids, cfg || {});
 
     var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     var timer = ctrl
       ? setTimeout(function () {
           ctrl.abort();
-        }, cfg.timeoutMs || DEFAULT_TIMEOUT_MS)
+        }, (cfg && cfg.timeoutMs) || DEFAULT_TIMEOUT_MS)
       : null;
     try {
-      var resp = await fetchFn(url, {
+      var resp = await fetchFn(req.url, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ids: ids }),
+        body: JSON.stringify(req.body),
         signal: ctrl ? ctrl.signal : undefined,
       });
-      if (!resp.ok) throw new Error("thunder HTTP " + resp.status);
+      if (!resp.ok) throw new Error("availability HTTP " + resp.status);
       var data = await resp.json();
       var out = {};
       (data.items || []).forEach(function (item) {
@@ -345,6 +366,7 @@
     // pure core (unit-tested)
     overdriveStatus: overdriveStatus,
     normalizeOverdrive: normalizeOverdrive,
+    overdriveRequest: overdriveRequest,
     fetchOverdriveBatch: fetchOverdriveBatch,
     statusText: statusText,
     chunk: chunk,
