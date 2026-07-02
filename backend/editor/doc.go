@@ -63,12 +63,16 @@ type Mapper struct {
 
 // ToDoc decomposes a grain into the typed document for one of its Works.
 // Every quad is either claimed by exactly one profile field (rendered as a
-// FieldValue) or preserved verbatim in Passthrough.
+// FieldValue) or preserved verbatim in Passthrough. Feed values whose
+// (subject, predicate) carries an editorial lcat:overrides marker come back
+// flagged Overridden -- shadowed in projection, shown to the editor for the
+// hover-reveal / revert affordance.
 func (m *Mapper) ToDoc(grainNQ []byte, workID string) (*WorkDoc, error) {
 	ds, err := rdf.ParseNQuads(grainNQ)
 	if err != nil {
 		return nil, err
 	}
+	overrides := bibframe.ScanOverrides(ds)
 	gi, err := identity.ScanGrain(grainNQ)
 	if err != nil {
 		return nil, err
@@ -87,11 +91,11 @@ func (m *Mapper) ToDoc(grainNQ []byte, workID string) (*WorkDoc, error) {
 		ProfileID: m.WorkProfile.ID,
 		Work:      ResourceDoc{ID: workID, Fields: map[string][]FieldValue{}},
 	}
-	claimFields(ds, claimed, rdf.NewIRI(bibframe.WorkIRI(workID)), m.WorkProfile, doc.Work.Fields)
+	claimFields(ds, claimed, rdf.NewIRI(bibframe.WorkIRI(workID)), m.WorkProfile, doc.Work.Fields, overrides)
 	for _, instID := range instanceIDs {
 		inst := ResourceDoc{ID: instID, Fields: map[string][]FieldValue{}}
 		if m.InstanceProfile != nil {
-			claimFields(ds, claimed, rdf.NewIRI(bibframe.InstanceIRI(instID)), m.InstanceProfile, inst.Fields)
+			claimFields(ds, claimed, rdf.NewIRI(bibframe.InstanceIRI(instID)), m.InstanceProfile, inst.Fields, overrides)
 		}
 		doc.Instances = append(doc.Instances, inst)
 	}
@@ -160,18 +164,18 @@ func objectSyntax(t rdf.Term) string {
 
 // claimFields walks one profile's fields against one resource node, claiming
 // matching quads into FieldValues.
-func claimFields(ds *rdf.Dataset, claimed []bool, node rdf.Term, profile *profiles.Profile, out map[string][]FieldValue) {
+func claimFields(ds *rdf.Dataset, claimed []bool, node rdf.Term, profile *profiles.Profile, out map[string][]FieldValue, overrides bibframe.Overrides) {
 	for _, field := range profile.Fields {
 		var values []FieldValue
 		switch len(field.Predicates) {
 		case 1:
-			values = claimDirect(ds, claimed, node, field.Predicates[0])
+			values = claimDirect(ds, claimed, node, field.Predicates[0], overrides)
 		case 2:
 			// The link quads (node -> intermediate) stay unclaimed: they
 			// belong to the structure, not the value, and passthrough
 			// preserves them.
 			for _, mid := range objectsAll(ds, node, field.Predicates[0]) {
-				values = append(values, claimDirect(ds, claimed, mid, field.Predicates[1])...)
+				values = append(values, claimDirect(ds, claimed, mid, field.Predicates[1], overrides)...)
 			}
 		}
 		if len(values) > 0 {
@@ -187,7 +191,7 @@ func claimFields(ds *rdf.Dataset, claimed []bool, node rdf.Term, profile *profil
 }
 
 // claimDirect claims every (subject, predicate, *) quad across all graphs.
-func claimDirect(ds *rdf.Dataset, claimed []bool, subject rdf.Term, predicate string) []FieldValue {
+func claimDirect(ds *rdf.Dataset, claimed []bool, subject rdf.Term, predicate string, overrides bibframe.Overrides) []FieldValue {
 	var out []FieldValue
 	for i, q := range ds.Quads {
 		if claimed[i] || q.S != subject || q.P.Value != predicate {
@@ -203,7 +207,9 @@ func claimDirect(ds *rdf.Dataset, claimed []bool, subject rdf.Term, predicate st
 			Datatype: q.O.Datatype,
 			IRI:      q.O.IsIRI(),
 			Prov:     q.G.Value,
-			Node:     termSyntax(subject),
+			Overridden: strings.HasPrefix(q.G.Value, "feed:") &&
+				subject.IsIRI() && overrides.Shadows(subject.Value, predicate),
+			Node: termSyntax(subject),
 		})
 	}
 	return out

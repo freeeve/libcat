@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/identity"
 	"github.com/freeeve/libcatalog/ingest"
 	"github.com/freeeve/libcatalog/ingest/marc"
@@ -165,4 +166,51 @@ func TestEditedValueLandsOnNode(t *testing.T) {
 		return // one grain suffices
 	}
 	t.Fatal("no grain with a title")
+}
+
+// TestOverriddenFlag proves feed values under an editorial lcat:overrides
+// marker come back flagged for the hover-reveal / revert affordance.
+func TestOverriddenFlag(t *testing.T) {
+	m := newMapper(t)
+	for workID, grain := range realGrains(t) {
+		doc, err := m.ToDoc(grain, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(doc.Work.Fields["subjects"]) == 0 {
+			continue
+		}
+		// Claim bf:subject editorially.
+		patch := bibframe.OverridePatch(bibframe.WorkIRI(workID),
+			"http://id.loc.gov/ontologies/bibframe/subject")
+		patch.Add = append(patch.Add, bibframe.SubjectQuad(workID, "https://homosaurus.org/v4/x"))
+		claimed, err := bibframe.ApplyEditorialPatch(grain, patch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc2, err := m.ToDoc(claimed, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var feedFlagged, editorialFlagged bool
+		for _, v := range doc2.Work.Fields["subjects"] {
+			switch {
+			case strings.HasPrefix(v.Prov, "feed:"):
+				feedFlagged = feedFlagged || v.Overridden
+				if !v.Overridden {
+					t.Fatalf("feed subject not flagged: %+v", v)
+				}
+			case v.Prov == "editorial:":
+				editorialFlagged = editorialFlagged || v.Overridden
+			}
+		}
+		if !feedFlagged {
+			t.Fatal("no feed subject flagged overridden")
+		}
+		if editorialFlagged {
+			t.Fatal("editorial value flagged overridden")
+		}
+		return
+	}
+	t.Skip("no grain with feed subjects")
 }

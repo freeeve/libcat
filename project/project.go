@@ -316,14 +316,18 @@ func follow(raw map[string]string, start string) string {
 
 // Project reads a catalog.nq dataset and projects each Work into a Catalog record.
 // Display/facet fields are drawn from the union of the provider's feed graph and
-// the editorial graph, so curated subjects appear alongside feed data.
+// the editorial graph, so curated subjects appear alongside feed data. Editorial
+// lcat:overrides markers shadow the feed first (tasks/042): a property a
+// cataloger claimed shows only its editorial values, and deleting the marker
+// resurfaces the feed untouched.
 func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 	ds, err := rdf.ParseNQuads(catalogNQ)
 	if err != nil {
 		return nil, err
 	}
+	overrides := bibframe.ScanOverrides(ds)
 	p := &projector{
-		feed:    ds.Graph(bibframe.FeedGraph(provider)),
+		feed:    bibframe.ApplyShadow(ds.Graph(bibframe.FeedGraph(provider)), overrides),
 		ed:      ds.Graph(bibframe.EditorialGraph()),
 		labels:  buildLabelIndex(ds),
 		broader: buildBroaderIndex(ds),
