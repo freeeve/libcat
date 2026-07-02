@@ -15,7 +15,10 @@ body {
   background: var(--lcat-bg);
   font: 100%/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
-a { color: var(--lcat-accent); }
+/* Underline links by default so in-text links do not rely on color alone
+   (WCAG 1.4.1); chrome links with a non-color affordance (brand, facet rows,
+   tag pills, pagination buttons) opt out below. */
+a { color: var(--lcat-accent); text-decoration: underline; }
 a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible {
   outline: 3px solid var(--lcat-accent);
   outline-offset: 2px;
@@ -89,6 +92,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 @media (max-width: 48rem) {
   .lcat-layout { grid-template-columns: 1fr; }
 }
+/* Work detail (page.html) defines no sidebar block, so <main> is the layout's only
+   child; span it across both tracks instead of stranding it in the 16rem column. */
+.lcat-layout > .lcat-main:only-child { grid-column: 1 / -1; }
 .lcat-main:focus { outline: none; }
 .lcat-facet { margin-bottom: 1rem; border-bottom: 1px solid var(--lcat-border); padding-bottom: 0.5rem; }
 .lcat-facet summary { cursor: pointer; font-weight: 600; }
@@ -115,6 +121,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border-radius: 999px;
   padding: 0.1rem 0.6rem;
 }
+/* Pills read as distinct shapes, not in-text links, so they skip the default underline. */
+.lcat-tags li a { text-decoration: none; }
+.lcat-tags li a:hover { text-decoration: underline; }
 .lcat-terms { list-style: none; padding: 0; columns: 2; }
 .lcat-editions { list-style: none; padding: 0; }
 .lcat-edition { padding: 0.5rem 0; border-bottom: 1px dashed var(--lcat-border); }
@@ -128,4 +137,22 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 .lcat-availability[data-status="holdable"] { color: #9a6700; }
 .lcat-availability[data-status="unavailable"] { color: #8b1a1a; }
 .lcat-meta dt { font-weight: 600; }
-.pagination { list-style: none; display: flex; gap: 0.5rem; padding: 0; margin: 1.5rem 0; }
+/* Hugo's _internal/pagination.html emits .pagination > .page-item > .page-link. Size the
+   links as >=44px button targets (WCAG 2.5.8) rather than bare text links. */
+.pagination { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; margin: 1.5rem 0; }
+.pagination .page-item { display: flex; }
+.pagination .page-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--lcat-border);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--lcat-accent);
+}
+.pagination .page-link:hover { border-color: var(--lcat-accent); }
+.pagination .active .page-link { background: var(--lcat-accent); border-color: var(--lcat-accent); color: #fff; }
+.pagination .disabled .page-link { color: var(--lcat-muted); border-color: var(--lcat-border); pointer-events: none; }
