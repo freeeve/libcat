@@ -334,6 +334,15 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 		return cat, nil
 	}
 	for _, w := range p.feed.SubjectsOfType(classWork) {
+		// Only the catalog's own minted Works project as records. Since
+		// libcodex v0.11.0 the crosswalk types 76X-78X relation targets as
+		// bf:Work too -- related-resource stubs that belong inside their
+		// carrying record, not as top-level catalog entries. Minted Works
+		// are the "#<id>Work" fragment IRIs (the identity.ScanGrain
+		// convention); relation stubs are blank or external nodes.
+		if !w.IsIRI() || !strings.HasPrefix(w.Value, "#") || !strings.HasSuffix(w.Value, "Work") {
+			continue
+		}
 		cat.Works = append(cat.Works, p.work(w))
 	}
 	sort.Slice(cat.Works, func(i, j int) bool { return cat.Works[i].ID < cat.Works[j].ID })

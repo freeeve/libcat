@@ -27,24 +27,23 @@ var marcExpressSamples = []string{
 // carries them: the identifiers, primary/added agents, title, publication, extent,
 // carrier, summary, subjects, genre, and access link an adopter judges fidelity by.
 var coreFields = []string{
-	"001", "008", "020", "100", "245", "250", "260", "300", "336", "337",
-	"338", "500", "520", "650", "655", "700", "856",
+	"001", "008", "020", "100", "245", "250", "260", "300", "306", "336",
+	"337", "338", "347", "490", "500", "511", "520", "521", "533", "538",
+	"650", "655", "700", "776", "856",
 }
 
 // knownLostFields are the tags that do NOT survive the round-trip, measured and
-// explained in docs/marc-fidelity.md. The remaining coded/fixed fields (006/007),
-// the cataloging-source and acquisition fields (037/040), BISAC-in-084, the extra
-// carrier detail (306/347), series (490), the specialized notes (511/521/533/538
-// -- their content may survive as bf:Note but does not reconstruct its original
-// tag), and the linking entry (776). libcodex v0.9.0 moved 008, 336, and 500 from
-// this set into coreFields (tasks/053). A round-trip that loses anything NOT in
-// this set is an unexplained regression -- and a field listed here that survives
-// is a stale table (TestMARCRoundTripLossTableCurrent); update the doc and this
-// set together when the crosswalk changes.
+// explained in docs/marc-fidelity.md: the packed coded fields 006/007 (upstream
+// libcodex tasks/082) and the vendor-convention fields 037/040/084, which decode
+// to their modeled equivalents (024-shaped identifier, provenance-out-of-band,
+// 072) rather than their original tags -- deliberate non-goals. libcodex v0.9.0
+// moved 008/336/500 to coreFields (tasks/053); v0.11.0 moved 306/347/490/511/
+// 521/533/538/776 (tasks/055, upstream 081). A round-trip that loses anything
+// NOT in this set is an unexplained regression -- and a field listed here that
+// survives is a stale table (TestMARCRoundTripLossTableCurrent); update the doc
+// and this set together when the crosswalk changes.
 var knownLostFields = map[string]bool{
-	"006": true, "007": true, "037": true, "040": true,
-	"084": true, "306": true, "347": true, "490": true,
-	"511": true, "521": true, "533": true, "538": true, "776": true,
+	"006": true, "007": true, "037": true, "040": true, "084": true,
 }
 
 // roundTripTags round-trips every record in a sample and returns how many times each

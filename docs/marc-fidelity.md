@@ -40,8 +40,13 @@ changes.
 | 260 | Publication (AACR2) | |
 | 300 | Physical description / extent | |
 | 336 / 337 / 338 | Content / media / carrier type | 336 kept since libcodex v0.9.0; 337 partially collapses on multi-337 records |
+| 306 | Playing time | since libcodex v0.11.0 (bf:duration) |
+| 347 | Digital file characteristics | since libcodex v0.11.0 ($a/$b via bflc FileType/EncodingFormat; $2 not kept) |
+| 490 | Series statement | since libcodex v0.11.0 (bf:seriesStatement; $v rejoins after " ; ") |
 | 500 | General note | since libcodex v0.9.0 (5XX -> bf:Note) |
+| 511 / 521 / 533 / 538 | Specialized notes | since libcodex v0.11.0 -- typed bf:noteType decodes back to the original tag; note labels join every subfield |
 | 520 | Summary | |
+| 776 | Additional physical form | since libcodex v0.11.0 (the $c/$z print/ebook pairing survives as a bf:Isbn on the associated resource) |
 | 650 | Topical subject | |
 | 655 | Genre/form | |
 | 856 | Electronic location (access URL) | |
@@ -53,15 +58,10 @@ subjects, genre, and access link -- the fields discovery is built on.
 
 | Tag | Field | Why it is lost / where it lives instead |
 |-----|-------|------------------------------------------|
-| 006 / 007 | Fixed-length coded elements (additional/physical) | BIBFRAME models these as typed properties, not the packed coded form; some (e.g. language) re-emerge as **041**, see below. 008 reconstructs since libcodex v0.9.0 |
-| 037 | Source of acquisition / **Reserve ID** | **the OverDrive availability key** -- lost via MARC, but the *direct* JSON→BIBFRAME path keeps it as a `bf:source`-tagged identifier (`tasks/008`) |
+| 006 / 007 | Fixed-length coded elements (additional/physical) | packed reconstruction is upstream libcodex tasks/082; 008 reconstructs since v0.9.0; some elements (e.g. language) re-emerge as **041**, see below |
+| 037 | Source of acquisition / **Reserve ID** | **the OverDrive availability key** -- decodes as an 024-shaped identifier, not 037; the *direct* JSON→BIBFRAME path keeps it as a `bf:source`-tagged identifier (`tasks/008`) |
 | 040 | Cataloging source | provenance is modeled as named graphs, not a 040 |
-| 084 | Other classification (**BISAC** in MARC Express) | **lost via MARC**; the direct path keeps BISAC as a `bf:Classification` with `bf:source "bisacsh"` (libcodex reads BISAC from 072, not 084) |
-| 306 | Playing time | audiobook |
-| 347 | Digital file characteristics | audiobook |
-| 490 | Series statement | |
-| 511 / 521 / 533 / 538 | Specialized notes (participant / audience / reproduction / system details) | content may survive as a generic bf:Note but does not reconstruct its original tag; 500 and 520 survive |
-| 776 | Additional physical form entry | |
+| 084 | Other classification (**BISAC** in MARC Express) | decodes to 072, not 084; the direct path keeps BISAC as a `bf:Classification` with `bf:source "bisacsh"` |
 
 ### Relocated, not lost
 
