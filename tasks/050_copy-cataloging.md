@@ -2,12 +2,17 @@
 
 ## Context
 
-Koha's Z39.50/SRU copy cataloging and staged-import workflow. **The protocol
-clients (SRU, probably Z39.50) are being implemented in libcodex by the
-maintainer -- their design is deferred and NOT in scope here.** This task covers
-the libcatalog-side integration only, and is blocked on those clients for the
-external-search half; the staged file-import half (.mrc upload) is independent
-and can land first if this needs splitting.
+Koha's Z39.50/SRU copy cataloging and staged-import workflow. The protocol
+clients live in libcodex, not here. **SRU shipped in libcodex v0.9.0**:
+`sru.NewClient(baseURL)` (configurable version/schema/maxRecords),
+`Client.SearchRetrieve(ctx, sru.Request{Query, StartRecord, MaximumRecords})`
+-> `Response{Records, NumberOfRecords}` with `Record.Decode() (*codex.Record,
+error)` (MARCXML handled internally), a streaming `Client.NewReader(ctx,
+query)` implementing `codex.RecordReader` with `All() iter.Seq2`, and
+`sru.Quote` for CQL terms. Z39.50 is tracked upstream (libcodex tasks/075,
+YAZ as an external test oracle -- not cgo); the external-search half here can
+proceed on SRU now (needs the libcodex v0.9.0 bump, tasks/053). The staged
+file-import half (.mrc upload) is independent of both.
 
 ## Scope
 
