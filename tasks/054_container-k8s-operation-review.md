@@ -49,7 +49,17 @@ convenience.
       go:embed; recommend documenting all three rather than making hugo the
       SPA host.
    Scope the Notifier impl + a `docs/local-dev.md` walkthrough here.
-8. **Decide scope**: which pieces are core-repo deliverables vs deployment-
+8. **S3 Tables (assessed 2026-07, maintainer question): not for current
+   stores; candidate for a future analytics tier.** S3 Tables is managed
+   Iceberg -- columnar/batch, engine-queried, seconds latency, no per-item
+   conditional ops. The sidecar needs ms point reads + CAS (queue
+   transitions, lease, refresh rotation): DynamoDB-class. Grains are
+   path-addressed RDF documents needing ETag CAS and human/git readability:
+   plain-S3-class. Revisit if/when these arrive: audit-trail analytics at
+   consortium scale, availability-history time series (deeplibby-shaped,
+   hundreds of millions of rows), or Parquet as an export format for
+   data-science consumers.
+9. **Decide scope**: which pieces are core-repo deliverables vs deployment-
    repo examples, and fold the result into tasks/040 or supersede it.
 
 ## Acceptance

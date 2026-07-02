@@ -1,0 +1,30 @@
+{
+  "id": "instance-ebook",
+  "label": "Instance (ebook / digital)",
+  "resourceType": "instance",
+  "fields": [
+    {
+      "path": "isbn",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/identifiedBy", "http://www.w3.org/1999/02/22-rdf-syntax-ns#value"],
+      "label": "Identifiers",
+      "help": "ISBN and provider identifiers (typed nodes; edit with care)",
+      "valueSource": {"kind": "literal"},
+      "marcHint": "020$a"
+    },
+    {
+      "path": "media",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/media"],
+      "label": "Media type",
+      "help": "RDA media IRI (drives the format facet)",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "337"
+    },
+    {
+      "path": "carrier",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/carrier"],
+      "label": "Carrier type",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "338"
+    }
+  ]
+}

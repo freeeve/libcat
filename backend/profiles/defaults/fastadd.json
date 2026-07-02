@@ -1,0 +1,22 @@
+{
+  "id": "fastadd",
+  "label": "Fast add",
+  "resourceType": "work",
+  "fields": [
+    {
+      "path": "title",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/title", "http://id.loc.gov/ontologies/bibframe/mainTitle"],
+      "label": "Title",
+      "min": 1,
+      "max": 1,
+      "valueSource": {"kind": "literal"},
+      "marcHint": "245$a"
+    },
+    {
+      "path": "tags",
+      "predicates": ["https://github.com/freeeve/libcatalog/ns#tag"],
+      "label": "Tags",
+      "valueSource": {"kind": "literal"}
+    }
+  ]
+}

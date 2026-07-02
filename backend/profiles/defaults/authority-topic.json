@@ -1,0 +1,43 @@
+{
+  "id": "authority-topic",
+  "label": "Authority (topical term)",
+  "resourceType": "authority",
+  "fields": [
+    {
+      "path": "prefLabel",
+      "predicates": ["http://www.w3.org/2004/02/skos/core#prefLabel"],
+      "label": "Preferred label",
+      "min": 1,
+      "valueSource": {"kind": "langLiteral"},
+      "marcHint": "150"
+    },
+    {
+      "path": "altLabel",
+      "predicates": ["http://www.w3.org/2004/02/skos/core#altLabel"],
+      "label": "Used for (variants)",
+      "valueSource": {"kind": "langLiteral"},
+      "marcHint": "450"
+    },
+    {
+      "path": "definition",
+      "predicates": ["http://www.w3.org/2004/02/skos/core#definition"],
+      "label": "Scope note",
+      "valueSource": {"kind": "langLiteral"},
+      "marcHint": "680"
+    },
+    {
+      "path": "broader",
+      "predicates": ["http://www.w3.org/2004/02/skos/core#broader"],
+      "label": "Broader terms",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "550"
+    },
+    {
+      "path": "related",
+      "predicates": ["http://www.w3.org/2004/02/skos/core#related"],
+      "label": "Related terms",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "550"
+    }
+  ]
+}

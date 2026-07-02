@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/enrich"
 	"github.com/freeeve/libcatalog/backend/export"
 	"github.com/freeeve/libcatalog/backend/httpapi"
+	"github.com/freeeve/libcatalog/backend/profiles"
 	"github.com/freeeve/libcatalog/backend/publish"
 	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
@@ -36,6 +39,26 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	// "lcatd profiles-validate [dir]" -- the framework-test subcommand: load
+	// the shipped editing profiles plus a deployment's overrides and exit
+	// nonzero on any invalid profile.
+	if len(os.Args) > 1 && os.Args[1] == "profiles-validate" {
+		set, err := profiles.LoadDefaults()
+		if err == nil && len(os.Args) > 2 {
+			set, err = profiles.LoadDir(set, os.Args[2])
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		ids := make([]string, 0, len(set))
+		for id := range set {
+			ids = append(ids, id)
+		}
+		slices.Sort(ids)
+		fmt.Printf("%d profiles valid: %s\n", len(ids), strings.Join(ids, ", "))
+		return
+	}
 	cfg, err := config.FromEnv()
 	if err != nil {
 		logger.Error("config", "err", err)
