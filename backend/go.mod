@@ -12,6 +12,8 @@ require (
 	golang.org/x/crypto v0.53.0
 )
 
+require golang.org/x/text v0.38.0
+
 require (
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.30 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.30 // indirect
@@ -19,6 +21,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.12.7 // indirect
 	github.com/aws/smithy-go v1.27.3 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
+	github.com/freeeve/libcodex v0.8.0
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
@@ -30,3 +33,5 @@ require (
 )
 
 replace github.com/freeeve/libcatalog => ../
+
+replace github.com/freeeve/libcodex => ../../libcodex

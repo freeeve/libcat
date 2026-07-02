@@ -46,22 +46,37 @@ type Config struct {
 	// proxy; an empty secret leaves the proxy returning 503.
 	OIDCClientID     string
 	OIDCClientSecret string
+
+	// VocabSchemes lists the controlled vocabularies to load from the blob
+	// store's authorities tree (comma-separated; empty = all found).
+	VocabSchemes []string
+	// AuthoritiesPrefix is the blob path prefix holding authority grains.
+	// Default "data/authorities/".
+	AuthoritiesPrefix string
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
 func FromEnv() (Config, error) {
 	cfg := Config{
-		ListenAddr:       envOr("LCATD_LISTEN_ADDR", ":8080"),
-		BlobDir:          os.Getenv("LCATD_BLOB_DIR"),
-		LocalAuth:        os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
-		LocalIssuer:      envOr("LCATD_LOCAL_ISSUER", "lcatd-local"),
-		LocalSigningKey:  os.Getenv("LCATD_LOCAL_SIGNING_KEY"),
-		BootstrapAdmin:   os.Getenv("LCATD_BOOTSTRAP_ADMIN"),
-		OIDCIssuer:       os.Getenv("LCATD_OIDC_ISSUER"),
-		OIDCAudience:     os.Getenv("LCATD_OIDC_AUDIENCE"),
-		OIDCRoleClaim:    envOr("LCATD_OIDC_ROLE_CLAIM", "role"),
-		OIDCClientID:     os.Getenv("LCATD_OIDC_CLIENT_ID"),
-		OIDCClientSecret: os.Getenv("LCATD_OIDC_CLIENT_SECRET"),
+		ListenAddr:        envOr("LCATD_LISTEN_ADDR", ":8080"),
+		BlobDir:           os.Getenv("LCATD_BLOB_DIR"),
+		LocalAuth:         os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
+		LocalIssuer:       envOr("LCATD_LOCAL_ISSUER", "lcatd-local"),
+		LocalSigningKey:   os.Getenv("LCATD_LOCAL_SIGNING_KEY"),
+		BootstrapAdmin:    os.Getenv("LCATD_BOOTSTRAP_ADMIN"),
+		OIDCIssuer:        os.Getenv("LCATD_OIDC_ISSUER"),
+		OIDCAudience:      os.Getenv("LCATD_OIDC_AUDIENCE"),
+		OIDCRoleClaim:     envOr("LCATD_OIDC_ROLE_CLAIM", "role"),
+		OIDCClientID:      os.Getenv("LCATD_OIDC_CLIENT_ID"),
+		OIDCClientSecret:  os.Getenv("LCATD_OIDC_CLIENT_SECRET"),
+		AuthoritiesPrefix: envOr("LCATD_AUTHORITIES_PREFIX", "data/authorities/"),
+	}
+	if raw := os.Getenv("LCATD_VOCAB_SCHEMES"); raw != "" {
+		for s := range strings.SplitSeq(raw, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				cfg.VocabSchemes = append(cfg.VocabSchemes, s)
+			}
+		}
 	}
 	if cfg.ListenAddr == "" {
 		return Config{}, fmt.Errorf("config: empty LCATD_LISTEN_ADDR")

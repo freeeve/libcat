@@ -11,6 +11,7 @@ import (
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/auth/local"
+	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -32,6 +33,9 @@ type Deps struct {
 	// Local, when set, mounts built-in user auth (login/refresh/logout)
 	// and, with Verifier, admin user management.
 	Local *local.Service
+	// Vocab, when set, mounts GET /v1/terms autocomplete over the loaded
+	// controlled vocabularies.
+	Vocab *vocab.Index
 }
 
 // New assembles the routed, middleware-wrapped API handler.
@@ -43,6 +47,9 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Local != nil {
 		registerLocalAuth(mux, deps.Local, deps.Verifier)
+	}
+	if deps.Vocab != nil {
+		registerTerms(mux, deps.Vocab)
 	}
 	return wrap(mux, deps.Logger)
 }

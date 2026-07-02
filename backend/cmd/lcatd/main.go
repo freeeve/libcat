@@ -23,6 +23,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/config"
 	"github.com/freeeve/libcatalog/backend/httpapi"
 	"github.com/freeeve/libcatalog/backend/store"
+	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -67,6 +68,14 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 	deps := httpapi.Deps{Logger: logger}
 	if cfg.BlobDir != "" {
 		deps.Blob = blob.NewDir(cfg.BlobDir)
+		ix, err := vocab.Load(ctx, deps.Blob, cfg.AuthoritiesPrefix, cfg.VocabSchemes)
+		if err != nil {
+			return httpapi.Deps{}, fmt.Errorf("load vocabularies: %w", err)
+		}
+		if schemes := ix.Schemes(); len(schemes) > 0 {
+			logger.Info("vocabularies loaded", "schemes", schemes)
+			deps.Vocab = ix
+		}
 	}
 	db := store.NewMem()
 	verifiers := map[string]auth.TokenVerifier{}
