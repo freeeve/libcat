@@ -4,6 +4,9 @@ A generic framework for building **library discovery catalogs** as fast, static,
 faceted websites -- with BIBFRAME as the source of truth and an optional
 collaborative cataloging backend.
 
+**Live demo:** [libcatalog.evefreeman.com](https://libcatalog.evefreeman.com) --
+"Eve's Library", a public adopter site built on the framework + Hugo module.
+
 libcatalog is the *framework*. A deployment (for example a queer-literature
 library on OverDrive) *themes and implements* it: it brings its own collection,
 controlled vocabularies, provider feeds, and branding. Nothing library-specific

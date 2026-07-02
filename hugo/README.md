@@ -10,6 +10,10 @@ It is a **separate Go module** from the libcatalog framework, so Hugo sites that
 import it never pull the Go build dependencies -- it ships only templates and
 assets.
 
+**Live reference adopter:** [libcatalog.evefreeman.com](https://libcatalog.evefreeman.com)
+("Eve's Library") imports this module, provides projected data, and adds light branding --
+a runnable example of a real site built on it, alongside the `exampleSite/` in this repo.
+
 ## Requirements
 
 - Hugo **extended, >= 0.146** (content adapters + the flat template system).
