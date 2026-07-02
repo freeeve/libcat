@@ -13,5 +13,6 @@ languageCode = "en-us"
 [taxonomies]
   language = "languages"
   subject = "subjects"
+  tag = "tags"
   contributor = "contributors"
   classification = "classifications"

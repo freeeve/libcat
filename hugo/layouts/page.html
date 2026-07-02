@@ -8,10 +8,25 @@
   </p>
   {{ end }}
 
-  {{ with .Params.subjects }}
+  {{ with .Params.subjectList }}
   <section aria-labelledby="lcat-subj"><h2 id="lcat-subj">Subjects</h2>
     <ul class="lcat-tags">
-      {{ range . }}<li><a href="{{ printf "/subjects/%s/" (urlize .) | relURL }}">{{ . }}</a></li>{{ end }}
+      {{ $lang := site.Language.Lang }}
+      {{ range . }}
+        {{ $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
+        {{/* Facet by label; the subject's canonical link is its authority URI. */}}
+        <li><a href="{{ printf "/subjects/%s/" (urlize $label) | relURL }}">{{ $label }}</a>
+          {{ if ne $label .id }}<a class="lcat-authority" href="{{ .id }}" rel="external" aria-label="Authority record for {{ $label }}">↗</a>{{ end }}
+        </li>
+      {{ end }}
+    </ul>
+  </section>
+  {{ end }}
+
+  {{ with .Params.tags }}
+  <section aria-labelledby="lcat-tags"><h2 id="lcat-tags">Genres &amp; tags</h2>
+    <ul class="lcat-tags">
+      {{ range . }}<li><a href="{{ printf "/tags/%s/" (urlize .) | relURL }}">{{ . }}</a></li>{{ end }}
     </ul>
   </section>
   {{ end }}

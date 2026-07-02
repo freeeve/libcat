@@ -14,9 +14,19 @@
   {{- if ne ($data.version | int) $want -}}
     {{- errorf "libcatalog: catalog.json schema version %v, module targets %d -- reproject with a matching lcat (tasks/009)" $data.version $want -}}
   {{- end -}}
+  {{- $lang := site.Language.Lang -}}
   {{- range $data.works -}}
     {{- $names := slice -}}
     {{- range .contributors -}}{{- $names = $names | append .name -}}{{- end -}}
+    {{- /* Controlled subjects taxonomy-index by their localized label (v3): pick
+           labels[siteLang], else labels.en, else the URI. Full subject objects
+           (URI + labels) are kept in subjectList for the detail page. */ -}}
+    {{- $subjectLabels := slice -}}
+    {{- range .subjects -}}
+      {{- $label := .id -}}
+      {{- with .labels -}}{{- $label = or (index . $lang) (index . "en") $label -}}{{- end -}}
+      {{- $subjectLabels = $subjectLabels | append $label -}}
+    {{- end -}}
     {{- $.AddPage (dict
       "kind" "page"
       "path" .id
@@ -24,10 +34,12 @@
       "params" (dict
         "subtitle" .subtitle
         "languages" .languages
-        "subjects" .subjects
+        "subjects" $subjectLabels
+        "tags" .tags
         "contributors" $names
         "classifications" .classifications
         "contributorList" .contributors
+        "subjectList" .subjects
         "instances" .instances
         "workID" .id
       )

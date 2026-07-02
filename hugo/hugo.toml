@@ -13,11 +13,12 @@
 # the page param the adapter sets; the keys mirror catalog.json field names.
 [taxonomies]
   language = "languages"
-  subject = "subjects"
+  subject = "subjects"       # controlled-vocabulary subjects (labels; tasks/012)
+  tag = "tags"               # uncontrolled feed genre strings (tasks/012)
   contributor = "contributors"
   classification = "classifications"
 
 [params]
   # catalogSchemaVersion the module targets; the adapter fails the build loudly on
   # a mismatch with catalog.json's top-level "version" (tasks/009 contract).
-  catalogSchemaVersion = 2
+  catalogSchemaVersion = 3

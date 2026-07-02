@@ -1,18 +1,33 @@
 {{- /*
-  Facet sidebar built from the projector's facets.json (precomputed value+count per
-  dimension) rather than aggregating catalog.json in templates (tasks/009 contract).
-  Each value links to its Hugo taxonomy term page, which the content adapter's page
-  params generate. Falls back silently when facets.json is absent.
+  Facet sidebar from the projector's facets.json (precomputed value+count per
+  dimension; tasks/009). Controlled subjects (tasks/012) carry {id, labels, count}
+  and display their localized label; the other dimensions are {value, count}.
+  Each value links to its Hugo taxonomy term page. Falls back silently when
+  facets.json is absent.
 */ -}}
 {{- $facets := "" -}}
 {{- with resources.Get "facets.json" -}}{{- $facets = . | transform.Unmarshal -}}{{- end -}}
-{{- $dims := slice
-  (dict "key" "languages" "label" "Languages")
-  (dict "key" "classifications" "label" "Classifications")
-  (dict "key" "subjects" "label" "Subjects")
-  (dict "key" "contributors" "label" "Contributors") -}}
+{{- $lang := site.Language.Lang -}}
 {{- with $facets -}}
 <nav class="lcat-facets" aria-label="Filter works">
+  {{- /* Controlled subjects: label-keyed term pages, count from facets.json. */ -}}
+  {{- with index $facets "subjects" -}}
+  <details class="lcat-facet" open>
+    <summary>Subjects <span class="lcat-facet-total">{{ len . }}</span></summary>
+    <ul>
+      {{- range first 20 . }}
+      {{- $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
+      <li><a href="{{ printf "/subjects/%s/" (urlize $label) | relURL }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ .count }}</span></a></li>
+      {{- end }}
+    </ul>
+  </details>
+  {{- end -}}
+  {{- /* Plain {value,count} dimensions. */ -}}
+  {{- $dims := slice
+    (dict "key" "tags" "label" "Genres & tags")
+    (dict "key" "languages" "label" "Languages")
+    (dict "key" "classifications" "label" "Classifications")
+    (dict "key" "contributors" "label" "Contributors") -}}
   {{- range $dims -}}
     {{- $dim := . -}}
     {{- with index $facets $dim.key -}}
@@ -20,12 +35,7 @@
       <summary>{{ $dim.label }} <span class="lcat-facet-total">{{ len . }}</span></summary>
       <ul>
         {{- range first 20 . }}
-        <li>
-          <a href="{{ printf "/%s/%s/" $dim.key (urlize .value) | relURL }}">
-            <span class="lcat-facet-value">{{ .value }}</span>
-            <span class="lcat-count">{{ .count }}</span>
-          </a>
-        </li>
+        <li><a href="{{ printf "/%s/%s/" $dim.key (urlize .value) | relURL }}"><span class="lcat-facet-value">{{ .value }}</span> <span class="lcat-count">{{ .count }}</span></a></li>
         {{- end }}
       </ul>
     </details>

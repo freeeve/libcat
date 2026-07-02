@@ -1,13 +1,19 @@
 {
-  "version": 2,
+  "version": 3,
   "languages": [
     { "value": "eng", "count": 1 },
     { "value": "spa", "count": 1 }
   ],
   "subjects": [
+    {
+      "id": "https://homosaurus.org/v3/homoit0000669",
+      "labels": { "en": "Transgender people", "es": "Personas trans" },
+      "count": 2
+    }
+  ],
+  "tags": [
     { "value": "Fiction", "count": 2 },
-    { "value": "Family", "count": 1 },
-    { "value": "Transgender people", "count": 1 }
+    { "value": "Family", "count": 1 }
   ],
   "contributors": [
     { "value": "Allende, Isabel", "count": 1 },

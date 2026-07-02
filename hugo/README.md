@@ -43,6 +43,7 @@ assets.
    [taxonomies]
      language = "languages"
      subject = "subjects"
+     tag = "tags"
      contributor = "contributors"
      classification = "classifications"
    ```
@@ -52,16 +53,18 @@ That is the whole setup -- see `exampleSite/` for a runnable reference.
 ## What it renders
 
 - `/` and `/works/` -- a paginated, faceted list of Works.
-- `/works/<id>/` -- a Work detail page: contributors, subjects (linked), languages,
-  classifications, and its Instances/editions.
-- `/languages/`, `/subjects/`, `/contributors/`, `/classifications/` and their term
-  pages -- the facet navigation, with counts from `facets.json`.
+- `/works/<id>/` -- a Work detail page: contributors, controlled subjects (label +
+  authority link), genre/tags, languages, classifications, and its Instances/editions.
+- `/languages/`, `/subjects/`, `/tags/`, `/contributors/`, `/classifications/` and
+  their term pages -- the facet navigation, with counts from `facets.json`.
+  Controlled subjects (authority URIs, e.g. Homosaurus) are a distinct dimension
+  from uncontrolled feed genre tags; subjects display their resolved label.
 
 ## Schema version
 
 Both JSON files carry a top-level `version` (`project.SchemaVersion`). The adapter
 fails the build loudly if `catalog.json`'s version does not match the version the
-module targets (`params.catalogSchemaVersion`, currently **2**). Reproject with a
+module targets (`params.catalogSchemaVersion`, currently **3**). Reproject with a
 matching `lcat` if you hit a mismatch.
 
 ## Overriding
