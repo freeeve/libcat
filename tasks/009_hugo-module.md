@@ -48,7 +48,36 @@ than aggregating `catalog.json` in templates.
 
 ## Acceptance
 
-- [ ] `hugo mod get` + content adapter renders one page per Work from catalog.json.
-- [ ] Facets filter the list; Work detail shows its Instances/formats.
-- [ ] No per-record content files; theme overrides layer cleanly on top.
-- [ ] Axe/Lighthouse a11y pass on list + detail.
+- [x] `hugo mod get` + content adapter renders one page per Work from catalog.json.
+- [x] Facets filter the list; Work detail shows its Instances/formats.
+- [x] No per-record content files; theme overrides layer cleanly on top.
+- [ ] Axe/Lighthouse a11y pass on list + detail. (Markup follows a11y best
+      practices -- skip link, landmarks, ARIA labels, visually-hidden form label,
+      focus-visible styles, `lang`, ordered headings -- but an automated
+      axe/Lighthouse run needs a browser env; pending.)
+
+## Done (MVP, commit `ed8e3f2`)
+
+The `hugo/` module (own `go.mod`, no Go build deps) is built and validated with
+Hugo 0.148 over `hugo/exampleSite/` (2 works -> 35 pages):
+
+- **Content adapter** `content/works/_content.gotmpl`: `resources.Get "catalog.json"
+  | transform.Unmarshal` -> one Page per Work via `.AddPage`; no content files. Fails
+  the build loudly on a catalog schema-version mismatch (targets v2).
+- **Layouts** (flat system, Hugo >= 0.146): `list` (home + `/works/`, paginated),
+  `page` (Work detail: contributors, linked subjects, languages, classifications,
+  editions), `term` + `taxonomy` (facet pages), accessible `baseof`.
+- **Facets**: Hugo taxonomies (language/subject/contributor/classification); the
+  sidebar (`_partials/facets.html`) draws counts from `facets.json` and links to
+  term pages. **The importing site must declare the `[taxonomies]` block** -- Hugo
+  does not merge a module's taxonomy config (documented in README + exampleSite).
+- **Overrides**: plain templates/assets; a site/theme shadows any file.
+
+### Still stubbed (blocked on other tasks, by design)
+
+- **Search** -- `assets/lcat-search.js` is an interim client-side substring filter
+  (progressive enhancement). Replace with the roaringrange WASM reader over
+  `search-manifest.json` once its browser query half ships (`tasks/010`).
+- **Availability** -- Work-detail editions carry `data-instance` +
+  `data-overdrive-reserve` (the v2 scheme-tagged Reserve ID). A client-side adapter
+  (`tasks/004`) reads these at view time; none is wired yet.
