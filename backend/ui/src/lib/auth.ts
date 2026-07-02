@@ -214,6 +214,11 @@ export function canModerate(s: Session | null): boolean {
   return !!s && s.roles.some((r) => r === "moderator" || r === "librarian" || r === "admin");
 }
 
+/** Librarian and above can publish, govern folk terms, and decide promotions. */
+export function canPublish(s: Session | null): boolean {
+  return !!s && s.roles.some((r) => r === "librarian" || r === "admin");
+}
+
 function clearSession(): void {
   accessToken = "";
   expiresAt = 0;

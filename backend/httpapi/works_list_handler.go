@@ -40,8 +40,9 @@ func (wl *worksList) summaries(r *http.Request) ([]ingest.WorkSummary, error) {
 	return summaries, nil
 }
 
-// registerWorksList mounts GET /v1/works?q=&limit= (librarian).
-func registerWorksList(mux *http.ServeMux, bs blob.Store, verifier auth.TokenVerifier) {
+// registerWorksList mounts GET /v1/works?q=&limit= (librarian) and returns
+// the shared summary cache for sibling endpoints (tags typeahead).
+func registerWorksList(mux *http.ServeMux, bs blob.Store, verifier auth.TokenVerifier) *worksList {
 	wl := &worksList{bs: bs}
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 	mux.Handle("GET /v1/works", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +70,7 @@ func registerWorksList(mux *http.ServeMux, bs blob.Store, verifier auth.TokenVer
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"works": matches, "total": len(all)})
 	})))
+	return wl
 }
 
 func summaryMatches(s ingest.WorkSummary, q string) bool {

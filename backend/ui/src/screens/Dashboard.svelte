@@ -53,6 +53,12 @@
             </p>
           </a>
         </li>
+        <li>
+          <a href="#/promotions">
+            <h2>Tag promotions</h2>
+            <p class="muted">Fold community tags into controlled vocabulary.</p>
+          </a>
+        </li>
       {/if}
     </ul>
   </nav>

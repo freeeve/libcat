@@ -92,7 +92,11 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Blob != nil && deps.DB != nil && deps.Verifier != nil {
 		registerRecords(mux, deps.Blob, deps.DB, deps.Suggest, deps.Verifier)
-		registerWorksList(mux, deps.Blob, deps.Verifier)
+		wl := registerWorksList(mux, deps.Blob, deps.Verifier)
+		registerTags(mux, wl, deps.Verifier)
+	}
+	if deps.Suggest != nil && deps.Verifier != nil {
+		registerPromotions(mux, deps.Suggest, deps.Publisher, deps.Verifier)
 	}
 	if deps.Exports != nil && deps.Verifier != nil {
 		registerExports(mux, deps.Exports, deps.Verifier)

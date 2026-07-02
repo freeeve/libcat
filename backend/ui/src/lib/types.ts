@@ -63,8 +63,21 @@ export interface TermRef {
   label: string;
 }
 
+/** vocab.Term -- a full vocabulary entry (/v1/terms search, /v1/term lookup). */
+export interface Term {
+  scheme: string;
+  id: string; // the authority URI
+  labels: Record<string, string>; // lang -> prefLabel ("" key = untagged)
+  altLabels?: Record<string, string[]>;
+  definition?: Record<string, string>;
+  broader?: string[];
+  narrower?: string[];
+  related?: string[];
+}
+
 export type SuggType = "ADD" | "REMOVE";
 export type SuggStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISPUTED";
+export type Provenance = "PATRON" | "PIPELINE" | "LIBRARIAN";
 
 /** suggest.Suggestion -- one review-queue item. */
 export interface Suggestion {
@@ -74,7 +87,7 @@ export interface Suggestion {
   status: SuggStatus;
   supporterCount: number;
   reasonCounts?: Record<string, number>;
-  provenance: string;
+  provenance: Provenance;
   confidence?: number;
   workTitle?: string;
   sourceRef?: string;
@@ -88,4 +101,57 @@ export interface Suggestion {
 export interface QueuePage {
   items: Suggestion[];
   cursor?: string;
+}
+
+/** suggest.Decision -- one staff review action in a POST /v1/review batch. */
+export interface Decision {
+  workId: string;
+  term: TermRef;
+  type: SuggType;
+  approve: boolean;
+  substituteTerm?: TermRef;
+  note?: string;
+  tombstone?: boolean;
+}
+
+/** POST /v1/review response; publish fields appear when publish was set. */
+export interface ReviewResponse {
+  reviewed: number;
+  published?: number;
+  skipped?: number;
+  approvedPending?: number;
+  publishNote?: string;
+}
+
+/** POST /v1/publish response (also the shape merged into ReviewResponse). */
+export interface PublishResponse {
+  published: number;
+  skipped?: number;
+  approvedPending?: number;
+  publishNote?: string;
+}
+
+/** GET /v1/tags -- one distinct grain-tree tag with its carry count. */
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+/** suggest.Promotion -- a folk tag proposed to fold into a controlled term. */
+export interface Promotion {
+  tag: string;
+  term: TermRef;
+  status: SuggStatus;
+  proposedBy: string;
+  createdAt: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  works?: number;
+}
+
+/** POST /v1/promotions/decide response. */
+export interface DecidePromotionResponse {
+  promotion: Promotion;
+  works: number;
+  note?: string;
 }

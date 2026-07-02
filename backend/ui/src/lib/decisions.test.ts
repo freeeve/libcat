@@ -1,0 +1,86 @@
+// Staging semantics for review decisions: replace-by-identity, toggle-off on
+// an identical repeat, and the exact wire payload for POST /v1/review.
+import { describe, expect, it } from "vitest";
+import { get } from "svelte/store";
+import { createDecisionStore, decisionKey } from "./decisions";
+import type { Decision, TermRef } from "./types";
+
+const term: TermRef = { scheme: "lcsh", id: "http://id.loc.gov/sh1", label: "Sea monsters" };
+const otherTerm: TermRef = { scheme: "fast", id: "fst-1", label: "Krakens" };
+
+function approve(workId = "w1", t: TermRef = term): Decision {
+  return { workId, term: t, type: "ADD", approve: true };
+}
+
+describe("decision staging", () => {
+  it("stages and exposes the wire payload shape", () => {
+    const store = createDecisionStore();
+    store.stage(approve());
+    expect(get(store)).toHaveLength(1);
+    expect(store.payload()).toEqual([{ workId: "w1", term, type: "ADD", approve: true }]);
+    // Optional fields never appear as explicit keys when unset.
+    expect(Object.keys(store.payload()[0])).toEqual(["workId", "term", "type", "approve"]);
+  });
+
+  it("a different action for the same suggestion replaces the entry", () => {
+    const store = createDecisionStore();
+    store.stage(approve());
+    store.stage({ workId: "w1", term, type: "ADD", approve: false });
+    expect(store.payload()).toEqual([{ workId: "w1", term, type: "ADD", approve: false }]);
+  });
+
+  it("repeating the identical action toggles it off", () => {
+    const store = createDecisionStore();
+    store.stage(approve());
+    store.stage(approve());
+    expect(get(store)).toEqual([]);
+    expect(store.payload()).toEqual([]);
+  });
+
+  it("keeps distinct suggestions apart", () => {
+    const store = createDecisionStore();
+    store.stage(approve("w1"));
+    store.stage(approve("w2"));
+    store.stage(approve("w1", otherTerm));
+    expect(store.payload()).toHaveLength(3);
+    expect(decisionKey("w1", term, "ADD")).not.toBe(decisionKey("w1", otherTerm, "ADD"));
+    expect(decisionKey("w1", term, "ADD")).not.toBe(decisionKey("w1", term, "REMOVE"));
+  });
+
+  it("carries tombstone and note on rejections", () => {
+    const store = createDecisionStore();
+    store.stage({ workId: "w1", term, type: "ADD", approve: false, tombstone: true, note: "never again" });
+    expect(store.payload()).toEqual([
+      { workId: "w1", term, type: "ADD", approve: false, tombstone: true, note: "never again" },
+    ]);
+  });
+
+  it("distinguishes a plain reject from reject + tombstone when toggling", () => {
+    const store = createDecisionStore();
+    store.stage({ workId: "w1", term, type: "ADD", approve: false });
+    store.stage({ workId: "w1", term, type: "ADD", approve: false, tombstone: true });
+    expect(store.payload()).toEqual([{ workId: "w1", term, type: "ADD", approve: false, tombstone: true }]);
+  });
+
+  it("carries a substitute term and toggles only on the same substitute", () => {
+    const store = createDecisionStore();
+    store.stage({ workId: "w1", term, type: "ADD", approve: true, substituteTerm: otherTerm });
+    // Approving with a different substitute replaces, not toggles.
+    const third: TermRef = { scheme: "fast", id: "fst-2", label: "Leviathans" };
+    store.stage({ workId: "w1", term, type: "ADD", approve: true, substituteTerm: third });
+    expect(store.payload()).toEqual([{ workId: "w1", term, type: "ADD", approve: true, substituteTerm: third }]);
+    // The identical substitute approval toggles off.
+    store.stage({ workId: "w1", term, type: "ADD", approve: true, substituteTerm: third });
+    expect(store.payload()).toEqual([]);
+  });
+
+  it("unstage removes one entry and clear empties the store", () => {
+    const store = createDecisionStore();
+    store.stage(approve("w1"));
+    store.stage(approve("w2"));
+    store.unstage("w1", term, "ADD");
+    expect(store.payload().map((d) => d.workId)).toEqual(["w2"]);
+    store.clear();
+    expect(get(store)).toEqual([]);
+  });
+});

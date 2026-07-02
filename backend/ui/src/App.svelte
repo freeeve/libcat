@@ -13,6 +13,7 @@
   import WorkSearch from "./screens/WorkSearch.svelte";
   import WorkEditor from "./screens/WorkEditor.svelte";
   import Queue from "./screens/Queue.svelte";
+  import Promotions from "./screens/Promotions.svelte";
 
   const routes: RouteDef[] = [
     { name: "dashboard", pattern: "/" },
@@ -21,6 +22,7 @@
     { name: "works", pattern: "/works" },
     { name: "work", pattern: "/works/:id" },
     { name: "queue", pattern: "/queue" },
+    { name: "promotions", pattern: "/promotions" },
   ];
 
   let route = $state(resolve(routes, location.hash));
@@ -80,6 +82,8 @@
     <WorkSearch />
   {:else if route.name === "queue"}
     <Queue />
+  {:else if route.name === "promotions"}
+    <Promotions />
   {:else}
     <Dashboard session={$sessionStore} />
   {/if}

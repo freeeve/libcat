@@ -331,6 +331,7 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 		ed:      ds.Graph(bibframe.EditorialGraph()),
 		labels:  buildLabelIndex(ds),
 		broader: buildBroaderIndex(ds),
+		aliases: buildTagAliasIndex(ds),
 		extras:  buildExtraIndex(ds, bibframe.FeedGraph(provider)),
 	}
 	cat := &Catalog{Version: SchemaVersion}
@@ -358,6 +359,7 @@ type projector struct {
 	ed      *rdf.Graph                   // editorial graph; nil when the corpus has no editorial statements
 	labels  map[string]map[string]string // authority URI -> language tag -> label
 	broader map[string][]string          // authority URI -> sorted parent (skos:broader) URIs
+	aliases map[string][]string          // authority URI -> tags it subsumes (lcat:tagAlias, tasks/044)
 	extras  map[string]map[string]string // Work node IRI -> extra key -> value (tasks/026)
 }
 
@@ -461,6 +463,15 @@ func (p *projector) subjectsAndTags(w rdf.Term) ([]Subject, []string) {
 	collect(p.feed)
 	collect(p.ed)
 
+	// A promoted tag disappears where its controlled term is present: the
+	// tag "became" the subject (lcat:tagAlias, tasks/044). Works carrying
+	// the tag but not the term keep showing it.
+	for id := range subj {
+		for _, aliased := range p.aliases[id] {
+			delete(tags, aliased)
+		}
+	}
+
 	ids := make([]string, 0, len(subj))
 	for id := range subj {
 		ids = append(ids, id)
@@ -511,6 +522,23 @@ func buildLabelIndex(ds *rdf.Dataset) map[string]map[string]string {
 	}
 	if len(idx) == 0 {
 		return nil
+	}
+	return idx
+}
+
+// buildTagAliasIndex indexes lcat:tagAlias statements across every graph:
+// controlled-term URI -> the uncontrolled tag strings it subsumes
+// (tasks/044). Nil when the corpus carries no aliases.
+func buildTagAliasIndex(ds *rdf.Dataset) map[string][]string {
+	var idx map[string][]string
+	for _, q := range ds.Quads {
+		if q.P.Value != bibframe.PredTagAlias || !q.S.IsIRI() || !q.O.IsLiteral() || q.O.Value == "" {
+			continue
+		}
+		if idx == nil {
+			idx = map[string][]string{}
+		}
+		idx[q.S.Value] = append(idx[q.S.Value], q.O.Value)
 	}
 	return idx
 }

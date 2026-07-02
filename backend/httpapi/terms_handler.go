@@ -14,6 +14,19 @@ const termsDefaultLimit = 20
 // index. With the suggestion service present, scheme=folk serves ACCEPTED
 // community tags (PROPOSED and BLOCKED terms stay invisible).
 func registerTerms(mux *http.ServeMux, ix *vocab.Index, folk *suggest.Service) {
+	// Single-term lookup: the picker's neighborhood panel resolves
+	// broader/narrower/related URIs to full terms through this.
+	mux.HandleFunc("GET /v1/term", func(w http.ResponseWriter, r *http.Request) {
+		scheme := r.URL.Query().Get("scheme")
+		id := r.URL.Query().Get("id")
+		term, ok := ix.Lookup(scheme, id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "unknown term")
+			return
+		}
+		writeJSON(w, http.StatusOK, term)
+	})
+
 	mux.HandleFunc("GET /v1/terms", func(w http.ResponseWriter, r *http.Request) {
 		scheme := r.URL.Query().Get("scheme")
 		q := r.URL.Query().Get("q")
