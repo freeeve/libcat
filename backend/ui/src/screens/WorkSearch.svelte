@@ -20,6 +20,7 @@
     q: "",
     works: [] as WorkSummary[],
     total: 0,
+    matched: 0,
     selected: 0,
     loadedAt: 0,
   }));
@@ -32,6 +33,7 @@
     pushScope(SCOPE);
     const unbind = bindKeys(SCOPE, {
       "/": { description: "focus the search box", legend: "search", handler: focusSearch },
+      m: { description: "load more results", legend: "more", handler: () => void loadMore() },
     });
     if (Date.now() - st.loadedAt > FRESH_MS) void search(st.q, true);
     return () => {
@@ -56,6 +58,7 @@
       const page = await fetchWorks(query);
       st.works = page.works ?? [];
       st.total = page.total;
+      st.matched = page.matched ?? st.works.length;
       st.loadedAt = Date.now();
       const found = keepId ? st.works.findIndex((w) => w.WorkID === keepId) : -1;
       st.selected = found >= 0 ? found : Math.min(st.selected, Math.max(0, st.works.length - 1));
@@ -63,6 +66,25 @@
     } catch (e) {
       st.works = [];
       error = e instanceof ApiError && e.status === 401 ? "session expired -- sign in again" : "search failed";
+    } finally {
+      loading = false;
+    }
+  }
+
+  /** Appends the next window of matches; selection stays put. */
+  async function loadMore(): Promise<void> {
+    if (loading || st.works.length >= st.matched) return;
+    loading = true;
+    error = "";
+    try {
+      const page = await fetchWorks(st.q, 50, st.works.length);
+      const seen = new Set(st.works.map((w) => w.WorkID));
+      st.works = [...st.works, ...(page.works ?? []).filter((w) => !seen.has(w.WorkID))];
+      st.total = page.total;
+      st.matched = page.matched ?? st.matched;
+      st.loadedAt = Date.now();
+    } catch {
+      error = "loading more failed";
     } finally {
       loading = false;
     }
@@ -84,7 +106,7 @@
   </p>
   <input id="work-q" type="search" bind:value={st.q} oninput={onInput} placeholder="Search works…" autocomplete="off" />
   <p class="muted status" aria-live="polite">
-    {#if loading && st.works.length === 0}Searching…{:else if error}<span class="error">{error}</span>{:else}{st.works.length} shown of {st.total} works{/if}
+    {#if loading && st.works.length === 0}Searching…{:else if error}<span class="error">{error}</span>{:else}{st.works.length} of {st.matched} matched · {st.total} in catalog{/if}
     {#if !error && st.works.length > 0}
       · <a href={st.q.trim() ? "#/exports?kind=search&q=" + encodeURIComponent(st.q.trim()) : "#/exports?kind=all"}>Export these results…</a>
     {/if}
@@ -99,6 +121,10 @@
       </a>
     {/snippet}
   </RowList>
+
+  {#if st.works.length < st.matched}
+    <p><button class="button button--quiet" onclick={() => void loadMore()} disabled={loading}>Load more ({st.matched - st.works.length} left)</button></p>
+  {/if}
 </main>
 
 <style>

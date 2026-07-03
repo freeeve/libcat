@@ -40,8 +40,10 @@ func (wl *worksList) summaries(r *http.Request) ([]ingest.WorkSummary, error) {
 	return summaries, nil
 }
 
-// registerWorksList mounts GET /v1/works?q=&limit= (librarian) and returns
-// the shared summary cache for sibling endpoints (tags typeahead).
+// registerWorksList mounts GET /v1/works?q=&limit=&offset= (librarian) and
+// returns the shared summary cache for sibling endpoints (tags typeahead).
+// The response carries total (whole catalog) and matched (query hits) so
+// the SPA can page: works is the [offset, offset+limit) window of matches.
 func registerWorksList(mux *http.ServeMux, bs blob.Store, verifier auth.TokenVerifier) *worksList {
 	wl := &worksList{bs: bs}
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
@@ -58,17 +60,30 @@ func registerWorksList(mux *http.ServeMux, bs blob.Store, verifier auth.TokenVer
 				limit = n
 			}
 		}
+		offset := 0
+		if raw := r.URL.Query().Get("offset"); raw != "" {
+			if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
+				offset = n
+			}
+		}
+		matched := 0
 		matches := make([]ingest.WorkSummary, 0, limit)
 		for _, s := range all {
 			if q != "" && !s.Matches(q) {
 				continue
 			}
-			matches = append(matches, s)
-			if len(matches) >= limit {
-				break
+			matched++
+			if matched <= offset || len(matches) >= limit {
+				continue
 			}
+			matches = append(matches, s)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"works": matches, "total": len(all)})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"works":   matches,
+			"total":   len(all),
+			"matched": matched,
+			"offset":  offset,
+		})
 	})))
 	return wl
 }

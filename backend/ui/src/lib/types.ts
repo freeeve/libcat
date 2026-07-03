@@ -23,6 +23,9 @@ export interface WorkSummary {
 export interface WorksPage {
   works: WorkSummary[];
   total: number;
+  /** Query hits across the whole catalog (works is one window of these). */
+  matched?: number;
+  offset?: number;
 }
 
 /** editor.FieldValue -- one value of a profile field, with provenance. */
