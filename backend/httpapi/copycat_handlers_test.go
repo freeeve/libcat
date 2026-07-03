@@ -48,15 +48,34 @@ func TestCopycatFlow(t *testing.T) {
 	}
 
 	// External search through the injected seam.
-	svc.Search = func(_ context.Context, _ copycat.Target, query string, _ int) ([]*codex.Record, error) {
+	svc.Search = func(_ context.Context, _ copycat.Target, terms []copycat.FieldTerm, _ int) ([]*codex.Record, error) {
+		line := ""
+		for _, ft := range terms {
+			line += ft.Index + "=" + ft.Term + ";"
+		}
 		r := codex.NewRecord()
 		r.AddField(codex.NewControlField("001", "X1"))
-		r.AddField(codex.NewDataField("245", '1', '0', codex.NewSubfield('a', "Hit: "+query)))
+		r.AddField(codex.NewDataField("245", '1', '0', codex.NewSubfield('a', "Hit: "+line)))
 		return []*codex.Record{r}, nil
 	}
 	rec = request(t, h, http.MethodPost, "/v1/copycat/search", "lib-token", "", map[string]any{"query": "gideon"})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Hit: gideon") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Hit: any=gideon;") {
 		t.Fatalf("search = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Fielded search (tasks/074): fields ride the same endpoint and AND on;
+	// an unknown index is refused.
+	rec = request(t, h, http.MethodPost, "/v1/copycat/search", "lib-token", "", map[string]any{
+		"query":  "gideon",
+		"fields": []map[string]string{{"index": "isbn", "term": "9781250313195"}},
+	})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Hit: any=gideon;isbn=9781250313195;") {
+		t.Fatalf("fielded search = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request(t, h, http.MethodPost, "/v1/copycat/search", "lib-token", "", map[string]any{
+		"fields": []map[string]string{{"index": "dewey", "term": "813"}},
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown index = %d %s", rec.Code, rec.Body.String())
 	}
 	var search struct {
 		Results []copycat.SearchResult `json:"results"`

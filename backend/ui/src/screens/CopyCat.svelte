@@ -26,6 +26,7 @@
   import CopycatReview from "../components/CopycatReview.svelte";
   import type {
     CopycatBatch,
+    CopycatFieldTerm,
     CopycatPolicy,
     CopycatProfile,
     CopycatSearchResult,
@@ -33,10 +34,23 @@
     CopycatTarget,
   } from "../lib/types";
 
+  /** The fielded access points shared by both protocols (tasks/074). */
+  const FIELD_INDEXES = [
+    { index: "title", label: "Title" },
+    { index: "author", label: "Author" },
+    { index: "subject", label: "Subject" },
+    { index: "isbn", label: "ISBN" },
+    { index: "issn", label: "ISSN" },
+    { index: "lccn", label: "LCCN" },
+    { index: "id", label: "Record id" },
+  ] as const;
+
   const SCOPE = "copycat";
 
   const st = screenState("copycat", () => ({
     query: "",
+    advanced: false,
+    fields: { title: "", author: "", subject: "", isbn: "", issn: "", lccn: "", id: "" },
     results: [] as CopycatSearchResult[],
     failures: {} as Record<string, string>,
     picked: {} as Record<number, boolean>,
@@ -153,7 +167,20 @@
     }
   }
 
+  /** Non-empty fielded terms; entries outside the collapsed advanced form
+   *  are ignored so a leftover value can't silently narrow a quick search. */
+  const fieldTerms = $derived(
+    st.advanced
+      ? FIELD_INDEXES.filter(({ index }) => st.fields[index].trim() !== "").map(
+          ({ index }): CopycatFieldTerm => ({ index, term: st.fields[index].trim() }),
+        )
+      : [],
+  );
+
+  const canSearch = $derived(st.query.trim() !== "" || fieldTerms.length > 0);
+
   async function search(): Promise<void> {
+    if (!canSearch) return;
     busy = true;
     error = "";
     status = "";
@@ -161,7 +188,7 @@
     st.picked = {};
     st.resultsSelected = 0;
     try {
-      const res = await copycatSearch(st.query, profile?.targets ?? undefined);
+      const res = await copycatSearch(st.query.trim(), fieldTerms, profile?.targets ?? undefined);
       st.results = res.results ?? [];
       st.failures = res.failures ?? {};
     } catch (e) {
@@ -178,7 +205,7 @@
     error = "";
     try {
       const res = await stageCopycatBatch({
-        label: `search: ${st.query}`,
+        label: `search: ${[st.query.trim(), ...fieldTerms.map((f) => `${f.index}=${f.term}`)].filter(Boolean).join(" ")}`,
         source: "search",
         records,
         ...(profile?.policy ? { policy: profile.policy } : {}),
@@ -326,11 +353,28 @@
           <option value={p.name}>{p.name}</option>
         {/each}
       </select>
-      <button class="button" onclick={() => void search()} disabled={busy || !st.query.trim()}>Search</button>
+      <button class="button" onclick={() => void search()} disabled={busy || !canSearch}>Search</button>
+      <button class="button button--quiet" aria-expanded={st.advanced} onclick={() => (st.advanced = !st.advanced)}>
+        Advanced {st.advanced ? "▴" : "▾"}
+      </button>
       <label class="button button--quiet upload-btn">
         Stage a .mrc file… <input type="file" accept=".mrc,.marc" onchange={(ev) => void upload(ev)} hidden />
       </label>
     </div>
+    {#if st.advanced}
+      <div class="fielded" role="group" aria-label="Fielded search">
+        {#each FIELD_INDEXES as f (f.index)}
+          <label class="ffield">
+            <span class="muted">{f.label}</span>
+            <input
+              bind:value={st.fields[f.index]}
+              onkeydown={(ev) => ev.key === "Enter" && void search()}
+            />
+          </label>
+        {/each}
+        <p class="muted hint">Filled fields AND together (and onto the keyword box); empty fields are omitted.</p>
+      </div>
+    {/if}
     <p aria-live="polite">
       {#if busy}<span class="muted">Working…</span>{/if}
       {#if status}<span class="ok">{status}</span>{/if}
@@ -424,6 +468,34 @@
   }
   .upload-btn {
     cursor: pointer;
+  }
+  .fielded {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: 0.4rem 0.8rem;
+    margin: 0.4rem 0 0.6rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+  }
+  .ffield {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.82rem;
+  }
+  .ffield span {
+    min-width: 4.2rem;
+    text-align: right;
+  }
+  .ffield input {
+    flex: 1;
+    min-width: 0;
+  }
+  .fielded .hint {
+    grid-column: 1 / -1;
+    margin: 0.1rem 0 0;
+    font-size: 0.75rem;
   }
   .pick {
     font-size: 0.85rem;

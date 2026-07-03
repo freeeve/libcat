@@ -72,28 +72,67 @@ func TestSearchFanOut(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	svc.Search = func(_ context.Context, tgt copycat.Target, query string, _ int) ([]*codex.Record, error) {
+	svc.Search = func(_ context.Context, tgt copycat.Target, terms []copycat.FieldTerm, _ int) ([]*codex.Record, error) {
 		if tgt.Name == "beta" {
 			return nil, errors.New("connection refused")
 		}
 		rec := codex.NewRecord()
 		rec.AddField(codex.NewControlField("001", "X1"))
-		rec.AddField(codex.NewDataField("245", '1', '0', codex.NewSubfield('a', "Hit for "+query)))
+		rec.AddField(codex.NewDataField("245", '1', '0', codex.NewSubfield('a', "Hit for "+terms[0].Term)))
 		rec.AddField(codex.NewDataField("020", ' ', ' ', codex.NewSubfield('a', "9781250313195")))
+		rec.AddField(codex.NewDataField("250", ' ', ' ', codex.NewSubfield('a', "1st ed.")))
+		rec.AddField(codex.NewDataField("010", ' ', ' ', codex.NewSubfield('a', "2019978000")))
 		return []*codex.Record{rec}, nil
 	}
-	results, failures, err := svc.SearchAll(ctx, "gideon", nil)
+	results, failures, err := svc.SearchAll(ctx, "gideon", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 1 || results[0].Target != "alpha" || results[0].Title != "Hit for gideon" || results[0].ISBN != "9781250313195" {
 		t.Fatalf("results = %+v", results)
 	}
+	if results[0].Edition != "1st ed." || results[0].LCCN != "2019978000" {
+		t.Fatalf("edition/lccn = %+v", results[0])
+	}
 	if failures["beta"] == "" {
 		t.Fatalf("failures = %v", failures)
 	}
-	if _, _, err := svc.SearchAll(ctx, "", nil); !errors.Is(err, copycat.ErrValidation) {
+	if _, _, err := svc.SearchAll(ctx, "", nil, nil); !errors.Is(err, copycat.ErrValidation) {
 		t.Fatalf("empty query err = %v", err)
+	}
+}
+
+// TestSearchFielded is the tasks/074 access-point path: fields AND onto the
+// free-text query and reach the protocol seam in order; bad indexes and
+// empty terms are refused.
+func TestSearchFielded(t *testing.T) {
+	svc, _, _ := newService(t)
+	ctx := t.Context()
+	if err := svc.PutTarget(ctx, copycat.Target{Name: "alpha", URL: "x", Protocol: "sru"}); err != nil {
+		t.Fatal(err)
+	}
+	var got []copycat.FieldTerm
+	svc.Search = func(_ context.Context, _ copycat.Target, terms []copycat.FieldTerm, _ int) ([]*codex.Record, error) {
+		got = terms
+		return nil, nil
+	}
+	fields := []copycat.FieldTerm{{Index: "isbn", Term: "9780062963673"}, {Index: "author", Term: "patchett"}}
+	if _, _, err := svc.SearchAll(ctx, "dutch house", fields, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := append([]copycat.FieldTerm{{Index: "any", Term: "dutch house"}}, fields...)
+	if len(got) != 3 || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("terms = %+v", got)
+	}
+	// Fields alone (no free-text query) are a valid search.
+	if _, _, err := svc.SearchAll(ctx, "", fields[:1], nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.SearchAll(ctx, "", []copycat.FieldTerm{{Index: "dewey", Term: "813"}}, nil); !errors.Is(err, copycat.ErrValidation) {
+		t.Fatalf("unknown index err = %v", err)
+	}
+	if _, _, err := svc.SearchAll(ctx, "", []copycat.FieldTerm{{Index: "title", Term: ""}}, nil); !errors.Is(err, copycat.ErrValidation) {
+		t.Fatalf("empty term err = %v", err)
 	}
 }
 

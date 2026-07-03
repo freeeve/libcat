@@ -54,9 +54,9 @@ func TestSubjectLookupByISBN(t *testing.T) {
 	db := store.NewMem()
 	cc := &copycat.Service{
 		Blob: bs, DB: db,
-		Search: func(_ context.Context, tgt copycat.Target, query string, _ int) ([]*codex.Record, error) {
-			if query != "9780441478125" {
-				t.Errorf("searched %q, want the ISBN", query)
+		Search: func(_ context.Context, tgt copycat.Target, terms []copycat.FieldTerm, _ int) ([]*codex.Record, error) {
+			if len(terms) != 1 || terms[0].Index != "isbn" || terms[0].Term != "9780441478125" {
+				t.Errorf("searched %+v, want the isbn access point", terms)
 			}
 			return []*codex.Record{marcWithSubjects()}, nil
 		},

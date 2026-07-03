@@ -2,13 +2,14 @@
   // One staged batch under keyboard review (scope "copycat-review", pushed
   // while open so the legend flips): j/k move, i/s decide import/skip,
   // A imports every "new" record, N skips everything already in the
-  // catalog, o opens the matched work, c commits behind a confirm modal,
-  // Escape closes the batch. Decisions render as tinted chips; bulk keys
-  // ship one review call.
+  // catalog, o opens the matched work, v shows the selected record's MARC
+  // (tasks/074), c commits behind a confirm modal, Escape closes the batch.
+  // Decisions render as tinted chips; bulk keys ship one review call.
   import { onMount } from "svelte";
   import { ApiError, commitCopycatBatch, revertCopycatBatch, reviewCopycatBatch } from "../lib/api";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import { navigate } from "../lib/router";
+  import MarcRecordView from "./MarcRecordView.svelte";
   import Modal from "./Modal.svelte";
   import RowList from "./RowList.svelte";
   import type { CopycatBatch, CopycatPolicy, CopycatStagedRecord } from "../lib/types";
@@ -34,6 +35,7 @@
   ];
 
   let selected = $state(0);
+  let viewing = $state(false);
   let confirming = $state(false);
   let confirmingRevert = $state(false);
   let busy = $state(false);
@@ -53,6 +55,7 @@
       A: { description: 'import every "new" record', legend: "import all new", handler: () => void decideWhere((r) => !r.match.matchedWork && !r.match.matchedInstance, "import") },
       N: { description: "skip everything already in the catalog", legend: "skip already-held", handler: () => void decideWhere((r) => !!r.match.matchedInstance, "skip") },
       o: { description: "open the selected record's matched work", legend: "open match", handler: openMatch },
+      v: { description: "show or hide the selected record's MARC", legend: "view marc", handler: () => (viewing = !viewing) },
       c: { description: "commit the batch", legend: "commit", handler: () => staged && (confirming = true) },
       Escape: { description: "close this batch", legend: "close", handler: onclose },
     });
@@ -176,6 +179,16 @@
       </div>
     {/snippet}
   </RowList>
+
+  {#if viewing && records[selected]}
+    <div class="preview" aria-label="MARC of the selected record">
+      <p class="phead muted">
+        {records[selected].title || "(untitled)"}
+        <button class="button button--quiet mini" onclick={() => (viewing = false)}>Close</button>
+      </p>
+      <MarcRecordView record={records[selected].record} />
+    </div>
+  {/if}
 
   <p class="actions">
     <button class="button" onclick={() => (confirming = true)} disabled={busy || !staged}>
@@ -314,6 +327,22 @@
   }
   .decision[data-decision="skip"] {
     color: var(--danger);
+  }
+  .preview {
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 0.4rem 0.7rem 0.6rem;
+    margin: 0.5rem 0;
+    max-height: 50vh;
+    overflow-y: auto;
+  }
+  .phead {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    margin: 0.1rem 0 0.4rem;
   }
   .actions {
     margin-top: 0.8rem;

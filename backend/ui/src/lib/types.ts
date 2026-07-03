@@ -427,7 +427,15 @@ export interface CopycatSearchResult {
   author?: string;
   date?: string;
   isbn?: string;
+  edition?: string;
+  lccn?: string;
   record: MarcRecordDoc;
+}
+
+/** copycat.FieldTerm -- one (access point, term) pair; terms AND together. */
+export interface CopycatFieldTerm {
+  index: "any" | "title" | "author" | "subject" | "isbn" | "issn" | "lccn" | "id";
+  term: string;
 }
 
 /** copycat.StagedRecord -- one reviewable record of a batch. */

@@ -128,17 +128,33 @@ type Batch struct {
 
 // SearchResult is one external hit, ready to stage.
 type SearchResult struct {
-	Target string             `json:"target"`
-	Title  string             `json:"title,omitempty"`
-	Author string             `json:"author,omitempty"`
-	Date   string             `json:"date,omitempty"`
-	ISBN   string             `json:"isbn,omitempty"`
-	Record marcview.RecordDoc `json:"record"`
+	Target  string             `json:"target"`
+	Title   string             `json:"title,omitempty"`
+	Author  string             `json:"author,omitempty"`
+	Date    string             `json:"date,omitempty"`
+	ISBN    string             `json:"isbn,omitempty"`
+	Edition string             `json:"edition,omitempty"`
+	LCCN    string             `json:"lccn,omitempty"`
+	Record  marcview.RecordDoc `json:"record"`
+}
+
+// FieldTerm is one (access point, term) pair of a fielded search; terms AND
+// together. Indexes are the ones libcodex maps on both protocols.
+type FieldTerm struct {
+	Index string `json:"index"`
+	Term  string `json:"term"`
+}
+
+// searchIndexes are the access points supported on both protocols: bib-1 use
+// attributes on Z39.50, CQL indexes on SRU (lccn via the Bath profile).
+var searchIndexes = map[string]bool{
+	"any": true, "title": true, "author": true, "subject": true,
+	"isbn": true, "issn": true, "lccn": true, "id": true,
 }
 
 // SearchFunc is the protocol seam: it fetches up to limit records from one
 // target. Tests inject fakes; production uses protocolSearch.
-type SearchFunc func(ctx context.Context, t Target, query string, limit int) ([]*codex.Record, error)
+type SearchFunc func(ctx context.Context, t Target, terms []FieldTerm, limit int) ([]*codex.Record, error)
 
 // Service is the copy-cataloging surface.
 type Service struct {
@@ -217,9 +233,11 @@ func (s *Service) Targets(ctx context.Context) ([]Target, error) {
 // SearchAll fans the query out to every configured target (or the named
 // subset) concurrently and returns the normalized hits; per-target failures
 // come back as errors keyed by target name rather than failing the fan-out.
-func (s *Service) SearchAll(ctx context.Context, query string, names []string) ([]SearchResult, map[string]string, error) {
-	if query == "" {
-		return nil, nil, fmt.Errorf("%w: empty query", ErrValidation)
+// A bare query searches the server-choice "any" index; fields AND onto it.
+func (s *Service) SearchAll(ctx context.Context, query string, fields []FieldTerm, names []string) ([]SearchResult, map[string]string, error) {
+	terms, err := searchTerms(query, fields)
+	if err != nil {
+		return nil, nil, err
 	}
 	targets, err := s.Targets(ctx)
 	if err != nil {
@@ -256,7 +274,7 @@ func (s *Service) SearchAll(ctx context.Context, query string, names []string) (
 		wg.Add(1)
 		go func(t Target) {
 			defer wg.Done()
-			recs, err := search(ctx, t, query, searchLimit)
+			recs, err := search(ctx, t, terms, searchLimit)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -265,12 +283,14 @@ func (s *Service) SearchAll(ctx context.Context, query string, names []string) (
 			}
 			for _, rec := range recs {
 				results = append(results, SearchResult{
-					Target: t.Name,
-					Title:  rec.SubfieldValue("245", 'a'),
-					Author: rec.SubfieldValue("100", 'a'),
-					Date:   rec.SubfieldValue("260", 'c') + rec.SubfieldValue("264", 'c'),
-					ISBN:   rec.SubfieldValue("020", 'a'),
-					Record: marcview.RecordToDoc(rec),
+					Target:  t.Name,
+					Title:   rec.SubfieldValue("245", 'a'),
+					Author:  rec.SubfieldValue("100", 'a'),
+					Date:    rec.SubfieldValue("260", 'c') + rec.SubfieldValue("264", 'c'),
+					ISBN:    rec.SubfieldValue("020", 'a'),
+					Edition: rec.SubfieldValue("250", 'a'),
+					LCCN:    rec.SubfieldValue("010", 'a'),
+					Record:  marcview.RecordToDoc(rec),
 				})
 			}
 		}(t)
@@ -280,18 +300,71 @@ func (s *Service) SearchAll(ctx context.Context, query string, names []string) (
 	return results, failures, nil
 }
 
+// searchTerms normalizes a request into the ANDed term list: a bare query
+// becomes an "any" term, fields append after it, indexes must be supported.
+func searchTerms(query string, fields []FieldTerm) ([]FieldTerm, error) {
+	terms := []FieldTerm{}
+	if query != "" {
+		terms = append(terms, FieldTerm{Index: "any", Term: query})
+	}
+	for _, ft := range fields {
+		if !searchIndexes[ft.Index] {
+			return nil, fmt.Errorf("%w: unknown search index %q", ErrValidation, ft.Index)
+		}
+		if ft.Term == "" {
+			return nil, fmt.Errorf("%w: empty term for index %q", ErrValidation, ft.Index)
+		}
+		terms = append(terms, ft)
+	}
+	if len(terms) == 0 {
+		return nil, fmt.Errorf("%w: empty query", ErrValidation)
+	}
+	return terms, nil
+}
+
 // protocolSearch is the production SearchFunc over the libcodex clients.
-func protocolSearch(ctx context.Context, t Target, query string, limit int) ([]*codex.Record, error) {
+func protocolSearch(ctx context.Context, t Target, terms []FieldTerm, limit int) ([]*codex.Record, error) {
 	switch t.Protocol {
 	case ProtocolSRU:
-		rd := sru.NewClient(t.URL).NewReader(ctx, sru.Quote(query))
+		rd := sru.NewClient(t.URL).NewReader(ctx, sruQuery(terms).String())
 		return readUpTo(rd.Read, limit)
 	case ProtocolZ3950:
-		rd := z3950.NewClient(t.URL).NewReader(ctx, z3950.Term("any", query).Word())
+		rd := z3950.NewClient(t.URL).NewReader(ctx, z3950Query(terms))
 		defer rd.Close()
 		return readUpTo(rd.Read, limit)
 	}
 	return nil, fmt.Errorf("%w: unknown protocol %q", ErrValidation, t.Protocol)
+}
+
+// sruQuery assembles the ANDed CQL query. The dc context set libcodex maps
+// has no LCCN index, so lccn passes through as the Bath profile's bath.lccn.
+func sruQuery(terms []FieldTerm) sru.Query {
+	q := sru.Term(sruIndex(terms[0].Index), terms[0].Term)
+	for _, ft := range terms[1:] {
+		q = sru.And(q, sru.Term(sruIndex(ft.Index), ft.Term))
+	}
+	return q
+}
+
+func sruIndex(index string) string {
+	if index == "lccn" {
+		return "bath.lccn"
+	}
+	return index
+}
+
+// z3950Query assembles the ANDed RPN query. A lone free-text term keeps the
+// pre-fielded word structure; everything else takes libcodex's automatic
+// word/phrase choice.
+func z3950Query(terms []FieldTerm) z3950.Query {
+	q := z3950.Term(terms[0].Index, terms[0].Term)
+	if len(terms) == 1 && terms[0].Index == "any" {
+		q = q.Word()
+	}
+	for _, ft := range terms[1:] {
+		q = z3950.And(q, z3950.Term(ft.Index, ft.Term))
+	}
+	return q
 }
 
 func readUpTo(read func() (*codex.Record, error), limit int) ([]*codex.Record, error) {

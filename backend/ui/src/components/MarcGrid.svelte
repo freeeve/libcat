@@ -6,6 +6,7 @@
   // (leader, 006/007/008) expand into positional builders. Lossy tags carry
   // a non-blocking warning: their edits persist verbatim, not modeled.
   import FixedFieldGrid from "./FixedFieldGrid.svelte";
+  import { locFieldHelpUrl } from "../lib/lochelp";
   import { blankField, isControlTag, isFixedTag, lineToSubfields, subfieldsToLine } from "../lib/marc";
   import type { MarcRecordDoc, MarcField } from "../lib/types";
 
@@ -94,6 +95,9 @@
         <FixedFieldGrid tag="LDR" value={record.leader} onchange={(v) => onchange({ ...record, leader: v })} />
       {/if}
     </div>
+    <span class="acts">
+      <a class="help" href={locFieldHelpUrl("LDR")} target="_blank" rel="noreferrer" title="MARC 21 leader documentation" aria-label="MARC 21 leader documentation">?</a>
+    </span>
   </div>
 
   {#each record.fields as f, i (i)}
@@ -140,6 +144,10 @@
         {/if}
       </div>
       <span class="acts">
+        {#if locFieldHelpUrl(f.tag)}
+          <a class="help" href={locFieldHelpUrl(f.tag)} target="_blank" rel="noreferrer"
+            title={"MARC 21 documentation for " + f.tag} aria-label={"MARC 21 documentation for " + f.tag}>?</a>
+        {/if}
         <button class="button button--quiet mini" title="Duplicate field (Alt+D)"
           onclick={() => insertBelow(i, structuredClone($state.snapshot(f)))}>Dup</button>
         <button class="button button--quiet mini" onclick={() => removeRow(i)}>Del</button>
@@ -202,6 +210,25 @@
   .acts {
     display: inline-flex;
     gap: 0.25rem;
+    align-items: center;
+  }
+  .help {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--ink-muted);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    width: 1.15rem;
+    height: 1.15rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+  .help:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .hint {
     font-size: 0.78rem;

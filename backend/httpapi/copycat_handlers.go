@@ -48,14 +48,15 @@ func registerCopycat(mux *http.ServeMux, svc *copycat.Service, verifier auth.Tok
 
 	mux.Handle("POST /v1/copycat/search", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Query   string   `json:"query"`
-			Targets []string `json:"targets"`
+			Query   string              `json:"query"`
+			Fields  []copycat.FieldTerm `json:"fields"`
+			Targets []string            `json:"targets"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "bad request body")
 			return
 		}
-		results, failures, err := svc.SearchAll(r.Context(), req.Query, req.Targets)
+		results, failures, err := svc.SearchAll(r.Context(), req.Query, req.Fields, req.Targets)
 		if writeCopycatError(w, err) {
 			return
 		}

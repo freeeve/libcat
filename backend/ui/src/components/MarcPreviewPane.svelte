@@ -6,6 +6,7 @@
   // exactly as the editing grid marks them.
   import { onMount } from "svelte";
   import { marcPreview } from "../lib/api";
+  import MarcRecordView from "./MarcRecordView.svelte";
   import type { MarcField, MarcRecordDoc, Op } from "../lib/types";
 
   let { workId, ops }: { workId: string; ops: Op[] } = $props();
@@ -83,17 +84,7 @@
   </p>
   {#each records as rec, i (rec.node)}
     {#if records.length > 1}<p class="muted rechead">Record {i + 1}</p>{/if}
-    <p class="fl mono ldr">LDR&nbsp;&nbsp;&nbsp;&nbsp;{rec.leader}</p>
-    {#each rec.fields as f, fi (fi)}
-      <p
-        class="fl mono"
-        class:changed={changed(rec, f)}
-        class:lossy={!!(f.lossy || knownLoss[f.tag])}
-        title={f.lossy || knownLoss[f.tag] || ""}
-      >
-        <span class="tag">{f.tag}</span><span class="ind">{f.ind1 || " "}{f.ind2 || " "}</span>{#if f.value}{f.value}{:else}{#each f.subfields ?? [] as sf, si (si)}<span class="sf">${sf.code}</span>{" " + sf.value + " "}{/each}{/if}
-      </p>
-    {/each}
+    <MarcRecordView record={rec} {knownLoss} changed={(f) => changed(rec, f)} />
   {:else}
     {#if !loading && !error}<p class="muted">This work decodes to no MARC records.</p>{/if}
   {/each}
@@ -125,38 +116,5 @@
   .rechead {
     font-size: 0.8rem;
     margin: 0.5rem 0 0.2rem;
-  }
-  .fl {
-    margin: 0;
-    padding: 0.08rem 0.3rem;
-    font-size: 0.78rem;
-    line-height: 1.45;
-    word-break: break-word;
-  }
-  .mono {
-    font-family: var(--mono);
-  }
-  .ldr {
-    color: var(--ink-muted);
-  }
-  .tag {
-    font-weight: 700;
-    margin-right: 0.5em;
-  }
-  .ind {
-    color: var(--ink-muted);
-    margin-right: 0.5em;
-    white-space: pre;
-  }
-  .sf {
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .fl.changed {
-    background: var(--tint-ok, rgba(46, 160, 67, 0.12));
-    box-shadow: inset 2px 0 0 var(--accent);
-  }
-  .fl.lossy {
-    opacity: 0.65;
   }
 </style>

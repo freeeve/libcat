@@ -88,7 +88,7 @@ func registerSubjectLookup(mux *http.ServeMux, cc *copycat.Service, bs blob.Stor
 		byKey := map[string]*subjectCandidate{}
 		failures := map[string]string{}
 		for _, isbn := range isbns {
-			results, fails, err := cc.SearchAll(r.Context(), isbn, req.Targets)
+			results, fails, err := cc.SearchAll(r.Context(), "", []copycat.FieldTerm{{Index: "isbn", Term: isbn}}, req.Targets)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return

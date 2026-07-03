@@ -12,6 +12,7 @@ import type {
   BatchRunResult,
   BatchTarget,
   CopycatBatch,
+  CopycatFieldTerm,
   CopycatPolicy,
   CopycatProfile,
   CopycatRevertResult,
@@ -312,13 +313,18 @@ export function deleteCopycatTarget(name: string): Promise<void> {
   return call("DELETE", `/v1/copycat/targets/${encodeURIComponent(name)}`);
 }
 
-/** Fans a query out to the external targets (librarian). Per-target
- *  failures come back in `failures` rather than failing the search. */
-export function copycatSearch(query: string, targets?: string[]): Promise<{
+/** Fans a query out to the external targets (librarian). Fielded terms AND
+ *  onto the free-text query (tasks/074); per-target failures come back in
+ *  `failures` rather than failing the search. */
+export function copycatSearch(query: string, fields?: CopycatFieldTerm[], targets?: string[]): Promise<{
   results: CopycatSearchResult[];
   failures: Record<string, string>;
 }> {
-  return call("POST", "/v1/copycat/search", { query, ...(targets?.length ? { targets } : {}) });
+  return call("POST", "/v1/copycat/search", {
+    query,
+    ...(fields?.length ? { fields } : {}),
+    ...(targets?.length ? { targets } : {}),
+  });
 }
 
 /** Stages records (from search results, or a base64 .mrc upload) into a
