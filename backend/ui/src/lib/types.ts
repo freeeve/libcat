@@ -325,6 +325,37 @@ export interface SavedQuery {
   createdAt: string;
 }
 
+/** marcview.Subfield -- one (code, value) pair. */
+export interface MarcSubfield {
+  code: string;
+  value: string;
+}
+
+/** marcview.Field -- one row of the MARC editing grid. */
+export interface MarcField {
+  tag: string;
+  ind1?: string;
+  ind2?: string;
+  value?: string; // control fields (tag < 010)
+  subfields?: MarcSubfield[];
+  lossy?: string; // fidelity-table reason; edits persist via the verbatim sidecar
+}
+
+/** marcview.RecordDoc -- one materialized MARC record. */
+export interface MarcRecordDoc {
+  node: string;
+  leader: string;
+  fields: MarcField[];
+}
+
+/** GET /v1/works/{id}/marc payload. */
+export interface MarcResponse {
+  workId: string;
+  etag: string;
+  records: MarcRecordDoc[];
+  knownLoss: Record<string, string>;
+}
+
 export type ExportFormat = "marc" | "nquads" | "jsonld" | "csv";
 export type ExportStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
 

@@ -15,6 +15,7 @@ import BatchOps from "./screens/BatchOps.svelte";
 import Macros from "./screens/Macros.svelte";
 import Exports from "./screens/Exports.svelte";
 import CommandPalette from "./components/CommandPalette.svelte";
+import MarcPanel from "./components/MarcPanel.svelte";
 import VocabPicker from "./components/VocabPicker.svelte";
 import { invalidateAccess, loginLocal } from "./lib/auth";
 import { setConfig } from "./lib/config";
@@ -536,6 +537,70 @@ describe("a11y", () => {
     flushSync();
     expect(host.textContent).toContain("Lossy");
     expect(host.querySelector('a[href*="marc-fidelity"]')).not.toBeNull();
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("MarcPanel grid with a lossy field and fixed-field builder has no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        json({
+          workId: "w-001",
+          etag: "etag-1",
+          knownLoss: { "037": "vendor convention: decodes as an 024-shaped identifier" },
+          records: [
+            {
+              node: "#i1Instance",
+              leader: "00000nam a2200000   4500",
+              fields: [
+                { tag: "001", value: "ODN0001" },
+                { tag: "008", value: "240702s2026    nyu           000 1 eng d" },
+                {
+                  tag: "245",
+                  ind1: "1",
+                  ind2: "0",
+                  subfields: [
+                    { code: "a", value: "Gideon the Ninth" },
+                    { code: "c", value: "Tamsyn Muir." },
+                  ],
+                },
+                {
+                  tag: "037",
+                  ind1: " ",
+                  ind2: " ",
+                  subfields: [{ code: "a", value: "12345-67" }],
+                  lossy: "vendor convention: decodes as an 024-shaped identifier",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(MarcPanel, { target: host, props: { workId: "w-001" } });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    expect(host.textContent).toContain("Crosswalk-lossy tag");
+    expect(host.querySelector('a[href*="marc-fidelity"]')).not.toBeNull();
+    // Expand the 008 positional builder so it joins the audited tree.
+    const posBtn = [...host.querySelectorAll("button")].filter((b) => b.textContent?.trim() === "Positions")[1];
+    expect(posBtn).toBeDefined();
+    posBtn?.click();
+    flushSync();
+    expect(host.textContent).toContain("Date entered");
     const results = await audit(host);
     expect(results.violations).toEqual([]);
   });

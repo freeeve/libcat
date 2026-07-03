@@ -10,6 +10,7 @@
   import DiffPreview from "../components/DiffPreview.svelte";
   import HistoryPanel from "../components/HistoryPanel.svelte";
   import MacroBar from "../components/MacroBar.svelte";
+  import MarcPanel from "../components/MarcPanel.svelte";
   import ProfileForm from "../components/ProfileForm.svelte";
   import SaveBar from "../components/SaveBar.svelte";
   import { createEditorSession } from "../lib/editor";
@@ -22,7 +23,7 @@
   // svelte-ignore state_referenced_locally
   const session = createEditorSession(workId);
 
-  let tab = $state<"native" | "history">("native");
+  let tab = $state<"native" | "marc" | "history">("native");
 
   onMount(() => {
     pushScope(SCOPE);
@@ -93,6 +94,9 @@
         <button class="tab" class:active={tab === "native"} aria-pressed={tab === "native"} onclick={() => (tab = "native")}>
           Native
         </button>
+        <button class="tab" class:active={tab === "marc"} aria-pressed={tab === "marc"} onclick={() => (tab = "marc")}>
+          MARC
+        </button>
         <button class="tab" class:active={tab === "history"} aria-pressed={tab === "history"} onclick={() => (tab = "history")}>
           History
         </button>
@@ -149,6 +153,8 @@
           onsave={() => void session.save()}
           ondiscard={() => void session.discard()}
         />
+      {:else if tab === "marc"}
+        <MarcPanel {workId} />
       {:else}
         <HistoryPanel {workId} />
       {/if}
