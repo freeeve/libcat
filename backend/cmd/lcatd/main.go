@@ -25,7 +25,9 @@ import (
 	"github.com/freeeve/libcatalog/backend/authoritiesvc"
 	"github.com/freeeve/libcatalog/ingest/locsh"
 
+	"github.com/freeeve/libcatalog/backend/batch"
 	"github.com/freeeve/libcatalog/backend/config"
+	"github.com/freeeve/libcatalog/backend/editor"
 	"github.com/freeeve/libcatalog/backend/enrich"
 	"github.com/freeeve/libcatalog/backend/export"
 	"github.com/freeeve/libcatalog/backend/httpapi"
@@ -151,6 +153,10 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 			Trigger: notifier, AuthoritiesPrefix: cfg.AuthoritiesPrefix,
 			Schemes: vocabSchemes, Logger: logger,
 		}
+		deps.Batch = &batch.Service{
+			Blob: deps.Blob, DB: db, Mapper: defaultBatchMapper(),
+			Queue: deps.Suggest, Trigger: notifier,
+		}
 	}
 	verifiers := map[string]auth.TokenVerifier{}
 	if cfg.LocalAuth {
@@ -240,6 +246,16 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		}()
 	}
 	return deps, nil
+}
+
+// defaultBatchMapper builds the batch op mapper over the shipped profiles
+// (embedded and validated at build, so failure is impossible at runtime).
+func defaultBatchMapper() *editor.Mapper {
+	set, err := profiles.LoadDefaults()
+	if err != nil {
+		panic(err)
+	}
+	return &editor.Mapper{WorkProfile: set["work-monograph"], InstanceProfile: set["instance-ebook"]}
 }
 
 // signingKey decodes the configured Ed25519 key (seed or full private key,

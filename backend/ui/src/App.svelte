@@ -17,6 +17,9 @@
   import Promotions from "./screens/Promotions.svelte";
   import Authorities from "./screens/Authorities.svelte";
   import AuthorityEditor from "./screens/AuthorityEditor.svelte";
+  import BatchOps from "./screens/BatchOps.svelte";
+  import Macros from "./screens/Macros.svelte";
+  import CommandPalette from "./components/CommandPalette.svelte";
 
   const routes: RouteDef[] = [
     { name: "dashboard", pattern: "/" },
@@ -26,6 +29,8 @@
     { name: "work", pattern: "/works/:id" },
     { name: "authorities", pattern: "/authorities" },
     { name: "authority", pattern: "/authorities/:id" },
+    { name: "batch", pattern: "/batch" },
+    { name: "macros", pattern: "/macros" },
     { name: "queue", pattern: "/queue" },
     { name: "promotions", pattern: "/promotions" },
   ];
@@ -33,8 +38,17 @@
   let route = $state(resolve(routes, location.hash));
   let theme = $state<Theme>(initTheme());
   let ready = $state(false);
+  let paletteOpen = $state(false);
 
-  onMount(async () => {
+  onMount(() => {
+    // Ctrl/Cmd+K opens the command palette from anywhere (modified keys
+    // bypass the scope dispatcher, so this is a direct listener).
+    window.addEventListener("keydown", onModK);
+    void boot();
+    return () => window.removeEventListener("keydown", onModK);
+  });
+
+  async function boot(): Promise<void> {
     configStore.set(await loadConfig());
     if (route.name === "callback") {
       await handleOidcCallback();
@@ -47,7 +61,14 @@
       route = resolve(routes, location.hash);
     });
     route = resolve(routes, location.hash);
-  });
+  }
+
+  function onModK(ev: KeyboardEvent): void {
+    if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && ev.key.toLowerCase() === "k") {
+      ev.preventDefault();
+      if ($sessionStore) paletteOpen = !paletteOpen;
+    }
+  }
 
   // Auth gate: signed-out users go to the login screen, signed-in users
   // never see it. Callback stays untouched while the exchange completes.
@@ -76,6 +97,8 @@
     <nav aria-label="Primary">
       <a href="#/works" class:current={route.name === "works" || route.name === "work"}>Works</a>
       <a href="#/authorities" class:current={route.name === "authorities" || route.name === "authority"}>Authorities</a>
+      <a href="#/batch" class:current={route.name === "batch"}>Batch</a>
+      <a href="#/macros" class:current={route.name === "macros"}>Macros</a>
       <a href="#/queue" class:current={route.name === "queue"}>Queue</a>
     </nav>
     <span class="side">
@@ -105,6 +128,10 @@
     {/key}
   {:else if route.name === "authorities"}
     <Authorities />
+  {:else if route.name === "batch"}
+    <BatchOps initialMacro={route.query.get("macro") ?? ""} />
+  {:else if route.name === "macros"}
+    <Macros />
   {:else if route.name === "queue"}
     <Queue />
   {:else if route.name === "promotions"}
@@ -112,6 +139,10 @@
   {:else}
     <Dashboard session={$sessionStore} />
   {/if}
+{/if}
+
+{#if paletteOpen}
+  <CommandPalette onclose={() => (paletteOpen = false)} />
 {/if}
 
 <KeyboardHelp />

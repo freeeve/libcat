@@ -60,7 +60,7 @@ func registerWorksList(mux *http.ServeMux, bs blob.Store, verifier auth.TokenVer
 		}
 		matches := make([]ingest.WorkSummary, 0, limit)
 		for _, s := range all {
-			if q != "" && !summaryMatches(s, q) {
+			if q != "" && !s.Matches(q) {
 				continue
 			}
 			matches = append(matches, s)
@@ -71,26 +71,4 @@ func registerWorksList(mux *http.ServeMux, bs blob.Store, verifier auth.TokenVer
 		writeJSON(w, http.StatusOK, map[string]any{"works": matches, "total": len(all)})
 	})))
 	return wl
-}
-
-func summaryMatches(s ingest.WorkSummary, q string) bool {
-	if strings.Contains(strings.ToLower(s.Title), q) || strings.Contains(strings.ToLower(s.WorkID), q) {
-		return true
-	}
-	for _, c := range s.Contributors {
-		if strings.Contains(strings.ToLower(c), q) {
-			return true
-		}
-	}
-	for _, tag := range s.Tags {
-		if strings.Contains(strings.ToLower(tag), q) {
-			return true
-		}
-	}
-	for _, isbn := range s.ISBNs {
-		if strings.Contains(isbn, q) {
-			return true
-		}
-	}
-	return false
 }

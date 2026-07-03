@@ -9,6 +9,7 @@
   import { onMount } from "svelte";
   import DiffPreview from "../components/DiffPreview.svelte";
   import HistoryPanel from "../components/HistoryPanel.svelte";
+  import MacroBar from "../components/MacroBar.svelte";
   import ProfileForm from "../components/ProfileForm.svelte";
   import SaveBar from "../components/SaveBar.svelte";
   import { createEditorSession } from "../lib/editor";
@@ -134,6 +135,8 @@
             <pre>{doc.passthrough.join("\n")}</pre>
           </details>
         {/if}
+
+        <MacroBar ops={$session.ops} onapply={(op) => session.stage(op)} />
 
         {#if $session.diff}
           <DiffPreview diff={$session.diff} onclose={() => session.dismissPreview()} />

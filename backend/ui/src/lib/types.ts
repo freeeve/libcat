@@ -181,6 +181,13 @@ export interface Profile {
   fields: ProfileField[];
 }
 
+/** profiles.ValueSource -- how a field's values are entered and validated. */
+export interface ProfileValueSource {
+  kind: "literal" | "langLiteral" | "date" | "enum" | "vocab" | "authority" | "entity";
+  ref?: string;
+  options?: string[];
+}
+
 /** profiles.Field -- one editable field of a profile. */
 export interface ProfileField {
   path: string;
@@ -188,6 +195,8 @@ export interface ProfileField {
   help?: string;
   min?: number;
   max?: number;
+  valueSource?: ProfileValueSource;
+  hidden?: boolean;
   marcHint?: string;
 }
 
@@ -251,6 +260,69 @@ export interface PublishResponse {
 export interface TagCount {
   tag: string;
   count: number;
+}
+
+/** batch.Selection -- names a set of works for a batch run (tasks/047). */
+export interface Selection {
+  kind: "ids" | "search" | "savedQuery" | "all" | "importBatch";
+  ids?: string[];
+  query?: string;
+  savedQueryId?: string;
+}
+
+/** batch.Target -- one resolved work in a selection preview. */
+export interface BatchTarget {
+  workId: string;
+  title?: string;
+}
+
+/** batch.ItemResult -- one work's outcome in a batch run. */
+export interface BatchItemResult {
+  workId: string;
+  etag?: string;
+  error?: string;
+  diff?: Diff;
+}
+
+/** batch.RunResult -- a batch run summary with per-record results. */
+export interface BatchRunResult {
+  dryRun: boolean;
+  matched: number;
+  applied: number;
+  failed: number;
+  added: number;
+  removed: number;
+  results: BatchItemResult[];
+  diffsTruncated?: boolean;
+}
+
+/** batch.Param -- one macro parameter (${name} in op values). */
+export interface MacroParam {
+  name: string;
+  label?: string;
+  default?: string;
+}
+
+/** batch.Macro -- a replayable op list; shared = a modification template. */
+export interface Macro {
+  id: string;
+  label: string;
+  keys?: string;
+  ops: Op[];
+  params?: MacroParam[];
+  shared: boolean;
+  owner: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** batch.SavedQuery -- a named works search. */
+export interface SavedQuery {
+  id: string;
+  label: string;
+  query: string;
+  owner: string;
+  createdAt: string;
 }
 
 /** suggest.Promotion -- a folk tag proposed to fold into a controlled term. */

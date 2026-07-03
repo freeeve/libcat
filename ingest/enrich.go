@@ -29,6 +29,32 @@ type WorkSummary struct {
 	Subjects []string
 }
 
+// Matches reports whether the summary matches a lowercased search query --
+// substring over title, id, contributors, tags, and ISBNs. One matcher
+// serves the works listing and batch search selections (tasks/047), so a
+// saved query means the same thing everywhere.
+func (s WorkSummary) Matches(q string) bool {
+	if strings.Contains(strings.ToLower(s.Title), q) || strings.Contains(strings.ToLower(s.WorkID), q) {
+		return true
+	}
+	for _, c := range s.Contributors {
+		if strings.Contains(strings.ToLower(c), q) {
+			return true
+		}
+	}
+	for _, tag := range s.Tags {
+		if strings.Contains(strings.ToLower(tag), q) {
+			return true
+		}
+	}
+	for _, isbn := range s.ISBNs {
+		if strings.Contains(isbn, q) {
+			return true
+		}
+	}
+	return false
+}
+
 // Enrichment is one Work's enrichment result: controlled subjects to assert.
 type Enrichment struct {
 	WorkID   string

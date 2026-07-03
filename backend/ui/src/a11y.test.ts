@@ -11,6 +11,9 @@ import Queue from "./screens/Queue.svelte";
 import WorkEditor from "./screens/WorkEditor.svelte";
 import Authorities from "./screens/Authorities.svelte";
 import AuthorityEditor from "./screens/AuthorityEditor.svelte";
+import BatchOps from "./screens/BatchOps.svelte";
+import Macros from "./screens/Macros.svelte";
+import CommandPalette from "./components/CommandPalette.svelte";
 import VocabPicker from "./components/VocabPicker.svelte";
 import { invalidateAccess, loginLocal } from "./lib/auth";
 import { setConfig } from "./lib/config";
@@ -334,6 +337,152 @@ describe("a11y", () => {
     await tick();
     expect(host.textContent).toContain("Cozy fantasy");
     expect(host.textContent).toContain("Exact match (external vocabulary)");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("BatchOps with a macro, params, and a run result has no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    const macro = {
+      id: "m1",
+      label: "Series summary",
+      keys: "1",
+      shared: true,
+      owner: "staff@example.org",
+      ops: [{ resource: "work", path: "summary", action: "set", values: [{ v: "${series} book.", lang: "en" }] }],
+      params: [{ name: "series", label: "Series name" }],
+      createdAt: "2026-07-01T00:00:00Z",
+      updatedAt: "2026-07-01T00:00:00Z",
+    };
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/v1/profiles"))
+        return Promise.resolve(
+          json({
+            profiles: {
+              "work-monograph": {
+                id: "work-monograph",
+                label: "Work",
+                resourceType: "work",
+                fields: [{ path: "summary", label: "Summary", valueSource: { kind: "langLiteral" } }],
+              },
+            },
+          }),
+        );
+      if (url.includes("/v1/macros")) return Promise.resolve(json({ macros: [macro] }));
+      if (url.includes("/v1/queries")) return Promise.resolve(json({ queries: [] }));
+      if (url.includes("/v1/batch/resolve"))
+        return Promise.resolve(json({ matched: 2, works: [{ workId: "w1", title: "Gideon the Ninth" }] }));
+      if (url.includes("/v1/batch/ops") && init?.method === "POST")
+        return Promise.resolve(
+          json({
+            dryRun: true,
+            matched: 2,
+            applied: 1,
+            failed: 1,
+            added: 2,
+            removed: 0,
+            results: [
+              { workId: "w1", diff: { added: ["<#w1Work> <p> \"x\" <editorial:> ."], removed: [] } },
+              { workId: "w2", error: "no such work" },
+            ],
+          }),
+        );
+      return Promise.resolve(json({}));
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(BatchOps, { target: host, props: { initialMacro: "m1" } });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    expect(host.textContent).toContain("Series summary");
+    expect(host.textContent).toContain("Series name"); // param prompt rendered
+    // Resolve a selection and dry-run so the results list joins the tree.
+    const previewBtn = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("Preview selection"));
+    previewBtn?.click();
+    await tick();
+    expect(host.textContent).toContain("Gideon the Ninth");
+    const dryBtn = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Dry run");
+    dryBtn?.click();
+    await tick();
+    expect(host.textContent).toContain("no such work");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("Macros list and editor have no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        json({
+          macros: [
+            {
+              id: "m1",
+              label: "Series summary",
+              keys: "1",
+              shared: true,
+              owner: "staff@example.org",
+              ops: [{ resource: "work", path: "summary", action: "set", values: [{ v: "${series} book.", lang: "en" }] }],
+              params: [{ name: "series", label: "Series name" }],
+              createdAt: "2026-07-01T00:00:00Z",
+              updatedAt: "2026-07-01T00:00:00Z",
+            },
+          ],
+        }),
+      ),
+    );
+    sessionStore.set({ email: "staff@example.org", roles: ["librarian"] });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(Macros, { target: host });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      sessionStore.set(null);
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    expect(host.textContent).toContain("Series summary");
+    // Open the editor pane so its form is part of the audited tree.
+    const editBtn = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Edit");
+    editBtn?.click();
+    flushSync();
+    expect(host.textContent).toContain("Parameters");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("CommandPalette has no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh"] });
+    const fetchMock = vi.fn(() => Promise.resolve(json({ macros: [], works: [], total: 0 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(CommandPalette, { target: host, props: { onclose: () => undefined } });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      resetKeyboard();
+    };
+    await tick();
+    expect(host.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(host.textContent).toContain("Go to Works");
     const results = await audit(host);
     expect(results.violations).toEqual([]);
   });

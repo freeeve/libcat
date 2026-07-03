@@ -13,6 +13,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/auth/local"
 	"github.com/freeeve/libcatalog/backend/authoritiesvc"
+	"github.com/freeeve/libcatalog/backend/batch"
 	"github.com/freeeve/libcatalog/backend/enrich"
 	"github.com/freeeve/libcatalog/backend/export"
 	"github.com/freeeve/libcatalog/backend/publish"
@@ -50,6 +51,9 @@ type Deps struct {
 	// Authorities, when set, mounts the local-authority editing surface
 	// (tasks/046) and hooks the on-save auto-linker into record writes.
 	Authorities *authoritiesvc.Service
+	// Batch, when set, mounts batch operations, macros, and saved queries
+	// (tasks/047).
+	Batch *batch.Service
 	// Publisher, when set, carries approved decisions into the grain store
 	// (POST /v1/publish and the review publish flag).
 	Publisher GraphPublisher
@@ -107,6 +111,9 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {
 		registerAuthorities(mux, deps.Authorities, deps.Verifier)
+	}
+	if deps.Batch != nil && deps.Verifier != nil {
+		registerBatch(mux, deps.Batch, deps.Verifier)
 	}
 	if deps.Suggest != nil && deps.Verifier != nil {
 		registerPromotions(mux, deps.Suggest, deps.Publisher, deps.Verifier)
