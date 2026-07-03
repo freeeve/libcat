@@ -14,6 +14,7 @@
 
   let macros = $state<Macro[]>([]);
   let selected = $state(0);
+  let editorOpen = $state(false);
   let editing = $state<Macro | null>(null);
   let label = $state("");
   let keys = $state("");
@@ -34,6 +35,7 @@
       ArrowUp: { description: "previous macro", hidden: true, handler: () => move(-1) },
       Enter: { description: "edit the selected macro", legend: "edit", handler: editSelected },
       n: { description: "start a new macro", legend: "new", handler: startNew },
+      Escape: { description: "close the macro editor", hidden: true, handler: cancel },
     });
     void load();
     return () => {
@@ -60,7 +62,19 @@
     }
   }
 
+  /** Closes the editor pane and drops any unsaved field state. */
+  function cancel(): void {
+    editorOpen = false;
+    editing = null;
+    label = "";
+    keys = "";
+    shared = false;
+    params = [];
+    opsJSON = "";
+  }
+
   function startNew(): void {
+    editorOpen = true;
     editing = null;
     label = "";
     keys = "";
@@ -76,6 +90,7 @@
   }
 
   function startEdit(m: Macro): void {
+    editorOpen = true;
     editing = m;
     label = m.label;
     keys = m.keys ?? "";
@@ -110,7 +125,7 @@
         await createMacro(body);
         status = "macro recorded";
       }
-      editing = null;
+      cancel();
       await load();
     } catch (e) {
       error = e instanceof ApiError ? e.message : "saving the macro failed";
@@ -121,7 +136,7 @@
     error = "";
     try {
       await deleteMacro(m.id);
-      if (editing?.id === m.id) editing = null;
+      if (editing?.id === m.id) cancel();
       await load();
       status = `deleted "${m.label}"`;
     } catch (e) {
@@ -130,7 +145,7 @@
   }
 </script>
 
-<main>
+<main class="wide">
   <h1>Macros</h1>
   <p class="muted">
     A macro is a replayable list of field edits: record one from staged edits in the work editor, replay it on another
@@ -168,7 +183,7 @@
       </ul>
     </section>
 
-    {#if editing !== null || label !== "" || opsJSON !== ""}
+    {#if editorOpen}
       <section aria-label="Macro editor" class="editor">
         <h2>{editing ? `Edit "${editing.label}"` : "New macro"}</h2>
         <div class="row">
@@ -202,9 +217,7 @@
 
         <p class="actions">
           <button class="button" onclick={() => void save()}>{editing ? "Save changes" : "Create macro"}</button>
-          {#if editing}
-            <button class="button button--quiet" onclick={() => (editing = null)}>Cancel</button>
-          {/if}
+          <button class="button button--quiet" onclick={cancel}>Cancel</button>
         </p>
       </section>
     {/if}
