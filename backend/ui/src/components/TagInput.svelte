@@ -9,12 +9,14 @@
     id = "tag-input",
     label = "Tag",
     placeholder = "Type a tag…",
+    hideLabel = false,
     onselect,
     oninput,
   }: {
     id?: string;
     label?: string;
     placeholder?: string;
+    hideLabel?: boolean;
     onselect: (tag: string) => void;
     oninput?: (q: string) => void;
   } = $props();
@@ -88,7 +90,7 @@
 </script>
 
 <div class="taginput">
-  <label for={id}>{label}</label>
+  <label for={id} class:sr-only={hideLabel}>{label}</label>
   <input {id} type="text" bind:value={q} oninput={onType} onkeydown={onKeydown} {placeholder} autocomplete="off" />
   {#if open}
     <ul class="menu" aria-label="Tag suggestions">
@@ -115,6 +117,14 @@
     font-size: 0.85rem;
     font-weight: 600;
     margin-bottom: 0.2rem;
+  }
+  label.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   input {
     width: 100%;

@@ -23,9 +23,19 @@
   --prov-editorial: #1e6b4e;
   --prov-feed: #8b9089;
   --prov-enrichment: #27567b;
+  /* Pending-edit amber: staged-but-unsaved values (light-mode trio; dark
+     overrides below). */
+  --pend-bg: #fdf3dc;
+  --pend-edge: #ecd9a6;
+  --pend-ink: #6b4d0c;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --display: "Charter", "Iowan Old Style", "Palatino", Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* One height for every control so mixed rows (input + select + button)
+     sit on a shared baseline. */
+  --control-h: 2.15rem;
+  --radius: 4px;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235b615d' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 
 * {
@@ -89,32 +99,98 @@ h2 {
   background: var(--accent);
   color: var(--accent-ink);
   border: 1px solid var(--accent);
-  border-radius: 4px;
-  padding: 0.45em 1.1em;
+  border-radius: var(--radius);
+  min-height: var(--control-h);
+  padding: 0.3em 1.1em;
   font-weight: 600;
 }
 
+.button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .button--quiet {
-  background: none;
+  background: var(--surface);
   color: var(--ink-muted);
   border: 1px solid var(--rule);
 }
 
-.button--quiet:hover {
+.button--quiet:hover:not(:disabled) {
   color: var(--ink);
   border-color: var(--ink-muted);
+  filter: none;
 }
 
+.button--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+/* Form controls: index-card white on bone so fillable areas read as raised
+   cards; one shared height, hairline border, ink caret. */
 input[type="text"],
 input[type="search"],
 input[type="email"],
-input[type="password"] {
+input[type="password"],
+input[type="number"],
+input[type="url"],
+textarea,
+select {
   font: inherit;
   color: var(--ink);
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: var(--radius);
+  min-height: var(--control-h);
+  padding: 0.3em 0.6em;
+  caret-color: var(--accent);
+}
+
+textarea {
   padding: 0.45em 0.6em;
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: var(--ink-muted);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-muted);
+  opacity: 0.75;
+}
+
+/* Selects drop the platform widget for the same card as every other
+   control, with a drawn chevron. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.6em center;
+  padding-right: 1.9em;
+  cursor: pointer;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -164,6 +240,10 @@ html[data-theme="dark"] {
   --prov-editorial: #6dbd97;
   --prov-feed: #79807a;
   --prov-enrichment: #85b3dc;
+  --pend-bg: #3a2f14;
+  --pend-edge: #6b5a26;
+  --pend-ink: #e3c576;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a8ada4' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
   color-scheme: dark;
 }
 /* Component tints that hard-code light values, re-derived for dark. The
@@ -191,14 +271,4 @@ html[data-theme="dark"] .line--added {
 html[data-theme="dark"] .line--removed {
   background: #402020;
   color: #e8b4b4;
-}
-html[data-theme="dark"] .value.pending-removed,
-html[data-theme="dark"] .value.pending-added {
-  background: #3a2f14;
-  border-color: #6b5a26;
-}
-html[data-theme="dark"] .pend-note,
-html[data-theme="dark"] .undo {
-  color: #e3c576;
-  border-color: #6b5a26;
 }

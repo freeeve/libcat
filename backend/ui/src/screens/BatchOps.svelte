@@ -366,7 +366,7 @@
     flex-wrap: wrap;
   }
   .results li.failed {
-    background: color-mix(in srgb, var(--surface) 70%, crimson 8%);
+    background: color-mix(in srgb, var(--surface) 92%, var(--danger));
   }
   .id {
     font-family: var(--mono);
@@ -397,17 +397,9 @@
     color: var(--ok, green);
   }
   .summary .del {
-    color: crimson;
+    color: var(--danger);
   }
   .ok {
     color: var(--accent);
-  }
-  .button--danger {
-    background: crimson;
-    border-color: crimson;
-    color: white;
-  }
-  .button--danger:disabled {
-    opacity: 0.5;
   }
 </style>

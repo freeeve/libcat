@@ -292,9 +292,9 @@
     color: var(--accent-ink);
   }
   .badge[data-status="FAILED"] {
-    background: crimson;
-    border-color: crimson;
-    color: white;
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
   }
   .badge[data-status="EXPIRED"] {
     color: var(--ink-muted);

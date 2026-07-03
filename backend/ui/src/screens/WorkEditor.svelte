@@ -81,10 +81,15 @@
     <p class="error" role="alert">{$session.loadError}</p>
   {:else if $session.doc}
     {@const doc = $session.doc}
+    {@const title = doc.work.fields["title"]?.[0]?.v}
     <article aria-label={"Work " + doc.workId}>
       <header class="dochead">
-        <h1>{doc.workId}</h1>
-        <p class="muted">profile {doc.profileId} · etag <code>{$session.etag}</code></p>
+        <h1>{title || doc.workId}</h1>
+        <p class="muted docmeta">
+          <code class="docid">{doc.workId}</code>
+          · profile {doc.profileId}
+          · <span title={"etag " + $session.etag}>etag <code>{$session.etag.slice(0, 10)}</code></span>
+        </p>
         <VisibilityPanel {workId} />
       </header>
 
@@ -147,7 +152,8 @@
                   {#if doc.instances.length > 1}
                     <label class="split-pick"><input type="checkbox" bind:checked={splitPick[inst.id]} /> </label>
                   {/if}
-                  {inst.id}
+                  <span class="inst-eyebrow">Instance</span>
+                  <code>{inst.id}</code>
                 </h3>
                 <ProfileForm
                   res={inst}
@@ -206,12 +212,18 @@
 <style>
   .dochead h1 {
     margin-bottom: 0.1rem;
-    font-family: var(--mono);
-    font-size: 1.15rem;
   }
   .dochead p {
-    margin-top: 0;
-    font-size: 0.85rem;
+    margin-top: 0.3rem;
+    font-size: 0.8rem;
+  }
+  .docmeta code {
+    font-size: 0.95em;
+  }
+  .docid {
+    background: var(--surface-alt);
+    border-radius: var(--radius);
+    padding: 0.1em 0.45em;
   }
   .banner {
     display: flex;
@@ -229,9 +241,9 @@
     min-width: 14rem;
   }
   .banner--warn {
-    background: #fdf3dc;
-    border-color: #ecd9a6;
-    color: #4a3608;
+    background: var(--pend-bg);
+    border-color: var(--pend-edge);
+    color: var(--pend-ink);
   }
   .notice {
     color: var(--ok);
@@ -269,10 +281,26 @@
     padding: 0.4rem 1rem 0.7rem;
     margin: 0.75rem 0;
   }
+  .instance {
+    background: var(--surface);
+  }
   .instance h3 {
-    font-family: var(--mono);
     font-size: 0.95rem;
     margin: 0.5rem 0 0.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .instance h3 code {
+    font-size: 0.85rem;
+    color: var(--ink-muted);
+  }
+  .inst-eyebrow {
+    font-size: 0.72rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-muted);
   }
   .passthrough {
     margin-top: 1.5rem;

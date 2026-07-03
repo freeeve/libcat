@@ -470,7 +470,7 @@
     border-color: #c77d0a;
   }
   .match[data-kind="instance"] {
-    border-color: crimson;
+    border-color: var(--danger);
   }
   .actions {
     margin-top: 0.8rem;

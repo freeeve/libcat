@@ -326,14 +326,6 @@
     font-weight: 600;
     color: var(--ink-muted);
   }
-  .filters select {
-    font: inherit;
-    color: var(--ink);
-    background: var(--bg);
-    border: 1px solid var(--rule);
-    border-radius: 4px;
-    padding: 0.3em 0.4em;
-  }
   .notice {
     color: var(--ok);
     font-weight: 600;
@@ -417,9 +409,9 @@
     border-color: #bcd3ef;
   }
   .chip--staged {
-    background: #fdf3dc;
-    color: #6b4d0c;
-    border-color: #ecd9a6;
+    background: var(--pend-bg);
+    color: var(--pend-ink);
+    border-color: var(--pend-edge);
   }
   .reasons {
     color: var(--danger);

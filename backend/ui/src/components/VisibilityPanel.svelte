@@ -75,8 +75,8 @@
     color: var(--ink-muted);
   }
   .badge.warn {
-    border-color: crimson;
-    color: crimson;
+    border-color: var(--danger);
+    color: var(--danger);
   }
   .mini {
     font-size: 0.75rem;

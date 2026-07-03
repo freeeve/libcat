@@ -75,6 +75,22 @@
     return words.charAt(0).toUpperCase() + words.slice(1);
   }
 
+  /** Splits an IRI into a muted host and its meaningful tail so vocabulary
+   *  values read as terms, not URLs; the full IRI stays in the tooltip. A
+   *  purely numeric tail keeps its parent segment (RDAMediaType/1003). */
+  function iriParts(v: string): { host: string; tail: string } {
+    try {
+      const u = new URL(v);
+      if (u.hash.length > 1) return { host: u.hostname, tail: u.hash.slice(1) };
+      const segs = u.pathname.split("/").filter(Boolean);
+      let tail = segs.pop() ?? "";
+      if ((/^\d+$/.test(tail) || tail.length <= 2) && segs.length > 0) tail = segs.pop() + "/" + tail;
+      return tail ? { host: u.hostname, tail } : { host: "", tail: v };
+    } catch {
+      return { host: "", tail: v };
+    }
+  }
+
   function fieldOps(path: string): Op[] {
     return mine.filter((o) => o.path === path);
   }
@@ -141,7 +157,14 @@
         {#each values as fv, i (fv.node + i)}
           {@const removal = removalOf(spec.path, fv)}
           <li class="value" class:overridden={fv.overridden} class:pending-removed={!!removal}>
-            <span class="v" class:iri={fv.iri}>{fv.v}</span>
+            {#if fv.iri}
+              {@const p = iriParts(fv.v)}
+              <span class="v iri" title={fv.v}>
+                {#if p.host}<span class="iri-host">{p.host}</span>{/if}{p.tail}
+              </span>
+            {:else}
+              <span class="v">{fv.v}</span>
+            {/if}
             {#if fv.lang}<span class="lang">@{fv.lang}</span>{/if}
             <ProvenanceBadge prov={fv.prov} />
             {#if fv.overridden}<span class="ov-note">overridden</span>{/if}
@@ -157,7 +180,14 @@
         {/each}
         {#each adds as p, i (i)}
           <li class="value pending-added">
-            <span class="v" class:iri={p.value.iri}>{pickedLabels[p.value.v] ?? p.value.v}</span>
+            {#if p.value.iri && !pickedLabels[p.value.v]}
+              {@const ip = iriParts(p.value.v)}
+              <span class="v iri" title={p.value.v}>
+                {#if ip.host}<span class="iri-host">{ip.host}</span>{/if}{ip.tail}
+              </span>
+            {:else}
+              <span class="v" class:iri={p.value.iri}>{pickedLabels[p.value.v] ?? p.value.v}</span>
+            {/if}
             {#if p.value.lang}<span class="lang">@{p.value.lang}</span>{/if}
             <span class="pend-note">adds on save</span>
             <button class="undo" onclick={() => onunstage(p.op)} aria-label={"Undo adding " + p.value.v}>
@@ -218,7 +248,7 @@
       {:else if spec.kind === "vocab"}
         <button class="button button--quiet act" onclick={() => (pickerFor = spec.path)}>Add subject…</button>
       {:else if spec.kind === "tag"}
-        <TagInput id={"tag-" + resource} label="Add a tag" placeholder="Type a tag…" onselect={(tag) => onstage({ resource, path: spec.path, action: "add", value: { v: tag } })} />
+        <TagInput id={"tag-" + resource} label="Add a tag" hideLabel placeholder="Type a tag…" onselect={(tag) => onstage({ resource, path: spec.path, action: "add", value: { v: tag } })} />
       {/if}
     </div>
   {/each}
@@ -229,7 +259,14 @@
       <ul class="vals">
         {#each values as fv, i (fv.node + i)}
           <li class="value" class:overridden={fv.overridden}>
-            <span class="v" class:iri={fv.iri}>{fv.v}</span>
+            {#if fv.iri}
+              {@const p = iriParts(fv.v)}
+              <span class="v iri" title={fv.v}>
+                {#if p.host}<span class="iri-host">{p.host}</span>{/if}{p.tail}
+              </span>
+            {:else}
+              <span class="v">{fv.v}</span>
+            {/if}
             {#if fv.lang}<span class="lang">@{fv.lang}</span>{/if}
             <ProvenanceBadge prov={fv.prov} />
             {#if fv.overridden}<span class="ov-note">overridden</span>{/if}
@@ -245,20 +282,52 @@
 {/if}
 
 <style>
+  /* The ruled worksheet: drawer-label column on the left, asserted values on
+     the right, one hairline per field. Labels sit on the first value's
+     baseline so the record scans as rows, not stacked blocks. */
   .field {
-    margin: 0.9rem 0;
+    display: grid;
+    grid-template-columns: 9.5rem 1fr;
+    gap: 0.35rem 1.25rem;
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--rule);
+    margin: 0;
+  }
+  .field:first-child {
+    border-top: none;
   }
   .fieldhead {
-    margin: 0 0 0.25rem;
-    font-size: 0.85rem;
+    margin: 0;
+    padding-top: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 650;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.07em;
     color: var(--ink-muted);
+  }
+  .field > :global(*) {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .field > .fieldhead {
+    grid-column: 1;
+  }
+  .field > .vals,
+  .field > .addrow {
+    justify-self: stretch;
   }
   .vals {
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+  @media (max-width: 40rem) {
+    .field {
+      grid-template-columns: 1fr;
+    }
+    .field > :global(*) {
+      grid-column: 1;
+    }
   }
   .value {
     display: flex;
@@ -271,6 +340,13 @@
     font-family: var(--mono);
     font-size: 0.9em;
   }
+  .iri-host {
+    color: var(--ink-muted);
+    font-size: 0.85em;
+  }
+  .iri-host::after {
+    content: " › ";
+  }
   .value.overridden .v,
   .value.pending-removed .v {
     text-decoration: line-through;
@@ -278,15 +354,15 @@
   }
   .value.pending-removed,
   .value.pending-added {
-    background: #fdf3dc;
-    border: 1px dashed #ecd9a6;
-    border-radius: 4px;
+    background: var(--pend-bg);
+    border: 1px dashed var(--pend-edge);
+    border-radius: var(--radius);
     padding: 0.15rem 0.4rem;
   }
   .pend-note {
     font-size: 0.72rem;
     font-weight: 600;
-    color: #6b4d0c;
+    color: var(--pend-ink);
     letter-spacing: 0.03em;
   }
   .ov-note {
@@ -303,30 +379,37 @@
   }
   .act {
     font-size: 0.78rem;
-    padding: 0.2em 0.7em;
+    padding: 0.1em 0.7em;
   }
   .undo {
     background: none;
-    border: 1px solid #ecd9a6;
+    border: 1px solid var(--pend-edge);
     border-radius: 999px;
-    color: #6b4d0c;
+    color: var(--pend-ink);
     font-size: 0.75rem;
     font-weight: 600;
     padding: 0.05em 0.6em;
   }
+  /* Entry rows are subordinate to asserted values: shorter controls, quieter
+     text, no competing with the record itself. */
   .addrow {
     display: flex;
     gap: 0.4rem;
     align-items: center;
-    margin-top: 0.3rem;
+    margin-top: 0.15rem;
     flex-wrap: wrap;
+  }
+  .addrow input,
+  .addrow :global(.button) {
+    min-height: 1.8rem;
+    font-size: 0.85rem;
   }
   .addrow input {
     min-width: 16rem;
   }
   .addrow input.mono {
     font-family: var(--mono);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     min-width: 22rem;
   }
   .addrow .langbox {
