@@ -14,6 +14,24 @@ const termsDefaultLimit = 20
 // index. With the suggestion service present, scheme=folk serves ACCEPTED
 // community tags (PROPOSED and BLOCKED terms stay invisible).
 func registerTerms(mux *http.ServeMux, ix *vocab.Index, folk *suggest.Service) {
+	// Batch scheme-agnostic resolve (tasks/071): the editor's subject chips
+	// turn stored URIs into labels without knowing the scheme. Unresolvable
+	// URIs are absent from the response, never errors.
+	mux.HandleFunc("GET /v1/terms/resolve", func(w http.ResponseWriter, r *http.Request) {
+		ids := r.URL.Query()["id"]
+		if len(ids) == 0 || len(ids) > 100 {
+			writeError(w, http.StatusBadRequest, "1-100 id parameters")
+			return
+		}
+		terms := map[string]*vocab.Term{}
+		for _, id := range ids {
+			if t, ok := ix.Resolve(id); ok {
+				terms[id] = t
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"terms": terms})
+	})
+
 	// Single-term lookup: the picker's neighborhood panel resolves
 	// broader/narrower/related URIs to full terms through this.
 	mux.HandleFunc("GET /v1/term", func(w http.ResponseWriter, r *http.Request) {

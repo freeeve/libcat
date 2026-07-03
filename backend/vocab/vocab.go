@@ -280,6 +280,24 @@ func (ix *Index) Lookup(scheme, id string) (*Term, bool) {
 	return t, ok
 }
 
+// Resolve returns the term for a URI regardless of scheme (schemes checked
+// in sorted order for determinism) -- the editor's chip renderer resolves
+// stored subject references without knowing where they came from (tasks/071).
+func (ix *Index) Resolve(id string) (*Term, bool) {
+	snap := ix.load()
+	schemes := make([]string, 0, len(snap.schemes))
+	for s := range snap.schemes {
+		schemes = append(schemes, s)
+	}
+	sort.Strings(schemes)
+	for _, s := range schemes {
+		if t, ok := snap.schemes[s][id]; ok {
+			return t, true
+		}
+	}
+	return nil, false
+}
+
 // Terms returns every term of a scheme ordered by label -- the authorities
 // management listing. Retired terms are included (marked by MergedInto).
 func (ix *Index) Terms(scheme string) []*Term {

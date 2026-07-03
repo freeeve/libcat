@@ -6,8 +6,10 @@
   // optimistically: pending values carry an undo, suppressed values strike
   // through before the save even lands.
   import ProvenanceBadge from "./ProvenanceBadge.svelte";
+  import SubjectNeighborhood from "./SubjectNeighborhood.svelte";
   import TagInput from "./TagInput.svelte";
   import VocabPicker from "./VocabPicker.svelte";
+  import { resolveTermURIs } from "../lib/api";
   import { valueKey } from "../lib/ops";
   import { bestLabel } from "../lib/vocab";
   import type { FieldValue, Op, OpValue, ResourceDoc, Term } from "../lib/types";
@@ -61,6 +63,51 @@
   let entry = $state(Object.fromEntries(specs.map((s) => [s.path, { v: "", lang: "" }])));
   let pickerFor = $state<string | null>(null);
   let pickedLabels = $state<Record<string, string>>({});
+  // Vocabulary chips (tasks/071): stored URIs resolved to full terms so
+  // subjects read as headings, with one expandable neighborhood at a time.
+  let resolved = $state<Record<string, Term>>({});
+  let expanded = $state<string | null>(null); // `${path}|${uri}`
+  const attempted = new Set<string>();
+
+  // Resolve every vocab-field URI once; unresolved URIs stay raw.
+  $effect(() => {
+    const missing: string[] = [];
+    for (const spec of specs) {
+      if (spec.kind !== "vocab") continue;
+      for (const fv of res.fields[spec.path] ?? []) {
+        if (fv.iri && !attempted.has(fv.v)) {
+          attempted.add(fv.v);
+          missing.push(fv.v);
+        }
+      }
+    }
+    if (missing.length === 0) return;
+    resolveTermURIs(missing).then(
+      (r) => (resolved = { ...resolved, ...r.terms }),
+      () => {},
+    );
+  });
+
+  function toggleExpand(path: string, uri: string): void {
+    const key = path + "|" + uri;
+    expanded = expanded === key ? null : key;
+  }
+
+  /** Neighborhood "Replace": remove the expanded subject, add the neighbor
+   *  -- two ordinary staged ops, so preview/drafts/undo work unchanged. */
+  function replaceSubject(path: string, fv: FieldValue, next: Term): void {
+    pickedLabels[next.id] = bestLabel(next);
+    stageRemove(path, fv);
+    onstage({ resource, path, action: "add", value: { v: next.id, iri: true } });
+    expanded = null;
+  }
+
+  /** Neighborhood "Add": the neighbor joins the subjects; the panel stays
+   *  open so a cataloger can pull in several narrower terms in a row. */
+  function addSubject(path: string, next: Term): void {
+    pickedLabels[next.id] = bestLabel(next);
+    onstage({ resource, path, action: "add", value: { v: next.id, iri: true } });
+  }
 
   const mine = $derived(ops.filter((o) => o.resource === resource));
   const extraFields = $derived(
@@ -156,12 +203,27 @@
       <ul class="vals">
         {#each values as fv, i (fv.node + i)}
           {@const removal = removalOf(spec.path, fv)}
+          {@const term = spec.kind === "vocab" && fv.iri ? resolved[fv.v] : undefined}
+          {@const expKey = spec.path + "|" + fv.v}
           <li class="value" class:overridden={fv.overridden} class:pending-removed={!!removal}>
-            {#if fv.iri}
+            {#if term}
+              <button
+                class="chip"
+                class:open={expanded === expKey}
+                title={fv.v}
+                aria-expanded={expanded === expKey}
+                onclick={() => toggleExpand(spec.path, fv.v)}
+              >
+                <span class="v chip-label">{bestLabel(term)}</span>
+                <span class="chip-scheme">{term.scheme}</span>
+                <span class="chip-caret" aria-hidden="true">{expanded === expKey ? "▾" : "▸"}</span>
+              </button>
+            {:else if fv.iri}
               {@const p = iriParts(fv.v)}
               <span class="v iri" title={fv.v}>
                 {#if p.host}<span class="iri-host">{p.host}</span>{/if}{p.tail}
               </span>
+              {#if spec.kind === "vocab"}<span class="unres muted">not in local index</span>{/if}
             {:else}
               <span class="v">{fv.v}</span>
             {/if}
@@ -177,16 +239,27 @@
               <button class="button button--quiet act" onclick={() => stageRemove(spec.path, fv)}>Remove</button>
             {/if}
           </li>
+          {#if term && expanded === expKey && !removal}
+            <li class="hoodrow">
+              <SubjectNeighborhood
+                {term}
+                onreplace={(t) => replaceSubject(spec.path, fv, t)}
+                onadd={(t) => addSubject(spec.path, t)}
+              />
+            </li>
+          {/if}
         {/each}
         {#each adds as p, i (i)}
           <li class="value pending-added">
-            {#if p.value.iri && !pickedLabels[p.value.v]}
+            {#if p.value.iri && !pickedLabels[p.value.v] && !resolved[p.value.v]}
               {@const ip = iriParts(p.value.v)}
               <span class="v iri" title={p.value.v}>
                 {#if ip.host}<span class="iri-host">{ip.host}</span>{/if}{ip.tail}
               </span>
             {:else}
-              <span class="v" class:iri={p.value.iri}>{pickedLabels[p.value.v] ?? p.value.v}</span>
+              <span class="v" class:iri={p.value.iri && !pickedLabels[p.value.v] && !resolved[p.value.v]} title={p.value.iri ? p.value.v : undefined}>
+                {pickedLabels[p.value.v] ?? (resolved[p.value.v] ? bestLabel(resolved[p.value.v]) : p.value.v)}
+              </span>
             {/if}
             {#if p.value.lang}<span class="lang">@{p.value.lang}</span>{/if}
             <span class="pend-note">adds on save</span>
@@ -343,6 +416,50 @@
   .value .v.iri {
     font-family: var(--mono);
     font-size: 0.9em;
+  }
+  /* tasks/071: a resolved vocabulary value reads as a heading chip; the
+     caret discloses its SKOS neighborhood inline. */
+  .chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.1em 0.75em;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .chip:hover,
+  .chip.open {
+    border-color: var(--accent);
+  }
+  .chip-label {
+    font-weight: 600;
+  }
+  .chip-scheme {
+    font-size: 0.68rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-muted);
+  }
+  .chip-caret {
+    font-size: 0.7rem;
+    color: var(--ink-muted);
+  }
+  .value.pending-removed .chip .chip-label,
+  .value.overridden .chip .chip-label {
+    text-decoration: line-through;
+    color: var(--ink-muted);
+  }
+  .unres {
+    font-size: 0.72rem;
+  }
+  .hoodrow {
+    list-style: none;
+    padding: 0;
   }
   .iri-host {
     color: var(--ink-muted);
