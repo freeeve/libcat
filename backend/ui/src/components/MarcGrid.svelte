@@ -1,11 +1,18 @@
 <script lang="ts">
   // The MARC editing grid (tasks/049): one row per field -- tag, indicators,
   // and the "$a … $b …" subfield line (control fields edit their raw value)
-  // -- keyboard-first: Enter in a row's line inserts a fresh row below,
-  // Alt+D duplicates the row, tag order is the cataloger's own. Fixed fields
-  // (leader, 006/007/008) expand into positional builders. Lossy tags carry
-  // a non-blocking warning: their edits persist verbatim, not modeled.
+  // -- keyboard-first: Enter in a row's line inserts a fresh row below, tag
+  // order is the cataloger's own. Fixed fields (leader, 006/007/008) expand
+  // into positional builders. Lossy tags carry a non-blocking warning: their
+  // edits persist verbatim, not modeled. The field-op family (tasks/075) --
+  // copy/cut/paste through the app clipboard, duplicate, © ℗ $ inserts, LOC
+  // help -- registers in the host screen's keyboard scope with
+  // allowInInputs, so the chords fire from the grid's inputs and stay
+  // remappable, legible in the legend, and listed in the "?" overlay.
+  import { onMount } from "svelte";
   import FixedFieldGrid from "./FixedFieldGrid.svelte";
+  import { clipPeek, clipPush } from "../lib/fieldClipboard.svelte";
+  import { bindKeys } from "../lib/keyboard";
   import { locFieldHelpUrl } from "../lib/lochelp";
   import { blankField, isControlTag, isFixedTag, lineToSubfields, subfieldsToLine } from "../lib/marc";
   import type { MarcRecordDoc, MarcField } from "../lib/types";
@@ -13,16 +20,114 @@
   let {
     record,
     knownLoss = {},
+    scope,
     onchange,
   }: {
     record: MarcRecordDoc;
     knownLoss?: Record<string, string>;
+    /** Keyboard scope the field ops register in (the host screen's). */
+    scope?: string;
     onchange: (record: MarcRecordDoc) => void;
   } = $props();
 
   const FIDELITY_URL = "https://github.com/freeeve/libcatalog/blob/main/docs/marc-fidelity.md";
 
   let expanded = $state<Record<number, boolean>>({});
+  /** The row the field ops act on: the last one focus visited. */
+  let active = $state(0);
+
+  onMount(() => {
+    if (!scope) return;
+    return bindKeys(scope, {
+      "alt+c": {
+        description: "copy the current field to the field clipboard",
+        legend: "copy field",
+        keyLabel: "alt+c/x/v",
+        allowInInputs: true,
+        handler: copyField,
+      },
+      "alt+x": {
+        description: "cut the current field to the field clipboard",
+        legendHidden: true,
+        allowInInputs: true,
+        handler: cutField,
+      },
+      "alt+v": {
+        description: "paste the last clipboard field below the current row",
+        legendHidden: true,
+        allowInInputs: true,
+        handler: pasteField,
+      },
+      "alt+d": {
+        description: "duplicate the current field on the next line",
+        legendHidden: true,
+        allowInInputs: true,
+        handler: () => duplicateField(active),
+      },
+      "alt+g": {
+        description: "insert the copyright symbol ©",
+        legendHidden: true,
+        allowInInputs: true,
+        handler: () => insertAtCursor("©"),
+      },
+      "alt+r": {
+        description: "insert the phonogram symbol ℗",
+        legendHidden: true,
+        allowInInputs: true,
+        handler: () => insertAtCursor("℗"),
+      },
+      "alt+k": {
+        description: "insert a subfield delimiter ($)",
+        legendHidden: true,
+        allowInInputs: true,
+        handler: () => insertAtCursor("$"),
+      },
+      "alt+h": {
+        description: "open the LOC MARC 21 page for the current field",
+        legend: "field help",
+        allowInInputs: true,
+        handler: helpField,
+      },
+    });
+  });
+
+  function copyField(): void {
+    const f = record.fields[active];
+    if (f) clipPush($state.snapshot(f));
+  }
+
+  function cutField(): void {
+    const f = record.fields[active];
+    if (!f) return;
+    clipPush($state.snapshot(f));
+    removeRow(active);
+  }
+
+  function pasteField(): void {
+    const f = clipPeek();
+    if (f) insertBelow(Math.min(active, record.fields.length - 1), f);
+  }
+
+  function duplicateField(i: number): void {
+    const f = record.fields[i];
+    if (f) insertBelow(i, structuredClone($state.snapshot(f)));
+  }
+
+  function helpField(): void {
+    const f = record.fields[active];
+    const url = f && locFieldHelpUrl(f.tag);
+    if (url) window.open(url, "_blank", "noreferrer");
+  }
+
+  /** Types text at the caret of the grid input holding focus, firing the
+   *  input's change handler so the edit lands in the record. */
+  function insertAtCursor(text: string): void {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLInputElement) || !el.closest(".grid")) return;
+    const start = el.selectionStart ?? el.value.length;
+    el.setRangeText(text, start, el.selectionEnd ?? start, "end");
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
 
   function update(fields: MarcField[]): void {
     onchange({ ...record, fields });
@@ -62,9 +167,6 @@
     if (ev.key === "Enter") {
       ev.preventDefault();
       insertBelow(i);
-    } else if (ev.altKey && ev.key.toLowerCase() === "d") {
-      ev.preventDefault();
-      insertBelow(i, structuredClone($state.snapshot(record.fields[i])));
     }
   }
 
@@ -101,7 +203,7 @@
   </div>
 
   {#each record.fields as f, i (i)}
-    <div class="row" class:lossy={!!(f.lossy || knownLoss[f.tag])}>
+    <div class="row" class:lossy={!!(f.lossy || knownLoss[f.tag])} onfocusin={() => (active = i)}>
       <input
         id={`marc-tag-${record.node}-${i}`}
         class="tag mono"
@@ -149,7 +251,7 @@
             title={"MARC 21 documentation for " + f.tag} aria-label={"MARC 21 documentation for " + f.tag}>?</a>
         {/if}
         <button class="button button--quiet mini" title="Duplicate field (Alt+D)"
-          onclick={() => insertBelow(i, structuredClone($state.snapshot(f)))}>Dup</button>
+          onclick={() => duplicateField(i)}>Dup</button>
         <button class="button button--quiet mini" onclick={() => removeRow(i)}>Del</button>
       </span>
     </div>
@@ -157,7 +259,7 @@
 
   <p>
     <button class="button button--quiet" onclick={() => insertBelow(record.fields.length - 1)}>Add field</button>
-    <span class="muted hint">Enter in a value inserts a row below · Alt+D duplicates</span>
+    <span class="muted hint">Enter in a value inserts a row below · Alt+D duplicates · Alt+C/X/V field clipboard · "?" lists every chord</span>
   </p>
 </div>
 

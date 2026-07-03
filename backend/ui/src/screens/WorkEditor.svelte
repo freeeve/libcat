@@ -266,7 +266,7 @@
         {/if}
         </div>
       {:else if tab === "marc"}
-        <MarcPanel {workId} />
+        <MarcPanel {workId} scope={SCOPE} />
       {:else}
         <HistoryPanel {workId} />
       {/if}

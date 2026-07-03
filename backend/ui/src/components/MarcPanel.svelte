@@ -9,7 +9,7 @@
   import MarcGrid from "./MarcGrid.svelte";
   import type { Diff, MarcRecordDoc } from "../lib/types";
 
-  let { workId }: { workId: string } = $props();
+  let { workId, scope }: { workId: string; scope?: string } = $props();
 
   let etag = $state("");
   let records = $state<MarcRecordDoc[]>([]);
@@ -106,7 +106,7 @@
   </p>
 
   {#key records[active].node}
-    <MarcGrid record={records[active]} {knownLoss} onchange={(r) => (records[active] = r)} />
+    <MarcGrid record={records[active]} {knownLoss} {scope} onchange={(r) => (records[active] = r)} />
   {/key}
 
   {#if diff}

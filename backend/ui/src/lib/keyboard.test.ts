@@ -3,6 +3,7 @@ import { get } from "svelte/store";
 import {
   activeBindings,
   bindKeys,
+  conflictingBinding,
   GLOBAL_SCOPE,
   installKeyboard,
   keymapVersion,
@@ -11,8 +12,12 @@ import {
   popScope,
   pushScope,
   resetKeyboard,
+  resetKeymap,
+  reservedReason,
   setHelpPresenter,
+  setKeymapEntry,
 } from "./keyboard";
+import { applyPreset } from "./keymaps";
 
 installKeyboard();
 
@@ -23,6 +28,7 @@ function press(key: string, target?: HTMLElement, init: KeyboardEventInit = {}):
 
 afterEach(() => {
   resetKeyboard();
+  localStorage.removeItem("lcat.keymap");
   document.body.innerHTML = "";
 });
 
@@ -164,5 +170,115 @@ describe("keyboard scopes", () => {
     const keys = (shown.mock.calls[0][0] as { key: string }[]).map((b) => b.key);
     expect(keys).toEqual(["j", "g"]);
     expect(activeBindings().length).toBe(2);
+  });
+});
+
+describe("remap layer (tasks/075)", () => {
+  it("re-keys a live binding, updates the legend, and leaves the old key inert", () => {
+    const pick = vi.fn();
+    bindKeys("copycat", { x: { description: "pick", legend: "pick", handler: pick } });
+    pushScope("copycat");
+    expect(setKeymapEntry("copycat:x", "p")).toBe(true);
+    press("x");
+    expect(pick).not.toHaveBeenCalled();
+    press("p");
+    expect(pick).toHaveBeenCalledOnce();
+    expect(legendBindings().map((b) => b.key)).toEqual(["p"]);
+  });
+
+  it("persists remaps and applies them on later registration", () => {
+    bindKeys("copycat", { x: { description: "pick", handler: () => {} } });
+    setKeymapEntry("copycat:x", "p");
+    expect(JSON.parse(localStorage.getItem("lcat.keymap") ?? "{}")).toEqual({ "copycat:x": "p" });
+    // A rebind after the remap (a reload) registers straight onto "p".
+    const pick = vi.fn();
+    resetKeyboard();
+    setKeymapEntry("copycat:x", "p");
+    bindKeys("copycat", { x: { description: "pick", handler: pick } });
+    pushScope("copycat");
+    press("p");
+    expect(pick).toHaveBeenCalledOnce();
+  });
+
+  it("refuses conflicts in the binding's scope and in global, naming the holder", () => {
+    bindKeys("copycat", {
+      x: { description: "pick", handler: () => {} },
+      a: { description: "all", handler: () => {} },
+    });
+    bindKeys(GLOBAL_SCOPE, { g: { description: "go", handler: () => {} } });
+    expect(conflictingBinding("copycat:x", "a")?.description).toBe("all");
+    expect(conflictingBinding("copycat:x", "g")?.description).toBe("go");
+    expect(conflictingBinding("copycat:x", "z")).toBeUndefined();
+    expect(setKeymapEntry("copycat:x", "a")).toBe(false);
+    expect(setKeymapEntry("copycat:x", "g")).toBe(false);
+  });
+
+  it("refuses reserved chords with a reason", () => {
+    bindKeys("copycat", { x: { description: "pick", handler: () => {} } });
+    expect(reservedReason("mod+c")).toContain("copy");
+    expect(setKeymapEntry("copycat:x", "mod+c")).toBe(false);
+    expect(setKeymapEntry("copycat:x", "mod+w")).toBe(false);
+  });
+
+  it("resets a single binding and the whole keymap", () => {
+    const pick = vi.fn();
+    bindKeys("copycat", { x: { description: "pick", handler: pick } });
+    pushScope("copycat");
+    setKeymapEntry("copycat:x", "p");
+    expect(setKeymapEntry("copycat:x", null)).toBe(true);
+    press("x");
+    expect(pick).toHaveBeenCalledOnce();
+    setKeymapEntry("copycat:x", "p");
+    resetKeymap();
+    press("x");
+    expect(pick).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem("lcat.keymap")).toBeNull();
+  });
+
+  it("fires allowInInputs bindings while focus sits in a form control", () => {
+    const copy = vi.fn();
+    const plain = vi.fn();
+    bindKeys("editor", {
+      "alt+c": { description: "copy field", allowInInputs: true, handler: copy },
+      d: { description: "plain", handler: plain },
+    });
+    pushScope("editor");
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    press("c", input, { altKey: true, code: "KeyC" });
+    press("d", input);
+    expect(copy).toHaveBeenCalledOnce();
+    expect(plain).not.toHaveBeenCalled();
+  });
+
+  it("normalizes shifted and macOS-Option chords from the key code", () => {
+    const optD = new KeyboardEvent("keydown", { key: "∂", altKey: true, code: "KeyD" });
+    const ctrlShiftC = new KeyboardEvent("keydown", { key: "C", ctrlKey: true, shiftKey: true, code: "KeyC" });
+    expect(normalizeChord(optD)).toBe("alt+d");
+    expect(normalizeChord(ctrlShiftC)).toBe("mod+shift+c");
+  });
+
+  it("applies the Koha preset as a bundle and reports skips", () => {
+    const copy = vi.fn();
+    bindKeys("editor", { "alt+c": { description: "copy field", allowInInputs: true, handler: copy } });
+    pushScope("editor");
+    const skipped = applyPreset("koha-advanced-editor");
+    expect(skipped).toEqual([]);
+    press("c", undefined, { ctrlKey: true, shiftKey: true, code: "KeyC" });
+    expect(copy).toHaveBeenCalledOnce();
+    applyPreset("default");
+    press("c", undefined, { altKey: true, code: "KeyC" });
+    expect(copy).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the legend on the remapped key with keyLabel dropped", () => {
+    bindKeys("editor", {
+      "alt+c": { description: "copy field", legend: "copy", keyLabel: "alt+c/x/v", handler: () => {} },
+    });
+    pushScope("editor");
+    setKeymapEntry("editor:alt+c", "mod+shift+c");
+    const b = legendBindings().find((x) => x.key === "mod+shift+c");
+    expect(b).toBeDefined();
+    expect(b?.keyLabel).toBeUndefined();
   });
 });
