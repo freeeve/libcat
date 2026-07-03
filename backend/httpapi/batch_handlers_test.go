@@ -13,6 +13,7 @@ import (
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/batch"
+	"github.com/freeeve/libcatalog/backend/export"
 	"github.com/freeeve/libcatalog/backend/store"
 )
 
@@ -192,6 +193,73 @@ func TestMacroEndpoints(t *testing.T) {
 	}
 	if rec := request(t, h, http.MethodDelete, "/v1/macros/"+m.ID, "lib-token", "", nil); rec.Code != http.StatusNoContent {
 		t.Fatalf("owner delete = %d", rec.Code)
+	}
+}
+
+// TestExportBatchSelection is the tasks/048 acceptance shape: an export of a
+// search selection produces exactly those works, downloadable via the token
+// route, and the job list reflects it.
+func TestExportBatchSelection(t *testing.T) {
+	bs := blob.NewMem()
+	for id, title := range map[string]string{
+		"wbatch0000001": "Gideon the Ninth",
+		"wbatch0000002": "Harrow the Ninth",
+		"wbatch0000003": "The Hobbit",
+	} {
+		seedBatchWork(t, bs, id, title)
+	}
+	db := store.NewMem()
+	batchSvc := &batch.Service{Blob: bs, DB: db, Mapper: defaultMapper()}
+	exports, err := export.New(store.NewMem(), bs, "overdrive", []byte("0123456789abcdef"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
+	h := New(Deps{Blob: bs, DB: db, Verifier: verifier, Batch: batchSvc, Exports: exports})
+
+	rec := request(t, h, http.MethodPost, "/v1/exports", "lib-token", "", map[string]any{
+		"format":         "csv",
+		"batchSelection": map[string]any{"kind": "search", "query": "ninth"},
+	})
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("create export = %d %s", rec.Code, rec.Body.String())
+	}
+	var job struct {
+		ID          string `json:"id"`
+		Status      string `json:"status"`
+		Records     int    `json:"records"`
+		DownloadURL string `json:"downloadUrl"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+	// A 2-work selection runs synchronously and is immediately downloadable.
+	if job.Status != "DONE" || job.Records != 2 || job.DownloadURL == "" {
+		t.Fatalf("job = %+v", job)
+	}
+	rec = request(t, h, http.MethodGet, job.DownloadURL, "", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("download = %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "wbatch0000001") || !strings.Contains(body, "wbatch0000002") {
+		t.Fatalf("export missing selected works:\n%s", body)
+	}
+	if strings.Contains(body, "wbatch0000003") {
+		t.Fatalf("export includes unselected work:\n%s", body)
+	}
+	// The job list carries it.
+	rec = request(t, h, http.MethodGet, "/v1/exports", "lib-token", "", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), job.ID) {
+		t.Fatalf("list = %d %s", rec.Code, rec.Body.String())
+	}
+	// An empty selection fails closed.
+	rec = request(t, h, http.MethodPost, "/v1/exports", "lib-token", "", map[string]any{
+		"format":         "csv",
+		"batchSelection": map[string]any{"kind": "search", "query": "zebra-nothing"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty selection = %d %s", rec.Code, rec.Body.String())
 	}
 }
 

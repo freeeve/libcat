@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/freeeve/libcatalog/backend/auth"
+	"github.com/freeeve/libcatalog/backend/batch"
 	"github.com/freeeve/libcatalog/backend/export"
 )
 
@@ -17,8 +18,11 @@ type exportView struct {
 
 // registerExports mounts the export-job surface (librarian; admins see all
 // jobs). The download route is token-authenticated, not bearer-gated, so
-// links paste into a browser.
-func registerExports(mux *http.ServeMux, svc *export.Service, verifier auth.TokenVerifier) {
+// links paste into a browser. With the batch service present, a request may
+// carry a batch.Selection (search / saved query / ids / all) that compiles
+// to the id list at create time -- the export snapshots exactly the works
+// the selection matched (tasks/048).
+func registerExports(mux *http.ServeMux, svc *export.Service, batchSvc *batch.Service, verifier auth.TokenVerifier) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	view := func(r *http.Request, job export.Job) exportView {
@@ -34,12 +38,20 @@ func registerExports(mux *http.ServeMux, svc *export.Service, verifier auth.Toke
 	mux.Handle("POST /v1/exports", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := auth.FromContext(r.Context())
 		var req struct {
-			Format    export.Format    `json:"format"`
-			Selection export.Selection `json:"selection"`
+			Format         export.Format    `json:"format"`
+			Selection      export.Selection `json:"selection"`
+			BatchSelection *batch.Selection `json:"batchSelection"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "bad request body")
 			return
+		}
+		if req.BatchSelection != nil {
+			sel, ok := compileBatchSelection(w, r, batchSvc, *req.BatchSelection, id.Email)
+			if !ok {
+				return
+			}
+			req.Selection = sel
 		}
 		for _, workID := range req.Selection.WorkIDs {
 			if !workIDPattern.MatchString(workID) {
@@ -83,6 +95,36 @@ func registerExports(mux *http.ServeMux, svc *export.Service, verifier auth.Toke
 		writeJSON(w, http.StatusOK, view(r, job))
 	})))
 
+	registerExportDownload(mux, svc)
+}
+
+// compileBatchSelection resolves a batch selection to the export's frozen id
+// list ("all" passes through -- the runner scans the tree itself). Writes the
+// error response and reports ok=false on failure.
+func compileBatchSelection(w http.ResponseWriter, r *http.Request, batchSvc *batch.Service, sel batch.Selection, owner string) (export.Selection, bool) {
+	if sel.Kind == batch.KindAll {
+		return export.Selection{All: true}, true
+	}
+	if batchSvc == nil {
+		writeError(w, http.StatusBadRequest, "batch selections are not enabled on this deployment")
+		return export.Selection{}, false
+	}
+	targets, err := batchSvc.Resolve(r.Context(), sel, owner)
+	if writeBatchError(w, err) {
+		return export.Selection{}, false
+	}
+	if len(targets) == 0 {
+		writeError(w, http.StatusBadRequest, "the selection matches no works")
+		return export.Selection{}, false
+	}
+	ids := make([]string, 0, len(targets))
+	for _, t := range targets {
+		ids = append(ids, t.WorkID)
+	}
+	return export.Selection{WorkIDs: ids}, true
+}
+
+func registerExportDownload(mux *http.ServeMux, svc *export.Service) {
 	mux.HandleFunc("GET /v1/exports/{id}/download", func(w http.ResponseWriter, r *http.Request) {
 		// Admin=true read: the token, not the requester, authorizes here.
 		job, err := svc.Get(r.Context(), "", r.PathValue("id"), true)

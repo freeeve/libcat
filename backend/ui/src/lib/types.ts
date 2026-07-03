@@ -325,6 +325,24 @@ export interface SavedQuery {
   createdAt: string;
 }
 
+export type ExportFormat = "marc" | "nquads" | "jsonld" | "csv";
+export type ExportStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
+
+/** httpapi.exportView -- one export job with its download link when ready. */
+export interface ExportJob {
+  id: string;
+  requester: string;
+  format: ExportFormat;
+  selection: { all?: boolean; workIds?: string[] };
+  status: ExportStatus;
+  records?: number;
+  error?: string;
+  createdAt: string;
+  finishedAt?: string;
+  expiresAt?: string;
+  downloadUrl?: string;
+}
+
 /** suggest.Promotion -- a folk tag proposed to fold into a controlled term. */
 export interface Promotion {
   tag: string;

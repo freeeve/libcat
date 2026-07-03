@@ -82,6 +82,9 @@
   <input id="work-q" type="search" bind:value={q} oninput={onInput} placeholder="Search works…" autocomplete="off" />
   <p class="muted" aria-live="polite">
     {#if loading}Searching…{:else if error}<span class="error">{error}</span>{:else}{works.length} shown of {total} works{/if}
+    {#if !loading && !error && works.length > 0}
+      · <a href={q.trim() ? "#/exports?kind=search&q=" + encodeURIComponent(q.trim()) : "#/exports?kind=all"}>Export these results…</a>
+    {/if}
   </p>
 
   <ul class="results" bind:this={listEl} aria-label="Search results">

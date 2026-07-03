@@ -119,7 +119,7 @@ func New(deps Deps) http.Handler {
 		registerPromotions(mux, deps.Suggest, deps.Publisher, deps.Verifier)
 	}
 	if deps.Exports != nil && deps.Verifier != nil {
-		registerExports(mux, deps.Exports, deps.Verifier)
+		registerExports(mux, deps.Exports, deps.Batch, deps.Verifier)
 	}
 	if deps.Enrich != nil && deps.Verifier != nil {
 		registerEnrich(mux, deps.Enrich, deps.Verifier)

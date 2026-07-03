@@ -28,6 +28,7 @@
     { id: "nav-promotions", label: "Go to Promotions", run: () => navigate("/promotions") },
     { id: "nav-batch", label: "Go to Batch operations", run: () => navigate("/batch") },
     { id: "nav-macros", label: "Go to Macros", run: () => navigate("/macros") },
+    { id: "nav-exports", label: "Go to Exports", run: () => navigate("/exports") },
     { id: "nav-dashboard", label: "Go to Dashboard", run: () => navigate("/") },
   ];
 

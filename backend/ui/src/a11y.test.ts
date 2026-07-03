@@ -13,6 +13,7 @@ import Authorities from "./screens/Authorities.svelte";
 import AuthorityEditor from "./screens/AuthorityEditor.svelte";
 import BatchOps from "./screens/BatchOps.svelte";
 import Macros from "./screens/Macros.svelte";
+import Exports from "./screens/Exports.svelte";
 import CommandPalette from "./components/CommandPalette.svelte";
 import VocabPicker from "./components/VocabPicker.svelte";
 import { invalidateAccess, loginLocal } from "./lib/auth";
@@ -463,6 +464,78 @@ describe("a11y", () => {
     editBtn?.click();
     flushSync();
     expect(host.textContent).toContain("Parameters");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("Exports with the MARC lossiness note and a job table has no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/v1/exports"))
+        return Promise.resolve(
+          json({
+            exports: [
+              {
+                id: "j1",
+                requester: "staff@example.org",
+                format: "csv",
+                selection: { workIds: ["w1", "w2"] },
+                status: "DONE",
+                records: 2,
+                createdAt: "2026-07-01T00:00:00Z",
+                expiresAt: "2099-01-01T00:00:00Z",
+                downloadUrl: "/v1/exports/j1/download?token=t",
+              },
+              {
+                id: "j2",
+                requester: "staff@example.org",
+                format: "marc",
+                selection: { all: true },
+                status: "DONE",
+                records: 9,
+                createdAt: "2026-06-01T00:00:00Z",
+                expiresAt: "2026-06-02T00:00:00Z", // long past: renders expired
+              },
+              {
+                id: "j3",
+                requester: "staff@example.org",
+                format: "nquads",
+                selection: { workIds: ["w3"] },
+                status: "QUEUED",
+                createdAt: "2026-07-01T01:00:00Z",
+              },
+            ],
+          }),
+        );
+      if (url.includes("/v1/queries")) return Promise.resolve(json({ queries: [] }));
+      if (url.includes("/v1/batch/resolve")) return Promise.resolve(json({ matched: 2, works: [] }));
+      return Promise.resolve(json({}));
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(Exports, { target: host, props: { initialKind: "search", initialQuery: "ninth" } });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    expect(host.textContent).toContain("2 works"); // deep-link preview resolved
+    expect(host.textContent).toContain("EXPIRED");
+    expect(host.textContent).toContain("working…");
+    // The MARC option surfaces the lossiness note + fidelity link.
+    const formatSel = host.querySelector<HTMLSelectElement>("#ex-format");
+    formatSel!.value = "marc";
+    formatSel!.dispatchEvent(new Event("change"));
+    flushSync();
+    expect(host.textContent).toContain("Lossy");
+    expect(host.querySelector('a[href*="marc-fidelity"]')).not.toBeNull();
     const results = await audit(host);
     expect(results.violations).toEqual([]);
   });

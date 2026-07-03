@@ -143,6 +143,15 @@
     }
   }
 
+  /** Deep link carrying the current selection to the Exports screen. */
+  function exportLink(): string {
+    const p = new URLSearchParams({ kind });
+    if (kind === "search") p.set("q", query);
+    else if (kind === "ids") p.set("ids", idsText.split(/[\s,]+/).filter(Boolean).join(","));
+    else if (kind === "savedQuery") p.set("sq", savedQueryId);
+    return "#/exports?" + p.toString();
+  }
+
   async function saveQuery(): Promise<void> {
     const label = window.prompt("Name this search:", query);
     if (!label) return;
@@ -202,6 +211,7 @@
     <p class="muted" aria-live="polite">
       {#if matched !== null}
         {matched} work{matched === 1 ? "" : "s"} selected{#if preview.length < matched}&nbsp;(showing first {preview.length}){/if}
+        · <a href={exportLink()}>Export selection…</a>
       {/if}
     </p>
     {#if preview.length > 0}
