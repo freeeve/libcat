@@ -119,9 +119,16 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		deps.Suggest = suggest.New(db, deps.Vocab, suggest.Caps{})
 	}
 	if deps.Suggest != nil && deps.Blob != nil {
-		var notifier trigger.Notifier = trigger.Noop{}
+		var fan trigger.Fanout
 		if cfg.WebhookURL != "" {
-			notifier = trigger.Webhook{URL: cfg.WebhookURL, Secret: []byte(cfg.WebhookSecret)}
+			fan = append(fan, trigger.Webhook{URL: cfg.WebhookURL, Secret: []byte(cfg.WebhookSecret)})
+		}
+		if cfg.RebuildCmd != "" {
+			fan = append(fan, &trigger.Command{Cmd: cfg.RebuildCmd, Dir: cfg.RebuildDir, Logger: logger})
+		}
+		var notifier trigger.Notifier = trigger.Noop{}
+		if len(fan) > 0 {
+			notifier = fan
 		}
 		deps.Publisher = &publish.Publisher{
 			Blob: deps.Blob, Queue: deps.Suggest, Vocab: deps.Vocab,

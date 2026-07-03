@@ -62,6 +62,12 @@ type Config struct {
 	// each publish (WebhookSecret signs them).
 	WebhookURL    string
 	WebhookSecret string
+	// RebuildCmd, when set, runs after each publish (sh -c; changed paths in
+	// $LCAT_CHANGED_PATHS) -- the local dev loop: reserialize/reproject into
+	// a running hugo server's data dir for instant preview. RebuildDir is
+	// its working directory.
+	RebuildCmd string
+	RebuildDir string
 
 	// Provider names the primary feed graph (CSV export projection).
 	// Default "overdrive".
@@ -90,6 +96,8 @@ func FromEnv() (Config, error) {
 		AbuseSecret:       os.Getenv("LCATD_ABUSE_SECRET"),
 		WebhookURL:        os.Getenv("LCATD_WEBHOOK_URL"),
 		WebhookSecret:     os.Getenv("LCATD_WEBHOOK_SECRET"),
+		RebuildCmd:        os.Getenv("LCATD_REBUILD_CMD"),
+		RebuildDir:        os.Getenv("LCATD_REBUILD_DIR"),
 		Provider:          envOr("LCATD_PROVIDER", "overdrive"),
 		EnrichLocsh:       os.Getenv("LCATD_ENRICH_LOCSH"),
 	}

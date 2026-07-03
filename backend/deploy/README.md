@@ -71,6 +71,12 @@ the static site. Pick one:
 - **Webhook** (`LCATD_WEBHOOK_URL`/`LCATD_WEBHOOK_SECRET`): lcatd POSTs a
   signed grains-changed event to any CI endpoint (verify with
   `trigger.Verify`).
+- **Local command** (`LCATD_REBUILD_CMD`, optional `LCATD_REBUILD_DIR`): run
+  a shell command after each publish (changed paths in
+  `$LCAT_CHANGED_PATHS`). This is the hugo-watcher dev loop: point it at
+  `lcat serialize && lcat project` targeting a running `hugo server`'s data
+  directory and published edits live-reload in the discovery site within
+  seconds -- no cloud, no CI. Composes with the webhook (both fire).
 - **EventBridge/SQS** (Terraform `rebuild_events`): a worker consumes the
   queue and rebuilds.
 - **Schedule**: rebuild on cron; skip event plumbing entirely.
