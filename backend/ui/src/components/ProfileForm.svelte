@@ -284,17 +284,21 @@
 <style>
   /* The ruled worksheet: drawer-label column on the left, asserted values on
      the right, one hairline per field. Labels sit on the first value's
-     baseline so the record scans as rows, not stacked blocks. */
+     baseline so the record scans as rows, not stacked blocks. On wide
+     screens the field blocks flow into columns (DOM order = focus order). */
+  .profileform {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(30rem, 1fr));
+    gap: 0 2.5rem;
+    align-items: start;
+  }
   .field {
     display: grid;
     grid-template-columns: 9.5rem 1fr;
     gap: 0.35rem 1.25rem;
-    padding: 0.6rem 0;
+    padding: 0.55rem 0;
     border-top: 1px solid var(--rule);
     margin: 0;
-  }
-  .field:first-child {
-    border-top: none;
   }
   .fieldhead {
     margin: 0;

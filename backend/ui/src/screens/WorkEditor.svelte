@@ -51,6 +51,9 @@
   onMount(() => {
     pushScope(SCOPE);
     const unbind = bindKeys(SCOPE, {
+      "1": { description: "Native tab", legend: "tabs", keyLabel: "1/2/3", handler: () => (tab = "native") },
+      "2": { description: "MARC tab", hidden: true, handler: () => (tab = "marc") },
+      "3": { description: "History tab", hidden: true, handler: () => (tab = "history") },
       p: { description: "preview staged changes", legend: "preview", handler: () => void session.preview() },
       "mod+s": { description: "save staged changes", legend: "save", handler: () => void session.save() },
     });
@@ -63,8 +66,8 @@
   });
 </script>
 
-<main>
-  <p><a href="#/works">← Back to search</a></p>
+<main class="wide">
+  <p class="back"><a href="#/works">← Back to search</a></p>
 
   {#if $session.loading}
     <p class="muted" aria-live="polite">Loading {workId}…</p>
@@ -75,14 +78,20 @@
     {@const title = doc.work.fields["title"]?.[0]?.v}
     <article aria-label={"Work " + doc.workId}>
       <header class="dochead">
-        <h1>{title || doc.workId}</h1>
-        <p class="muted docmeta">
-          <code class="docid">{doc.workId}</code>
-          · profile {doc.profileId}
-          · <span title={"etag " + $session.etag}>etag <code>{$session.etag.slice(0, 10)}</code></span>
-        </p>
-        <VisibilityPanel {workId} />
+        <h1 title={title || doc.workId}>{title || doc.workId}</h1>
+        <code class="docid">{doc.workId}</code>
+        <span class="muted meta">profile {doc.profileId}</span>
+        <span class="muted meta" title={"etag " + $session.etag}>etag <code>{$session.etag.slice(0, 10)}</code></span>
+        <span class="spacer"></span>
+        {#if $session.ops.length > 0}
+          <span class="stagedct">{$session.ops.length} staged</span>
+        {/if}
+        {#if $session.busy}<span class="muted meta" role="status">working…</span>{/if}
       </header>
+      <details class="vis">
+        <summary>Visibility</summary>
+        <VisibilityPanel {workId} />
+      </details>
 
       {#if $session.pendingDraft}
         <div class="banner" role="status">
@@ -201,20 +210,66 @@
 </main>
 
 <style>
+  /* Sticky record identity: title, id, etag, and staged count never scroll
+     away while a long record is edited. */
+  .dochead {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: baseline;
+    gap: 0.7rem;
+    background: var(--bg);
+    border-bottom: 3px double var(--rule);
+    padding: 0.35rem 0 0.3rem;
+  }
   .dochead h1 {
-    margin-bottom: 0.1rem;
+    margin: 0;
+    padding: 0;
+    border-bottom: none;
+    font-size: 1.15rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 34rem;
   }
-  .dochead p {
-    margin-top: 0.3rem;
-    font-size: 0.8rem;
+  .meta {
+    font-size: 0.78rem;
+    white-space: nowrap;
   }
-  .docmeta code {
+  .meta code {
     font-size: 0.95em;
   }
   .docid {
     background: var(--surface-alt);
     border-radius: var(--radius);
     padding: 0.1em 0.45em;
+    font-size: 0.78rem;
+  }
+  .spacer {
+    flex: 1;
+  }
+  .stagedct {
+    font-size: 0.75rem;
+    font-weight: 650;
+    color: var(--pend-ink);
+    background: var(--pend-bg);
+    border: 1px solid var(--pend-edge);
+    border-radius: 999px;
+    padding: 0.05em 0.6em;
+    white-space: nowrap;
+  }
+  .vis {
+    margin: 0.4rem 0;
+  }
+  .vis summary {
+    cursor: pointer;
+    color: var(--ink-muted);
+    font-size: 0.85rem;
+  }
+  .back {
+    margin: 0 0 0.3rem;
+    font-size: 0.85rem;
   }
   .banner {
     display: flex;

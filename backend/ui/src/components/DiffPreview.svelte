@@ -1,9 +1,20 @@
 <script lang="ts">
   // Dry-run diff renderer: the exact N-Quads delta a save would make, as
   // +/- monospace lines. Collapsible so long deltas don't bury the form.
+  // While mounted, Escape (bound into the host editor scope so save/tab
+  // keys stay live) dismisses the preview.
+  import { onMount } from "svelte";
+  import { bindKeys } from "../lib/keyboard";
   import type { Diff } from "../lib/types";
 
   let { diff, onclose }: { diff: Diff; onclose?: () => void } = $props();
+
+  onMount(() => {
+    if (!onclose) return;
+    return bindKeys("editor", {
+      Escape: { description: "close the preview", legend: "close preview", handler: () => onclose() },
+    });
+  });
 </script>
 
 <section class="diff" aria-label="Change preview">
