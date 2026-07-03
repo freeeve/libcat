@@ -46,14 +46,14 @@
   onMount(() => {
     pushScope(SCOPE);
     const unbind = bindKeys(SCOPE, {
-      j: { description: "next suggestion", handler: () => move(1) },
-      k: { description: "previous suggestion", handler: () => move(-1) },
-      ArrowDown: { description: "next suggestion", handler: () => move(1) },
-      ArrowUp: { description: "previous suggestion", handler: () => move(-1) },
-      a: { description: "stage approve for the selected row", handler: () => act("approve") },
-      r: { description: "stage reject for the selected row", handler: () => act("reject") },
-      t: { description: "stage reject + tombstone for the selected row", handler: () => act("tombstone") },
-      s: { description: "approve with a substitute term", handler: () => act("substitute") },
+      j: { description: "next suggestion", legend: "move", keyLabel: "j/k", handler: () => move(1) },
+      k: { description: "previous suggestion", hidden: true, handler: () => move(-1) },
+      ArrowDown: { description: "next suggestion", hidden: true, handler: () => move(1) },
+      ArrowUp: { description: "previous suggestion", hidden: true, handler: () => move(-1) },
+      a: { description: "stage approve for the selected row", legend: "approve", handler: () => act("approve") },
+      r: { description: "stage reject for the selected row", legend: "reject", handler: () => act("reject") },
+      t: { description: "stage reject + tombstone for the selected row", legend: "tombstone", handler: () => act("tombstone") },
+      s: { description: "approve with a substitute term", legend: "substitute", handler: () => act("substitute") },
     });
     void load(true);
     return () => {

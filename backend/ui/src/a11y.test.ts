@@ -19,9 +19,10 @@ import MarcPanel from "./components/MarcPanel.svelte";
 import CopyCat from "./screens/CopyCat.svelte";
 import Duplicates from "./screens/Duplicates.svelte";
 import VocabPicker from "./components/VocabPicker.svelte";
+import KbdLegend from "./components/KbdLegend.svelte";
 import { invalidateAccess, loginLocal } from "./lib/auth";
 import { setConfig } from "./lib/config";
-import { resetKeyboard } from "./lib/keyboard";
+import { bindKeys, GLOBAL_SCOPE, pushScope, resetKeyboard } from "./lib/keyboard";
 import { sessionStore } from "./lib/stores";
 import type { QueuePage, Suggestion, WorkDoc } from "./lib/types";
 
@@ -769,6 +770,30 @@ describe("a11y", () => {
     await tick();
     expect(host.querySelector('[role="dialog"]')).not.toBeNull();
     expect(host.textContent).toContain("Go to Works");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("KbdLegend footer with scope bindings has no axe violations", async () => {
+    bindKeys("works", {
+      j: { description: "next result", legend: "move", keyLabel: "j/k", handler: () => undefined },
+      k: { description: "previous result", hidden: true, handler: () => undefined },
+    });
+    bindKeys(GLOBAL_SCOPE, {
+      "g w": { description: "go to works", legend: "go to screen", handler: () => undefined },
+    });
+    pushScope("works");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(KbdLegend, { target: host });
+    cleanup = () => {
+      unmount(app);
+      resetKeyboard();
+    };
+    flushSync();
+    expect(host.textContent).toContain("j/k move");
+    expect(host.textContent).not.toContain("previous result");
+    expect(host.textContent).toContain("go to screen");
     const results = await audit(host);
     expect(results.violations).toEqual([]);
   });

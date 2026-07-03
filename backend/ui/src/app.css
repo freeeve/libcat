@@ -34,6 +34,8 @@
   /* One height for every control so mixed rows (input + select + button)
      sit on a shared baseline. */
   --control-h: 2.15rem;
+  /* The fixed footer legend (KbdLegend); sticky bars sit on top of it. */
+  --legend-h: 1.75rem;
   --radius: 4px;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235b615d' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
 }
@@ -72,7 +74,7 @@ button {
 main {
   max-width: 62rem;
   margin: 0 auto;
-  padding: 1.25rem 1.5rem 3rem;
+  padding: 1.25rem 1.5rem calc(3rem + var(--legend-h));
 }
 
 h1 {

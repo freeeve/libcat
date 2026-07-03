@@ -22,12 +22,12 @@
   onMount(() => {
     pushScope(SCOPE);
     const unbind = bindKeys(SCOPE, {
-      ArrowDown: { description: "next result", handler: () => move(1) },
-      ArrowUp: { description: "previous result", handler: () => move(-1) },
-      j: { description: "next result", handler: () => move(1) },
-      k: { description: "previous result", handler: () => move(-1) },
-      Enter: { description: "open selected work", handler: open },
-      "/": { description: "focus the search box", handler: focusSearch },
+      j: { description: "next result", legend: "move", keyLabel: "j/k", handler: () => move(1) },
+      k: { description: "previous result", hidden: true, handler: () => move(-1) },
+      ArrowDown: { description: "next result", hidden: true, handler: () => move(1) },
+      ArrowUp: { description: "previous result", hidden: true, handler: () => move(-1) },
+      Enter: { description: "open selected work", legend: "open", handler: open },
+      "/": { description: "focus the search box", legend: "search", handler: focusSearch },
     });
     void search("");
     return () => {

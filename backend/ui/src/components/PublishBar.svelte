@@ -37,7 +37,7 @@
 <style>
   .bar {
     position: sticky;
-    bottom: 0;
+    bottom: var(--legend-h);
     display: flex;
     align-items: center;
     gap: 0.6rem;

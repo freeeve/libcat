@@ -51,22 +51,13 @@
   onMount(() => {
     pushScope(SCOPE);
     const unbind = bindKeys(SCOPE, {
-      p: { description: "preview staged changes", handler: () => void session.preview() },
+      p: { description: "preview staged changes", legend: "preview", handler: () => void session.preview() },
+      "mod+s": { description: "save staged changes", legend: "save", handler: () => void session.save() },
     });
-    // Ctrl/Cmd+S must fire even while focus sits in a form input, so it
-    // bypasses the scope dispatcher (which ignores modified keys).
-    const onModS = (ev: KeyboardEvent): void => {
-      if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && ev.key.toLowerCase() === "s") {
-        ev.preventDefault();
-        void session.save();
-      }
-    };
-    window.addEventListener("keydown", onModS);
     void session.load();
     return () => {
       unbind();
       popScope(SCOPE);
-      window.removeEventListener("keydown", onModS);
       session.destroy();
     };
   });

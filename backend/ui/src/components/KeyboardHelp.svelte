@@ -2,7 +2,7 @@
   // The "?" overlay: lists the bindings active right now (top scope plus
   // global). Mounted once by App; keyboard.ts calls the presenter to open it.
   import { onMount } from "svelte";
-  import { setHelpPresenter, type Binding } from "../lib/keyboard";
+  import { formatKey, setHelpPresenter, type Binding } from "../lib/keyboard";
 
   let open = $state(false);
   let active = $state<Binding[]>([]);
@@ -41,7 +41,7 @@
         <dl>
           {#each active as b (b.key)}
             <div class="row">
-              <dt><kbd>{b.key}</kbd></dt>
+              <dt><kbd>{formatKey(b)}</kbd></dt>
               <dd>{b.description}</dd>
             </div>
           {/each}

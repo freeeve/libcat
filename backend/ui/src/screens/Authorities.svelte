@@ -30,13 +30,13 @@
   onMount(() => {
     pushScope(SCOPE);
     const unbind = bindKeys(SCOPE, {
-      ArrowDown: { description: "next term", handler: () => move(1) },
-      ArrowUp: { description: "previous term", handler: () => move(-1) },
-      j: { description: "next term", handler: () => move(1) },
-      k: { description: "previous term", handler: () => move(-1) },
-      Enter: { description: "open selected term", handler: open },
-      n: { description: "create the typed heading", handler: () => void create() },
-      "/": { description: "focus the search box", handler: focusSearch },
+      j: { description: "next term", legend: "move", keyLabel: "j/k", handler: () => move(1) },
+      k: { description: "previous term", hidden: true, handler: () => move(-1) },
+      ArrowDown: { description: "next term", hidden: true, handler: () => move(1) },
+      ArrowUp: { description: "previous term", hidden: true, handler: () => move(-1) },
+      Enter: { description: "open selected term", legend: "open", handler: open },
+      n: { description: "create the typed heading", legend: "new heading", handler: () => void create() },
+      "/": { description: "focus the search box", legend: "search", handler: focusSearch },
     });
     void search("");
     return () => {

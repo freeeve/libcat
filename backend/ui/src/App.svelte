@@ -8,6 +8,8 @@
   import { initTheme, toggleTheme, type Theme } from "./lib/theme";
   import { resolve, navigate, type RouteDef } from "./lib/router";
   import { configStore, sessionStore } from "./lib/stores";
+  import { bindKeys, GLOBAL_SCOPE } from "./lib/keyboard";
+  import KbdLegend from "./components/KbdLegend.svelte";
   import KeyboardHelp from "./components/KeyboardHelp.svelte";
   import Login from "./screens/Login.svelte";
   import Dashboard from "./screens/Dashboard.svelte";
@@ -47,12 +49,45 @@
   let paletteOpen = $state(false);
 
   onMount(() => {
-    // Ctrl/Cmd+K opens the command palette from anywhere (modified keys
-    // bypass the scope dispatcher, so this is a direct listener).
-    window.addEventListener("keydown", onModK);
     void boot();
-    return () => window.removeEventListener("keydown", onModK);
+    return bindGlobalKeys();
   });
+
+  // Signed-in-only global keys: the palette chord plus "g <letter>" jumps to
+  // every screen, including the ones the top nav leaves out.
+  function bindGlobalKeys(): () => void {
+    const goTo: Record<string, [string, string]> = {
+      "g d": ["/", "go to the dashboard"],
+      "g w": ["/works", "go to works"],
+      "g a": ["/authorities", "go to authorities"],
+      "g q": ["/queue", "go to the queue"],
+      "g b": ["/batch", "go to batch operations"],
+      "g m": ["/macros", "go to macros"],
+      "g e": ["/exports", "go to exports"],
+      "g i": ["/copycat", "go to import"],
+      "g u": ["/duplicates", "go to duplicates"],
+      "g p": ["/promotions", "go to promotions"],
+    };
+    const specs: Parameters<typeof bindKeys>[1] = {
+      "mod+k": {
+        description: "open the command palette",
+        legend: "palette",
+        handler: () => {
+          if ($sessionStore) paletteOpen = !paletteOpen;
+        },
+      },
+    };
+    for (const [key, [path, description]] of Object.entries(goTo)) {
+      specs[key] = {
+        description,
+        legend: "go to screen",
+        handler: () => {
+          if ($sessionStore) navigate(path);
+        },
+      };
+    }
+    return bindKeys(GLOBAL_SCOPE, specs);
+  }
 
   async function boot(): Promise<void> {
     configStore.set(await loadConfig());
@@ -67,13 +102,6 @@
       route = resolve(routes, location.hash);
     });
     route = resolve(routes, location.hash);
-  }
-
-  function onModK(ev: KeyboardEvent): void {
-    if ((ev.metaKey || ev.ctrlKey) && !ev.altKey && ev.key.toLowerCase() === "k") {
-      ev.preventDefault();
-      if ($sessionStore) paletteOpen = !paletteOpen;
-    }
   }
 
   // Auth gate: signed-out users go to the login screen, signed-in users
@@ -162,6 +190,10 @@
 
 {#if paletteOpen}
   <CommandPalette onclose={() => (paletteOpen = false)} />
+{/if}
+
+{#if ready && $sessionStore}
+  <KbdLegend />
 {/if}
 
 <KeyboardHelp />
