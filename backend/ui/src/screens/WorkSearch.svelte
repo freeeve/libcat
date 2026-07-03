@@ -1,20 +1,29 @@
 <script lang="ts">
   // Debounced search over /v1/works with keyboard-navigable results:
   // RowList carries j/k/arrows and Enter-to-open; "/" refocuses the box.
+  // Query, rows, and selection live in screenState so returning from an
+  // editor lands on the same row; a stale list refetches in the background
+  // and re-finds the selected work by id.
   import { onMount } from "svelte";
   import { fetchWorks, ApiError } from "../lib/api";
   import { bindKeys, pushScope, popScope } from "../lib/keyboard";
   import { navigate } from "../lib/router";
+  import { screenState } from "../lib/screenState.svelte";
   import RowList from "../components/RowList.svelte";
   import type { WorkSummary } from "../lib/types";
 
   const SCOPE = "works";
   const DEBOUNCE_MS = 250;
+  const FRESH_MS = 60_000;
 
-  let q = $state("");
-  let works = $state<WorkSummary[]>([]);
-  let total = $state(0);
-  let selected = $state(0);
+  const st = screenState("works", () => ({
+    q: "",
+    works: [] as WorkSummary[],
+    total: 0,
+    selected: 0,
+    loadedAt: 0,
+  }));
+
   let error = $state("");
   let loading = $state(false);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -24,7 +33,7 @@
     const unbind = bindKeys(SCOPE, {
       "/": { description: "focus the search box", legend: "search", handler: focusSearch },
     });
-    void search("");
+    if (Date.now() - st.loadedAt > FRESH_MS) void search(st.q, true);
     return () => {
       unbind();
       popScope(SCOPE);
@@ -34,19 +43,25 @@
 
   function onInput(): void {
     clearTimeout(timer);
-    timer = setTimeout(() => void search(q), DEBOUNCE_MS);
+    timer = setTimeout(() => void search(st.q, false), DEBOUNCE_MS);
   }
 
-  async function search(query: string): Promise<void> {
+  /** Runs the search; a refresh keeps the selection pinned to the same
+      work id, a new query starts back at the top. */
+  async function search(query: string, refresh: boolean): Promise<void> {
     loading = true;
     error = "";
+    const keepId = refresh ? st.works[st.selected]?.WorkID : undefined;
     try {
       const page = await fetchWorks(query);
-      works = page.works ?? [];
-      total = page.total;
-      selected = 0;
+      st.works = page.works ?? [];
+      st.total = page.total;
+      st.loadedAt = Date.now();
+      const found = keepId ? st.works.findIndex((w) => w.WorkID === keepId) : -1;
+      st.selected = found >= 0 ? found : Math.min(st.selected, Math.max(0, st.works.length - 1));
+      if (!refresh) st.selected = 0;
     } catch (e) {
-      works = [];
+      st.works = [];
       error = e instanceof ApiError && e.status === 401 ? "session expired -- sign in again" : "search failed";
     } finally {
       loading = false;
@@ -62,29 +77,24 @@
   }
 </script>
 
-<main>
+<main class="wide">
   <h1>Work search</h1>
-  <p>
+  <p class="lede">
     <label for="work-q" class="muted">Title, contributor, tag, ISBN, or id</label>
   </p>
-  <input id="work-q" type="search" bind:value={q} oninput={onInput} placeholder="Search works…" autocomplete="off" />
-  <p class="muted" aria-live="polite">
-    {#if loading}Searching…{:else if error}<span class="error">{error}</span>{:else}{works.length} shown of {total} works{/if}
-    {#if !loading && !error && works.length > 0}
-      · <a href={q.trim() ? "#/exports?kind=search&q=" + encodeURIComponent(q.trim()) : "#/exports?kind=all"}>Export these results…</a>
+  <input id="work-q" type="search" bind:value={st.q} oninput={onInput} placeholder="Search works…" autocomplete="off" />
+  <p class="muted status" aria-live="polite">
+    {#if loading && st.works.length === 0}Searching…{:else if error}<span class="error">{error}</span>{:else}{st.works.length} shown of {st.total} works{/if}
+    {#if !error && st.works.length > 0}
+      · <a href={st.q.trim() ? "#/exports?kind=search&q=" + encodeURIComponent(st.q.trim()) : "#/exports?kind=all"}>Export these results…</a>
     {/if}
   </p>
 
-  <RowList items={works} bind:selected getKey={(w) => w.WorkID} ariaLabel="Search results" scope={SCOPE} itemName="result" onactivate={open}>
+  <RowList items={st.works} bind:selected={st.selected} getKey={(w) => w.WorkID} ariaLabel="Search results" scope={SCOPE} itemName="result" onactivate={open}>
     {#snippet row(w: WorkSummary)}
-      <a class="row-link" href={"#/works/" + encodeURIComponent(w.WorkID)}>
+      <a class="row-link" href={"#/works/" + encodeURIComponent(w.WorkID)} title={w.Tags?.length ? w.Tags.join(", ") : undefined}>
         <span class="title">{w.Title || "(untitled)"}</span>
-        {#if w.Contributors?.length}
-          <span class="muted">{w.Contributors.join("; ")}</span>
-        {/if}
-        {#if w.Tags?.length}
-          <span class="tags">{w.Tags.join(", ")}</span>
-        {/if}
+        <span class="muted who">{w.Contributors?.join("; ") ?? ""}</span>
         <span class="id">{w.WorkID}</span>
       </a>
     {/snippet}
@@ -97,27 +107,37 @@
     max-width: 28rem;
     font-size: 1rem;
   }
+  .lede {
+    margin: 0.2rem 0;
+  }
+  .status {
+    margin: 0.35rem 0;
+    font-size: var(--fs-meta);
+  }
   .row-link {
     display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 0.1rem 0.9rem;
-    padding: 0.5rem 0.6rem;
+    grid-template-columns: minmax(12rem, auto) 1fr auto;
+    gap: 0 0.9rem;
+    align-items: baseline;
+    padding: 0.22rem 0.55rem;
     text-decoration: none;
     color: inherit;
   }
   .title {
     font-weight: 600;
     color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .who {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .id {
     font-family: var(--mono);
-    font-size: 0.78rem;
-    color: var(--ink-muted);
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .tags {
-    font-size: 0.85rem;
+    font-size: var(--fs-meta);
     color: var(--ink-muted);
   }
 </style>

@@ -11,6 +11,8 @@
   import { getConfig } from "../lib/config";
   import { createDecisionStore } from "../lib/decisions";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
+  import { navigate } from "../lib/router";
+  import { screenState } from "../lib/screenState.svelte";
   import { sessionStore } from "../lib/stores";
   import { bestLabel } from "../lib/vocab";
   import PublishBar from "../components/PublishBar.svelte";
@@ -23,16 +25,23 @@
   const PROVENANCES = ["PATRON", "PIPELINE", "LIBRARIAN"];
   const TYPES = ["ADD", "REMOVE"];
 
-  const decisions = createDecisionStore();
+  // Staged decisions mirror to sessionStorage so a reload or a drill-in to
+  // a work mid-triage loses nothing.
+  const decisions = createDecisionStore("lcat.queue.decisions.v1");
   const schemes = getConfig().schemes ?? [];
+  const FRESH_MS = 60_000;
 
-  let status = $state("PENDING");
-  let scheme = $state("");
-  let provenance = $state("");
-  let type = $state("");
-  let items = $state<Suggestion[]>([]);
-  let cursor = $state("");
-  let selected = $state(0);
+  const st = screenState("queue", () => ({
+    status: "PENDING",
+    scheme: "",
+    provenance: "",
+    type: "",
+    items: [] as Suggestion[],
+    cursor: "",
+    selected: 0,
+    loadedAt: 0,
+  }));
+
   let loading = $state(false);
   let applying = $state(false);
   let error = $state("");
@@ -50,8 +59,11 @@
       r: { description: "stage reject for the selected row", legend: "reject", handler: () => act("reject") },
       t: { description: "stage reject + tombstone for the selected row", legend: "tombstone", handler: () => act("tombstone") },
       s: { description: "approve with a substitute term", legend: "substitute", handler: () => act("substitute") },
+      u: { description: "unstage the selected row's decision", legend: "unstage", handler: unstageSelected },
+      o: { description: "open the selected row's work", legend: "open work", handler: openSelected },
+      Enter: { description: "open the selected row's work", hidden: true, handler: openSelected },
     });
-    void load(true);
+    if (Date.now() - st.loadedAt > FRESH_MS) void load(true);
     return () => {
       unbind();
       popScope(SCOPE);
@@ -63,33 +75,43 @@
     error = "";
     try {
       const page = await fetchQueue({
-        status,
-        scheme: scheme || undefined,
-        provenance: provenance || undefined,
-        type: type || undefined,
-        cursor: reset ? undefined : cursor || undefined,
+        status: st.status,
+        scheme: st.scheme || undefined,
+        provenance: st.provenance || undefined,
+        type: st.type || undefined,
+        cursor: reset ? undefined : st.cursor || undefined,
       });
-      items = reset ? (page.items ?? []) : [...items, ...(page.items ?? [])];
-      cursor = page.cursor ?? "";
-      if (reset) selected = 0;
-      else selected = Math.min(selected, Math.max(0, items.length - 1));
+      st.items = reset ? (page.items ?? []) : [...st.items, ...(page.items ?? [])];
+      st.cursor = page.cursor ?? "";
+      st.loadedAt = Date.now();
+      st.selected = reset ? 0 : Math.min(st.selected, Math.max(0, st.items.length - 1));
     } catch (e) {
       error = e instanceof ApiError && e.status === 401 ? "session expired -- sign in again" : "queue load failed";
-      if (reset) items = [];
+      if (reset) st.items = [];
     } finally {
       loading = false;
     }
   }
 
   function refilter(): void {
-    cursor = "";
+    st.cursor = "";
     void load(true);
+  }
+
+  function openSelected(): void {
+    const s = st.items[st.selected];
+    if (s) navigate(`/works/${encodeURIComponent(s.workId)}`);
+  }
+
+  function unstageSelected(): void {
+    const s = st.items[st.selected];
+    if (s) decisions.unstage(s.workId, s.term, s.type);
   }
 
   type Action = "approve" | "reject" | "tombstone" | "substitute";
 
   function act(action: Action, item?: Suggestion): void {
-    const s = item ?? items[selected];
+    const s = item ?? st.items[st.selected];
     if (!s) return;
     if (action === "substitute") {
       pickerFor = s;
@@ -185,7 +207,7 @@
   }
 </script>
 
-<main class="queue">
+<main class="queue wide">
   <header class="qhead">
     <h1>Review queue</h1>
     <a href="#/promotions">Tag promotions</a>
@@ -197,90 +219,94 @@
   <form class="filters" aria-label="Queue filters" onsubmit={(ev) => ev.preventDefault()}>
     <label>
       Status
-      <select bind:value={status} onchange={refilter}>
+      <select bind:value={st.status} onchange={refilter}>
         {#each STATUSES as s (s)}<option value={s}>{s}</option>{/each}
       </select>
     </label>
     <label>
       Scheme
-      <select bind:value={scheme} onchange={refilter}>
+      <select bind:value={st.scheme} onchange={refilter}>
         <option value="">any</option>
         {#each schemes as s (s)}<option value={s}>{s}</option>{/each}
       </select>
     </label>
     <label>
       Provenance
-      <select bind:value={provenance} onchange={refilter}>
+      <select bind:value={st.provenance} onchange={refilter}>
         <option value="">any</option>
         {#each PROVENANCES as p (p)}<option value={p}>{p}</option>{/each}
       </select>
     </label>
     <label>
       Type
-      <select bind:value={type} onchange={refilter}>
+      <select bind:value={st.type} onchange={refilter}>
         <option value="">any</option>
         {#each TYPES as t (t)}<option value={t}>{t}</option>{/each}
       </select>
     </label>
   </form>
 
-  <p class="muted" aria-live="polite">
-    {#if loading && items.length === 0}
+  <p class="muted count" aria-live="polite">
+    {#if loading && st.items.length === 0}
       Loading…
     {:else if error}
       <span class="error">{error}</span>
     {:else}
-      {items.length} suggestion{items.length === 1 ? "" : "s"}{cursor ? " (more available)" : ""}
+      {st.items.length} suggestion{st.items.length === 1 ? "" : "s"}{st.cursor ? " (more available)" : ""}
     {/if}
   </p>
   {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
   <RowList
-    items={items}
-    bind:selected
+    items={st.items}
+    bind:selected={st.selected}
     getKey={(s) => s.workId + " " + s.term.scheme + " " + s.term.id + " " + s.type}
     ariaLabel="Suggestions"
     scope={SCOPE}
     itemName="suggestion"
     empty={!loading && !error ? "Nothing in the queue for these filters." : undefined}
   >
-    {#snippet row(s: Suggestion)}
+    {#snippet row(s: Suggestion, i: number, sel: boolean)}
       {@const staged = stagedFor($decisions, s)}
-      <div class="qrow">
-        <div class="what">
-          <a class="work" href={"#/works/" + encodeURIComponent(s.workId)}>{s.workTitle || s.workId}</a>
-          <span class="chip chip--{s.type === 'ADD' ? 'add' : 'remove'}">{s.type}</span>
-          <span class="term">{s.term.label || s.term.id}</span>
+      <div
+        class="qrow"
+        class:tint-ok={staged?.approve}
+        class:tint-danger={staged && !staged.approve}
+      >
+        <span class="supporters" title="{s.supporterCount} supporter{s.supporterCount === 1 ? '' : 's'}">{s.supporterCount}</span>
+        <span class="chip chip--{s.type === 'ADD' ? 'add' : 'remove'}">{s.type}</span>
+        <a class="work" href={"#/works/" + encodeURIComponent(s.workId)}>{s.workTitle || s.workId}</a>
+        <span class="term">
+          {s.term.label || s.term.id}
           <span class="chip chip--scheme">{s.term.scheme}</span>
-          {#if staged}<span class="chip chip--staged">{stagedLabel(staged)}</span>{/if}
-        </div>
-        <div class="meta muted">
-          <span>{s.supporterCount} supporter{s.supporterCount === 1 ? "" : "s"}</span>
+        </span>
+        <span class="meta muted">
+          {#if s.type === "REMOVE" && s.reasonCounts}<span class="reasons">{reasonSummary(s)}</span>{/if}
           <span class="chip chip--prov">
             {s.provenance}{s.provenance === "PIPELINE" && s.confidence !== undefined
               ? ` ${s.confidence.toFixed(2)}`
               : ""}
           </span>
-          {#if s.type === "REMOVE" && s.reasonCounts}
-            <span class="reasons">{reasonSummary(s)}</span>
-          {/if}
-          <span>{new Date(s.createdAt).toLocaleDateString()}</span>
-        </div>
-        <div class="acts">
-          <button class="button button--quiet" onclick={() => act("approve", s)}>Approve</button>
-          <button class="button button--quiet" onclick={() => act("reject", s)}>Reject</button>
-          <button class="button button--quiet" onclick={() => act("tombstone", s)}>Tombstone</button>
-          <button class="button button--quiet" onclick={() => act("substitute", s)}>Substitute…</button>
-          {#if librarian && s.term.scheme === "folk"}
-            <button class="button button--quiet" onclick={() => folk("acceptFolk", s)}>Accept folk</button>
-            <button class="button button--quiet" onclick={() => folk("blockFolk", s)}>Block folk</button>
-          {/if}
-        </div>
+        </span>
+        <span class="staged">{#if staged}{stagedLabel(staged)}{/if}</span>
+        {#if sel}
+          <div class="acts">
+            <button class="button button--quiet" onclick={() => act("approve", s)}>Approve</button>
+            <button class="button button--quiet" onclick={() => act("reject", s)}>Reject</button>
+            <button class="button button--quiet" onclick={() => act("tombstone", s)}>Tombstone</button>
+            <button class="button button--quiet" onclick={() => act("substitute", s)}>Substitute…</button>
+            {#if librarian && s.term.scheme === "folk"}
+              <button class="button button--quiet" onclick={() => folk("acceptFolk", s)}>Accept folk</button>
+              <button class="button button--quiet" onclick={() => folk("blockFolk", s)}>Block folk</button>
+            {/if}
+            <span class="muted when">{new Date(s.createdAt).toLocaleDateString()}</span>
+          </div>
+        {/if}
       </div>
     {/snippet}
   </RowList>
 
-  {#if cursor}
+  {#if st.cursor}
     <p><button class="button button--quiet" onclick={() => void load(false)} disabled={loading}>Load more</button></p>
   {/if}
 
@@ -320,47 +346,86 @@
     font-weight: 600;
     color: var(--ink-muted);
   }
+  .filters select {
+    min-height: var(--control-h-sm);
+    font-size: var(--fs-row);
+  }
+  .count {
+    margin: 0.35rem 0;
+    font-size: var(--fs-meta);
+  }
   .notice {
     color: var(--ok);
     font-weight: 600;
   }
   .qrow {
-    padding: 0.5rem 0.6rem;
-  }
-  .what {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1.6rem auto fit-content(26rem) minmax(9rem, 1fr) auto minmax(4rem, auto);
+    gap: 0 0.55rem;
     align-items: baseline;
-    gap: 0.55rem;
-    flex-wrap: wrap;
+    padding: 0.2rem 0.55rem;
+  }
+  .qrow.tint-ok {
+    background: var(--tint-ok);
+  }
+  .qrow.tint-danger {
+    background: var(--tint-danger);
+  }
+  .supporters {
+    font-family: var(--mono);
+    font-size: var(--fs-meta);
+    color: var(--ink-muted);
+    text-align: right;
   }
   .work {
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .term {
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .meta {
-    display: flex;
-    gap: 0.9rem;
-    flex-wrap: wrap;
-    font-size: 0.85rem;
-    margin: 0.2rem 0 0.35rem;
+    font-size: var(--fs-meta);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+  }
+  .staged {
+    font-size: var(--fs-meta);
+    font-weight: 650;
+    color: var(--pend-ink);
+    text-align: right;
+    white-space: nowrap;
   }
   .acts {
+    grid-column: 1 / -1;
     display: flex;
     gap: 0.4rem;
     flex-wrap: wrap;
+    align-items: baseline;
+    padding: 0.3rem 0 0.2rem;
   }
   .acts .button {
-    font-size: 0.8rem;
-    padding: 0.25em 0.8em;
+    font-size: 0.78rem;
+    padding: 0.15em 0.7em;
+    min-height: var(--control-h-sm);
+  }
+  .when {
+    margin-left: auto;
+    font-size: var(--fs-meta);
   }
   .chip {
     display: inline-block;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.03em;
-    padding: 0.1em 0.55em;
+    padding: 0.05em 0.5em;
     border-radius: 999px;
     border: 1px solid transparent;
     white-space: nowrap;
@@ -385,11 +450,6 @@
     background: #e3edf9;
     color: #1c4f8a;
     border-color: #bcd3ef;
-  }
-  .chip--staged {
-    background: var(--pend-bg);
-    color: var(--pend-ink);
-    border-color: var(--pend-edge);
   }
   .reasons {
     color: var(--danger);

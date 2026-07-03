@@ -34,8 +34,18 @@
   /* One height for every control so mixed rows (input + select + button)
      sit on a shared baseline. */
   --control-h: 2.15rem;
+  /* Compact controls for filter bars sitting above dense lists. */
+  --control-h-sm: 1.75rem;
   /* The fixed footer legend (KbdLegend); sticky bars sit on top of it. */
   --legend-h: 1.75rem;
+  /* Dense-list scale: single-line rows and their metadata. */
+  --row-h: 1.9rem;
+  --fs-row: 0.86rem;
+  --fs-meta: 0.75rem;
+  /* Row tints for staged/decided states; alpha mixes so dark mode derives. */
+  --tint-staged: color-mix(in srgb, var(--pend-edge) 30%, transparent);
+  --tint-ok: color-mix(in srgb, var(--accent) 9%, transparent);
+  --tint-danger: color-mix(in srgb, var(--danger) 9%, transparent);
   --radius: 4px;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235b615d' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
 }
@@ -77,11 +87,30 @@ main {
   padding: 1.25rem 1.5rem calc(3rem + var(--legend-h));
 }
 
+/* List-triage and compare screens opt out of the reading column. */
+main.wide {
+  max-width: 96rem;
+}
+
+/* Master/detail two-pane: list keeps its place while the detail opens
+   beside it; single column under 1100px. */
+.split {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(20rem, 26rem) minmax(0, 1fr);
+}
+@media (max-width: 1100px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+
 h1 {
   font-family: var(--display);
-  font-size: 1.5rem;
+  font-size: 1.3rem;
   line-height: 1.2;
-  padding-bottom: 0.35rem;
+  margin: 0.4rem 0 0.6rem;
+  padding-bottom: 0.3rem;
   border-bottom: 3px double var(--rule);
 }
 
@@ -224,6 +253,9 @@ input[type="radio"] {
 }
 .rowlist > li {
   border-bottom: 1px solid var(--rule);
+  min-height: var(--row-h);
+  font-size: var(--fs-row);
+  line-height: 1.35;
 }
 .rowlist > li.selected {
   background: var(--surface);

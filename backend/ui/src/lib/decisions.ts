@@ -39,11 +39,35 @@ function shapeWire(d: Decision): Decision {
   return out;
 }
 
-/** A fresh staging store (one per queue screen mount). */
-export function createDecisionStore(): DecisionStore {
+/** Loads persisted decisions, tolerating missing or corrupt storage. */
+function hydrate(persistKey: string, staged: Map<string, Decision>): void {
+  try {
+    const raw = sessionStorage.getItem(persistKey);
+    if (!raw) return;
+    for (const d of JSON.parse(raw) as Decision[]) {
+      staged.set(decisionKey(d.workId, d.term, d.type), shapeWire(d));
+    }
+  } catch {
+    // Corrupt or unavailable storage never blocks triage.
+  }
+}
+
+/** A fresh staging store; with persistKey the staged set mirrors to
+ *  sessionStorage so a reload or drill-in mid-triage loses nothing. */
+export function createDecisionStore(persistKey?: string): DecisionStore {
   const staged = new Map<string, Decision>();
-  const { subscribe, set } = writable<Decision[]>([]);
-  const sync = (): void => set([...staged.values()]);
+  if (persistKey) hydrate(persistKey, staged);
+  const { subscribe, set } = writable<Decision[]>([...staged.values()]);
+  const sync = (): void => {
+    set([...staged.values()]);
+    if (!persistKey) return;
+    try {
+      if (staged.size === 0) sessionStorage.removeItem(persistKey);
+      else sessionStorage.setItem(persistKey, JSON.stringify([...staged.values()]));
+    } catch {
+      // Storage quota or availability issues never block triage.
+    }
+  };
   return {
     subscribe,
     stage(d: Decision): void {

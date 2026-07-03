@@ -130,7 +130,7 @@
   }
 </script>
 
-<main>
+<main class="wide">
   <h1>Exports</h1>
 
   <section aria-label="New export">

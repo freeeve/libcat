@@ -83,4 +83,23 @@ describe("decision staging", () => {
     store.clear();
     expect(get(store)).toEqual([]);
   });
+
+  it("persists staged decisions to sessionStorage and hydrates a new store", () => {
+    sessionStorage.clear();
+    const store = createDecisionStore("test.decisions");
+    store.stage(approve("w1"));
+    store.stage(approve("w2"));
+    const revived = createDecisionStore("test.decisions");
+    expect(revived.payload().map((d) => d.workId).sort()).toEqual(["w1", "w2"]);
+    revived.clear();
+    expect(sessionStorage.getItem("test.decisions")).toBeNull();
+    sessionStorage.clear();
+  });
+
+  it("hydration tolerates corrupt storage", () => {
+    sessionStorage.setItem("test.corrupt", "{not json");
+    const store = createDecisionStore("test.corrupt");
+    expect(store.payload()).toEqual([]);
+    sessionStorage.clear();
+  });
 });

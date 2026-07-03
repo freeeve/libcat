@@ -207,7 +207,7 @@
   }
 </script>
 
-<main>
+<main class="wide">
   <h1>Copy cataloging</h1>
 
   <details class="targets">

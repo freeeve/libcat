@@ -9,6 +9,7 @@
   import { resolve, navigate, type RouteDef } from "./lib/router";
   import { configStore, sessionStore } from "./lib/stores";
   import { bindKeys, GLOBAL_SCOPE } from "./lib/keyboard";
+  import { resetScreenStates } from "./lib/screenState.svelte";
   import KbdLegend from "./components/KbdLegend.svelte";
   import KeyboardHelp from "./components/KeyboardHelp.svelte";
   import Login from "./screens/Login.svelte";
@@ -115,6 +116,7 @@
   async function signOut(): Promise<void> {
     await logout();
     sessionStore.set(null);
+    resetScreenStates();
     navigate("/login");
   }
 </script>
