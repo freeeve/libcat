@@ -5,6 +5,7 @@
   import { onMount } from "svelte";
   import { loadConfig } from "./lib/config";
   import { getToken, handleOidcCallback, logout, session } from "./lib/auth";
+  import { initTheme, toggleTheme, type Theme } from "./lib/theme";
   import { resolve, navigate, type RouteDef } from "./lib/router";
   import { configStore, sessionStore } from "./lib/stores";
   import KeyboardHelp from "./components/KeyboardHelp.svelte";
@@ -26,6 +27,7 @@
   ];
 
   let route = $state(resolve(routes, location.hash));
+  let theme = $state<Theme>(initTheme());
   let ready = $state(false);
 
   onMount(async () => {
@@ -73,6 +75,14 @@
     </nav>
     <span class="side">
       <span class="who">{$sessionStore.email}</span>
+      <button
+        class="button button--quiet"
+        onclick={() => (theme = toggleTheme())}
+        aria-pressed={theme === "dark"}
+        title="Switch to {theme === 'dark' ? 'light' : 'dark'} mode"
+      >
+        {theme === "dark" ? "Light" : "Dark"} mode
+      </button>
       <button class="button button--quiet" onclick={signOut}>Sign out</button>
     </span>
   </header>

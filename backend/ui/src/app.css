@@ -144,3 +144,61 @@ input[type="password"] {
   letter-spacing: 0.07em;
   color: var(--ink-muted);
 }
+
+/* Dark mode: the closed stacks. Same identity, inverted -- the light
+   theme's ink becomes the card surface, bone becomes the text, and the
+   provenance inks brighten to hold AA on dark. Toggled via data-theme on
+   <html> (lib/theme.ts); first visit follows prefers-color-scheme. */
+html[data-theme="dark"] {
+  --bg: #171b19;
+  --surface: #212724;
+  --surface-alt: #2a302c;
+  --ink: #e9e7e0;
+  --ink-muted: #a8ada4;
+  --rule: #3d443f;
+  --accent: #6dbd97;
+  --accent-ink: #10261c;
+  --danger: #e09479;
+  --ok: #6dbd97;
+  --info: #85b3dc;
+  --prov-editorial: #6dbd97;
+  --prov-feed: #79807a;
+  --prov-enrichment: #85b3dc;
+  color-scheme: dark;
+}
+/* Component tints that hard-code light values, re-derived for dark. The
+   html prefix outranks the scoped component rules of equal class count. */
+html[data-theme="dark"] .badge--feed,
+html[data-theme="dark"] .badge--other {
+  background: #2a302c;
+  color: #c2c7bf;
+  border-color: #3d443f;
+}
+html[data-theme="dark"] .badge--editorial {
+  background: #1d3428;
+  color: #a8d9bf;
+  border-color: #35573f;
+}
+html[data-theme="dark"] .badge--enrichment {
+  background: #1c2f40;
+  color: #b1cfe9;
+  border-color: #32517a;
+}
+html[data-theme="dark"] .line--added {
+  background: #1d3428;
+  color: #a8d9bf;
+}
+html[data-theme="dark"] .line--removed {
+  background: #402020;
+  color: #e8b4b4;
+}
+html[data-theme="dark"] .value.pending-removed,
+html[data-theme="dark"] .value.pending-added {
+  background: #3a2f14;
+  border-color: #6b5a26;
+}
+html[data-theme="dark"] .pend-note,
+html[data-theme="dark"] .undo {
+  color: #e3c576;
+  border-color: #6b5a26;
+}
