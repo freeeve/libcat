@@ -1,11 +1,12 @@
 <script lang="ts">
-  // Modal vocabulary picker: scheme tabs over config.schemes (folk excluded),
-  // search-as-you-type against /v1/terms, arrow-key result navigation, and a
-  // details pane (definition, alt labels, semantic neighborhood) for the
+  // Modal vocabulary picker: scheme tabs over config.schemes (folk excluded)
+  // plus one live tab per registered suggest source (tasks/067), search-as-
+  // you-type against /v1/terms (local index) or /v1/vocabsuggest (live
+  // proxy), arrow-key result navigation, and a details pane for the
   // highlighted term. Modal owns the trap/Escape/focus restore; Enter or
   // click emits the term through onselect.
   import { onMount } from "svelte";
-  import { searchTerms } from "../lib/api";
+  import { fetchVocabSources, searchTerms, vocabSuggest } from "../lib/api";
   import { getConfig } from "../lib/config";
   import { popScope, pushScope } from "../lib/keyboard";
   import { allAltLabels, bestDefinition, bestLabel } from "../lib/vocab";
@@ -28,7 +29,17 @@
   const DEBOUNCE_MS = 200;
   const schemes = (getConfig().schemes ?? []).filter((s) => s !== "folk");
 
-  let scheme = $state(schemes[0] ?? "");
+  /** One tab: a locally indexed scheme, or a live suggest source. */
+  interface Tab {
+    key: string;
+    label: string;
+    live: boolean;
+    scheme: string; // index scheme, or the live source's scheme
+    source?: string; // live source name (live tabs only)
+  }
+
+  let tabs = $state<Tab[]>(schemes.map((s) => ({ key: s, label: s, live: false, scheme: s })));
+  let active = $state(0);
   let q = $state("");
   let results = $state<Term[]>([]);
   let highlight = $state(0);
@@ -38,18 +49,31 @@
   let inputEl = $state<HTMLInputElement | null>(null);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  const tab = $derived(tabs[active]);
   const current = $derived(results[highlight]);
 
   onMount(() => {
     pushScope(SCOPE); // silences the screen's bindings while the modal is up
+    // Live tabs load lazily; a deployment without the source registry (or a
+    // fetch hiccup) just keeps the local tabs.
+    fetchVocabSources().then(
+      (r) =>
+        (tabs = [
+          ...tabs,
+          ...(r.sources ?? [])
+            .filter((s) => !!s.suggestUrl && !!s.suggestFlavor)
+            .map((s) => ({ key: "live:" + s.name, label: s.name, live: true, scheme: s.scheme, source: s.name })),
+        ]),
+      () => {},
+    );
     return () => {
       popScope(SCOPE);
       clearTimeout(timer);
     };
   });
 
-  function setScheme(s: string): void {
-    scheme = s;
+  function setTab(i: number): void {
+    active = i;
     void search(q);
     inputEl?.focus();
   }
@@ -60,7 +84,7 @@
   }
 
   async function search(query: string): Promise<void> {
-    if (!scheme || query.trim() === "") {
+    if (!tab || query.trim() === "") {
       results = [];
       highlight = 0;
       return;
@@ -68,12 +92,23 @@
     searching = true;
     error = "";
     try {
-      const res = await searchTerms(scheme, query);
-      results = res.terms ?? [];
+      if (tab.live && tab.source) {
+        const res = await vocabSuggest(tab.source, query);
+        results = (res.suggestions ?? []).map((s) => ({
+          scheme: s.scheme,
+          id: s.id,
+          labels: { en: s.label },
+          ...(s.description ? { definition: { en: s.description } } : {}),
+          ...(s.exactMatch ? { exactMatch: s.exactMatch } : {}),
+        }));
+      } else {
+        const res = await searchTerms(tab.scheme, query);
+        results = res.terms ?? [];
+      }
       highlight = 0;
     } catch {
       results = [];
-      error = "term search failed";
+      error = tab.live ? "live source unavailable" : "term search failed";
     } finally {
       searching = false;
     }
@@ -99,18 +134,18 @@
     <button class="button button--quiet" onclick={onclose}>Close</button>
   </header>
 
-  {#if schemes.length === 0}
+  {#if tabs.length === 0}
     <p class="muted">No controlled vocabularies are loaded on this deployment.</p>
   {:else}
     <div class="tabs" role="group" aria-label="Vocabulary scheme">
-      {#each schemes as s (s)}
-        <button class="tab" class:active={s === scheme} aria-pressed={s === scheme} onclick={() => setScheme(s)}>
-          {s}
+      {#each tabs as t, i (t.key)}
+        <button class="tab" class:active={i === active} aria-pressed={i === active} onclick={() => setTab(i)}>
+          {t.label}{#if t.live}<span class="live">live</span>{/if}
         </button>
       {/each}
     </div>
 
-    <label class="muted" for="vp-q">Search {scheme}</label>
+    <label class="muted" for="vp-q">Search {tab?.label ?? ""}</label>
     <input
       id="vp-q"
       type="search"
@@ -164,9 +199,20 @@
           {#if allAltLabels(current).length > 0}
             <p class="alt"><span class="muted">Also known as:</span> {allAltLabels(current).join("; ")}</p>
           {/if}
-          {#key current.scheme + " " + current.id}
-            <NeighborhoodPanel term={current} {onselect} />
-          {/key}
+          {#if tab?.live}
+            {#if current.exactMatch?.length}
+              <p class="alt"><span class="muted">Same as:</span></p>
+              <ul class="xm">
+                {#each current.exactMatch as uri (uri)}
+                  <li class="opt-id">{uri}</li>
+                {/each}
+              </ul>
+            {/if}
+          {:else}
+            {#key current.scheme + " " + current.id}
+              <NeighborhoodPanel term={current} {onselect} />
+            {/key}
+          {/if}
         </aside>
       {/if}
     </div>
@@ -202,6 +248,17 @@
     background: var(--accent);
     border-color: var(--accent);
     color: var(--accent-ink);
+  }
+  .live {
+    margin-left: 0.4em;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+  }
+  .xm {
+    margin: 0.2rem 0 0;
+    padding-left: 1rem;
   }
   label {
     display: block;

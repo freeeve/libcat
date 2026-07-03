@@ -39,6 +39,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/trigger"
 	"github.com/freeeve/libcatalog/backend/ui"
 	"github.com/freeeve/libcatalog/backend/vocab"
+	"github.com/freeeve/libcatalog/backend/vocabsrc"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -107,21 +108,49 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 	if len(vocabSchemes) > 0 && !slices.Contains(vocabSchemes, authoritiesvc.LocalScheme) {
 		vocabSchemes = append(vocabSchemes, authoritiesvc.LocalScheme)
 	}
+	db := store.NewMem()
+	deps.DB = db
 	if cfg.BlobDir != "" {
 		deps.Blob = blob.NewDir(cfg.BlobDir)
+		// The authority-source service resolves the effective scheme filter
+		// (configured base + installed snapshots) before the index loads, so
+		// installed vocabularies survive restarts (tasks/067).
+		vsrc := &vocabsrc.Service{
+			DB: db, Blob: deps.Blob, AuthoritiesPrefix: cfg.AuthoritiesPrefix,
+			BaseSchemes: vocabSchemes, Logger: logger,
+		}
+		schemes, err := vsrc.Schemes(ctx)
+		if err != nil {
+			return httpapi.Deps{}, fmt.Errorf("resolve vocab schemes: %w", err)
+		}
 		// The index mounts even when empty: local-authority creation is
 		// what populates it, and Reload swaps terms in as they land.
-		ix, err := vocab.Load(ctx, deps.Blob, cfg.AuthoritiesPrefix, vocabSchemes)
+		ix, err := vocab.Load(ctx, deps.Blob, cfg.AuthoritiesPrefix, schemes)
 		if err != nil {
 			return httpapi.Deps{}, fmt.Errorf("load vocabularies: %w", err)
 		}
 		deps.Vocab = ix
+		vsrc.Index = ix
+		deps.VocabSources = vsrc
 		if schemes := ix.Schemes(); len(schemes) > 0 {
 			logger.Info("vocabularies loaded", "schemes", schemes)
 		}
+		// Container worker: drain queued vocabulary downloads on a ticker.
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if _, err := vsrc.RunQueued(ctx); err != nil && ctx.Err() == nil {
+						logger.Error("vocab download worker", "err", err)
+					}
+				}
+			}
+		}()
 	}
-	db := store.NewMem()
-	deps.DB = db
 	if cfg.AbuseSecret != "" {
 		abuse, err := suggest.NewAbuse([]byte(cfg.AbuseSecret))
 		if err != nil {
@@ -153,6 +182,9 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 			Blob: deps.Blob, Vocab: deps.Vocab, Queue: deps.Suggest,
 			Trigger: notifier, AuthoritiesPrefix: cfg.AuthoritiesPrefix,
 			Schemes: vocabSchemes, Logger: logger,
+		}
+		if deps.VocabSources != nil {
+			deps.Authorities.SchemesFn = deps.VocabSources.Schemes
 		}
 		deps.Batch = &batch.Service{
 			Blob: deps.Blob, DB: db, Mapper: defaultBatchMapper(),
@@ -219,13 +251,33 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		clientCfg["schemes"] = schemes
 	}
 	deps.ClientConfig = clientCfg
-	if cfg.EnrichLocsh != "" && deps.Blob != nil {
-		deps.Enrich = &enrich.Service{
-			Blob: deps.Blob, Queue: deps.Suggest,
-			Sources: map[string]enrich.Source{
-				locsh.Name: {Enricher: locsh.New(), Mode: enrich.Mode(cfg.EnrichLocsh), Scheme: "lcsh"},
-			},
+	enrichSources := map[string]enrich.Source{}
+	if cfg.EnrichLocsh != "" {
+		enrichSources[locsh.Name] = enrich.Source{
+			Enricher: locsh.New(), Mode: enrich.Mode(cfg.EnrichLocsh), Scheme: "lcsh",
 		}
+	}
+	// Every registered suggest-capable authority source doubles as a
+	// moderated enrichment target (tasks/067) -- admin-triggered, queue mode.
+	if deps.VocabSources != nil && deps.Suggest != nil {
+		sources, err := deps.VocabSources.Sources(ctx)
+		if err != nil {
+			return httpapi.Deps{}, fmt.Errorf("list vocab sources: %w", err)
+		}
+		for _, src := range sources {
+			if !src.CanSuggest() {
+				continue
+			}
+			if _, taken := enrichSources[src.Name]; taken {
+				continue
+			}
+			enrichSources[src.Name] = enrich.Source{
+				Enricher: vocabsrc.NewEnricher(src, nil), Mode: enrich.ModeQueue, Scheme: src.Scheme,
+			}
+		}
+	}
+	if len(enrichSources) > 0 && deps.Blob != nil {
+		deps.Enrich = &enrich.Service{Blob: deps.Blob, Queue: deps.Suggest, Sources: enrichSources}
 	}
 	if deps.Blob != nil && cfg.AbuseSecret != "" {
 		exports, err := export.New(db, deps.Blob, cfg.Provider, []byte(cfg.AbuseSecret))

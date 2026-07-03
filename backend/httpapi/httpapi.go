@@ -21,6 +21,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
 	"github.com/freeeve/libcatalog/backend/vocab"
+	"github.com/freeeve/libcatalog/backend/vocabsrc"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -68,6 +69,9 @@ type Deps struct {
 	Exports *export.Service
 	// Enrich, when set, mounts the admin enrichment surface.
 	Enrich *enrich.Service
+	// VocabSources, when set, mounts the authority-source registry, the
+	// vocabulary download list, and the live suggest proxy (tasks/067).
+	VocabSources *vocabsrc.Service
 	// UI, when set, serves the embedded cataloging SPA at "/" (API routes
 	// keep priority under /v1/).
 	UI http.Handler
@@ -132,6 +136,9 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Enrich != nil && deps.Verifier != nil {
 		registerEnrich(mux, deps.Enrich, deps.Verifier)
+	}
+	if deps.VocabSources != nil && deps.Verifier != nil {
+		registerVocabSources(mux, deps.VocabSources, deps.Verifier)
 	}
 	if deps.ClientConfig != nil {
 		mux.HandleFunc("GET /config", func(w http.ResponseWriter, r *http.Request) {

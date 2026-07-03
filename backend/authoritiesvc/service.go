@@ -63,7 +63,11 @@ type Service struct {
 	AuthoritiesPrefix string
 	// Schemes filters the vocab reload (nil = every authority graph).
 	Schemes []string
-	Logger  *slog.Logger
+	// SchemesFn, when set, supersedes Schemes -- the tasks/067 seam: installed
+	// vocabulary snapshots widen the effective filter at reload time, so an
+	// authority edit's reload never drops an installed scheme.
+	SchemesFn func(context.Context) ([]string, error)
+	Logger    *slog.Logger
 }
 
 // MergeResult summarizes one authority merge.
@@ -259,7 +263,17 @@ func (s *Service) Reload(ctx context.Context) error {
 	if prefix == "" {
 		prefix = s.Prefix + "data/authorities/"
 	}
-	if err := s.Vocab.Reload(ctx, s.Blob, prefix, s.Schemes); err != nil {
+	schemes := s.Schemes
+	if s.SchemesFn != nil {
+		var err error
+		if schemes, err = s.SchemesFn(ctx); err != nil {
+			if s.Logger != nil {
+				s.Logger.Error("scheme resolution failed", "err", err)
+			}
+			return err
+		}
+	}
+	if err := s.Vocab.Reload(ctx, s.Blob, prefix, schemes); err != nil {
 		if s.Logger != nil {
 			s.Logger.Error("vocab reload failed", "err", err)
 		}

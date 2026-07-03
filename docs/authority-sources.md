@@ -1,0 +1,88 @@
+# Public authority sources
+
+The backend ships a registry of public authority sources (tasks/067,
+`backend/vocabsrc`). A source offers **live typeahead** (the term picker and
+enrichment reconcile against its public API, proxied server-side), a
+**downloadable snapshot** (its SKOS dump installs into the local vocab index
+for instant offline search), or both. The Vocabularies screen lists them with
+license and install state; Download/Refresh/Remove need the admin role.
+
+## Built-ins
+
+| Source | Scheme | Live | Snapshot | License |
+|---|---|---|---|---|
+| `lcsh` -- LC Subject Headings | `lcsh` | suggest2 | yes (~450k concepts) | free of known restrictions |
+| `lcgft` -- LC Genre/Form Terms | `lcgft` | suggest2 | yes | free of known restrictions |
+| `lcshac` -- LC Children's Subjects | `lcshac` | suggest2 | yes | free of known restrictions |
+| `lcnaf` -- LC Name Authority File | `lcnaf` | suggest2 | no (~11M concepts -- live only) | free of known restrictions |
+| `wikidata` | `wikidata` | wbsearchentities | no | CC0 |
+| `viaf` | `viaf` | AutoSuggest | no | ODC-BY |
+
+VIAF hits carry cluster siblings (LCNAF, GND, Wikidata) as `exactMatch` URIs;
+a local authority created from such a pick records them as
+`skos:exactMatch` cross-references.
+
+The id.loc.gov bulk-download URLs occasionally move; override a built-in by
+POSTing a source of the same name with the corrected `snapshotUrl` (deleting
+the override restores the shipped definition).
+
+## Snapshot format
+
+A downloadable source's `snapshotUrl` must serve SKOS as **N-Triples or
+N-Quads**, optionally gzipped. The converter keeps only the predicates the
+index reads (prefLabel, altLabel, definition, broader/narrower/related,
+exactMatch, rdfs:label), tags everything into the `authority:<scheme>` named
+graph, and writes one snapshot file under the authorities tree
+(`data/authorities/vocab/<name>.nq` plus a `.json` sidecar recording scheme,
+term count, and install time). The index reload is an atomic snapshot swap;
+install state survives restarts because it lives in the blob store.
+
+## Drop-in sources
+
+Register additional sources at runtime -- no code:
+
+```
+POST /v1/vocabsources          (admin)
+DELETE /v1/vocabsources/{name} (admin)
+```
+
+Examples (verify current dump URLs against each project's downloads page):
+
+```json
+{"name": "homosaurus", "scheme": "homosaurus",
+ "license": "CC-BY-4.0", "homepage": "https://homosaurus.org",
+ "snapshotUrl": "https://homosaurus.org/v4.nt"}
+```
+
+```json
+{"name": "gnd", "scheme": "gnd",
+ "license": "CC0", "homepage": "https://lobid.org/gnd",
+ "snapshotUrl": "https://data.dnb.de/opendata/authorities-gnd_lds.nt.gz"}
+```
+
+```json
+{"name": "aat", "scheme": "aat",
+ "license": "ODC-BY", "homepage": "https://www.getty.edu/research/tools/vocabularies/aat/",
+ "snapshotUrl": "http://vocab.getty.edu/dataset/aat/explicit.zip"}
+```
+
+Getty and MeSH publish several serializations; pick an N-Triples export
+(the converter does not read zip or Turtle). A source whose API speaks one of
+the implemented suggest dialects can also set `suggestFlavor`
+(`suggest2` | `wikidata` | `viaf`) with `suggestUrl`/`suggestDataset` for
+live typeahead.
+
+## Enrichment
+
+Every suggest-capable source registers as a moderated enrichment target at
+boot (queue mode: candidates land in the review queue, never auto-write).
+`POST /v1/enrich/{source}/run` (admin) reconciles the corpus's uncontrolled
+tags against it. The legacy `LCATD_ENRICH_LOCSH=queue|direct` variable still
+controls the original locsh reconciler and is the only direct-mode path.
+Sources registered after boot join the enrichment list at the next restart.
+
+## Scheme filtering
+
+`LCATD_VOCAB_SCHEMES` (when set) filters which authority graphs load.
+Installed snapshots widen the effective filter automatically -- an authority
+edit's index reload never drops an installed vocabulary.

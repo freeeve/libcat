@@ -468,3 +468,56 @@ export interface DecidePromotionResponse {
   works: number;
   note?: string;
 }
+
+/** vocabsrc.Source -- one public authority source (tasks/067). */
+export interface VocabSource {
+  name: string;
+  scheme: string;
+  license?: string;
+  homepage?: string;
+  suggestFlavor?: string;
+  suggestUrl?: string;
+  suggestDataset?: string;
+  snapshotUrl?: string;
+  builtin?: boolean;
+}
+
+/** vocabsrc.InstallInfo -- an installed snapshot's sidecar metadata. */
+export interface VocabInstall {
+  source: string;
+  scheme: string;
+  terms: number;
+  installedAt: string;
+  snapshotUrl: string;
+}
+
+export type VocabJobStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
+
+/** vocabsrc.Job -- one vocabulary snapshot download. */
+export interface VocabJob {
+  id: string;
+  source: string;
+  scheme: string;
+  requester: string;
+  status: VocabJobStatus;
+  terms?: number;
+  error?: string;
+  createdAt: string;
+  finishedAt?: string;
+}
+
+/** vocabsrc.SourceView -- a source plus install state and its latest job. */
+export interface VocabSourceView extends VocabSource {
+  installed?: VocabInstall;
+  job?: VocabJob;
+}
+
+/** vocabsrc.Suggestion -- one live typeahead hit from a public source. */
+export interface VocabSuggestion {
+  source: string;
+  scheme: string;
+  id: string;
+  label: string;
+  description?: string;
+  exactMatch?: string[];
+}

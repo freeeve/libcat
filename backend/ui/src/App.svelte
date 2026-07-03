@@ -23,6 +23,7 @@
   import BatchOps from "./screens/BatchOps.svelte";
   import Macros from "./screens/Macros.svelte";
   import Exports from "./screens/Exports.svelte";
+  import VocabSources from "./screens/VocabSources.svelte";
   import CopyCat from "./screens/CopyCat.svelte";
   import Duplicates from "./screens/Duplicates.svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
@@ -35,6 +36,7 @@
     { name: "work", pattern: "/works/:id" },
     { name: "authorities", pattern: "/authorities" },
     { name: "authority", pattern: "/authorities/:id" },
+    { name: "vocabsources", pattern: "/vocabularies" },
     { name: "batch", pattern: "/batch" },
     { name: "macros", pattern: "/macros" },
     { name: "exports", pattern: "/exports" },
@@ -61,6 +63,7 @@
       "g d": ["/", "go to the dashboard"],
       "g w": ["/works", "go to works"],
       "g a": ["/authorities", "go to authorities"],
+      "g v": ["/vocabularies", "go to vocabularies"],
       "g q": ["/queue", "go to the queue"],
       "g b": ["/batch", "go to batch operations"],
       "g m": ["/macros", "go to macros"],
@@ -133,6 +136,7 @@
     <nav aria-label="Primary">
       <a href="#/works" class:current={route.name === "works" || route.name === "work"}>Works</a>
       <a href="#/authorities" class:current={route.name === "authorities" || route.name === "authority"}>Authorities</a>
+      <a href="#/vocabularies" class:current={route.name === "vocabsources"}>Vocabularies</a>
       <a href="#/batch" class:current={route.name === "batch"}>Batch</a>
       <a href="#/macros" class:current={route.name === "macros"}>Macros</a>
       <a href="#/exports" class:current={route.name === "exports"}>Exports</a>
@@ -167,6 +171,8 @@
     {/key}
   {:else if route.name === "authorities"}
     <Authorities />
+  {:else if route.name === "vocabsources"}
+    <VocabSources />
   {:else if route.name === "batch"}
     <BatchOps initialMacro={route.query.get("macro") ?? ""} />
   {:else if route.name === "macros"}
