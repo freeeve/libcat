@@ -45,6 +45,7 @@
     ops,
     onstage,
     onunstage,
+    idKinds = {},
   }: {
     res: ResourceDoc;
     resource: string; // op resource: "work" or the instance id
@@ -52,7 +53,11 @@
     ops: Op[]; // every staged op; filtered to this resource here
     onstage: (op: Op) => void;
     onunstage: (op: Op) => void;
+    /** Identifier value -> BIBFRAME kind (isbn/issn/id) for badges (tasks/073). */
+    idKinds?: Record<string, string>;
   } = $props();
+
+  const ID_KIND_LABELS: Record<string, string> = { isbn: "ISBN", issn: "ISSN", id: "provider id" };
 
   // kind is fixed for a mounted form (work forms never become instances).
   // svelte-ignore state_referenced_locally
@@ -226,6 +231,9 @@
               {#if spec.kind === "vocab"}<span class="unres muted">not in local index</span>{/if}
             {:else}
               <span class="v">{fv.v}</span>
+            {/if}
+            {#if spec.kind === "literal" && idKinds[fv.v]}
+              <span class="idkind">{ID_KIND_LABELS[idKinds[fv.v]] ?? idKinds[fv.v]}</span>
             {/if}
             {#if fv.lang}<span class="lang">@{fv.lang}</span>{/if}
             <ProvenanceBadge prov={fv.prov} />
@@ -456,6 +464,16 @@
   }
   .unres {
     font-size: 0.72rem;
+  }
+  .idkind {
+    font-size: 0.66rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-muted);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.05em 0.55em;
   }
   .hoodrow {
     list-style: none;

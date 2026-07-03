@@ -128,6 +128,9 @@ func New(deps Deps) http.Handler {
 	if deps.Copycat != nil && deps.Verifier != nil {
 		registerCopycat(mux, deps.Copycat, deps.Verifier)
 	}
+	if deps.Copycat != nil && deps.Blob != nil && deps.Verifier != nil {
+		registerSubjectLookup(mux, deps.Copycat, deps.Blob, deps.Vocab, deps.Verifier)
+	}
 	if deps.Suggest != nil && deps.Verifier != nil {
 		registerPromotions(mux, deps.Suggest, deps.Publisher, deps.Verifier)
 	}

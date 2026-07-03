@@ -15,8 +15,10 @@
   import MarcPreviewPane from "../components/MarcPreviewPane.svelte";
   import ProfileForm from "../components/ProfileForm.svelte";
   import SaveBar from "../components/SaveBar.svelte";
+  import SubjectLookup from "../components/SubjectLookup.svelte";
   import VisibilityPanel from "../components/VisibilityPanel.svelte";
-  import { fetchItems, splitWork, ApiError } from "../lib/api";
+  import { fetchIdentifierKinds, fetchItems, splitWork, ApiError } from "../lib/api";
+  import type { SubjectCandidate } from "../lib/types";
   import { createEditorSession } from "../lib/editor";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
 
@@ -31,6 +33,17 @@
   // The live MARC pane (tasks/070): read-only, side by side on wide screens.
   let marcPane = $state(false);
   let itemCounts = $state<Record<string, number>>({});
+  let idKinds = $state<Record<string, string>>({});
+
+  /** External heading -> staged op: controlled subject when reconciled,
+   *  tag otherwise (tasks/073). */
+  function addLookedUpSubject(c: SubjectCandidate): void {
+    if (c.term) {
+      session.stage({ resource: "work", path: "subjects", action: "add", value: { v: c.term.id, iri: true } });
+    } else {
+      session.stage({ resource: "work", path: "tags", action: "add", value: { v: c.heading } });
+    }
+  }
   let splitPick = $state<Record<string, boolean>>({});
   let splitNotice = $state("");
   let splitError = $state("");
@@ -69,6 +82,10 @@
         for (const [inst, list] of Object.entries(res.items ?? {})) counts[inst] = list.length;
         itemCounts = counts;
       },
+      () => {},
+    );
+    fetchIdentifierKinds(workId).then(
+      (res) => (idKinds = res.kinds ?? {}),
       () => {},
     );
     return () => {
@@ -173,6 +190,7 @@
             onstage={(op) => session.stage(op)}
             onunstage={(op) => session.unstage(op)}
           />
+          <SubjectLookup {workId} onadd={addLookedUpSubject} />
         </section>
 
         {#if doc.instances.length > 0}
@@ -201,6 +219,7 @@
                   ops={$session.ops}
                   onstage={(op) => session.stage(op)}
                   onunstage={(op) => session.unstage(op)}
+                  {idKinds}
                 />
                 <ItemsPanel {workId} instanceId={inst.id} />
               </details>

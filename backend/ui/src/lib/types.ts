@@ -560,6 +560,17 @@ export interface VocabSourceView extends VocabSource {
   job?: VocabJob;
 }
 
+/** httpapi.subjectCandidate -- one external heading found by ISBN lookup
+ *  (tasks/073); term set = whole-heading match in a loaded vocabulary. */
+export interface SubjectCandidate {
+  heading: string;
+  tag: string;
+  source?: string;
+  count: number;
+  targets: string[];
+  term?: TermRef;
+}
+
 /** vocabsrc.Suggestion -- one live typeahead hit from a public source. */
 export interface VocabSuggestion {
   source: string;
