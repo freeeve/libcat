@@ -20,6 +20,7 @@
   import BatchOps from "./screens/BatchOps.svelte";
   import Macros from "./screens/Macros.svelte";
   import Exports from "./screens/Exports.svelte";
+  import CopyCat from "./screens/CopyCat.svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
 
   const routes: RouteDef[] = [
@@ -33,6 +34,7 @@
     { name: "batch", pattern: "/batch" },
     { name: "macros", pattern: "/macros" },
     { name: "exports", pattern: "/exports" },
+    { name: "copycat", pattern: "/copycat" },
     { name: "queue", pattern: "/queue" },
     { name: "promotions", pattern: "/promotions" },
   ];
@@ -102,6 +104,7 @@
       <a href="#/batch" class:current={route.name === "batch"}>Batch</a>
       <a href="#/macros" class:current={route.name === "macros"}>Macros</a>
       <a href="#/exports" class:current={route.name === "exports"}>Exports</a>
+      <a href="#/copycat" class:current={route.name === "copycat"}>Import</a>
       <a href="#/queue" class:current={route.name === "queue"}>Queue</a>
     </nav>
     <span class="side">
@@ -135,6 +138,8 @@
     <BatchOps initialMacro={route.query.get("macro") ?? ""} />
   {:else if route.name === "macros"}
     <Macros />
+  {:else if route.name === "copycat"}
+    <CopyCat />
   {:else if route.name === "exports"}
     <Exports
       initialKind={route.query.get("kind") ?? ""}

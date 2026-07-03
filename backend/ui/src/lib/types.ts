@@ -356,6 +356,57 @@ export interface MarcResponse {
   knownLoss: Record<string, string>;
 }
 
+/** copycat.Target -- one external Z39.50/SRU search source. */
+export interface CopycatTarget {
+  name: string;
+  url: string;
+  protocol: "sru" | "z3950";
+}
+
+/** copycat.Match -- a staged record's dry-run identity resolution. */
+export interface CopycatMatch {
+  workId?: string;
+  instanceId?: string;
+  matchedWork: boolean;
+  matchedInstance: boolean;
+}
+
+/** copycat.SearchResult -- one external hit, ready to stage. */
+export interface CopycatSearchResult {
+  target: string;
+  title?: string;
+  author?: string;
+  date?: string;
+  isbn?: string;
+  record: MarcRecordDoc;
+}
+
+/** copycat.StagedRecord -- one reviewable record of a batch. */
+export interface CopycatStagedRecord {
+  index: number;
+  record: MarcRecordDoc;
+  title?: string;
+  match: CopycatMatch;
+  decision: "import" | "skip";
+}
+
+export type CopycatPolicy = "replace-feed" | "fill-holes-only" | "never";
+
+/** copycat.Batch -- one staged import. */
+export interface CopycatBatch {
+  id: string;
+  label: string;
+  source: string;
+  policy: CopycatPolicy;
+  status: "STAGED" | "COMMITTED";
+  records: number;
+  owner: string;
+  createdAt: string;
+  committed?: number;
+  skipped?: number;
+  commitAt?: string;
+}
+
 export type ExportFormat = "marc" | "nquads" | "jsonld" | "csv";
 export type ExportStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
 

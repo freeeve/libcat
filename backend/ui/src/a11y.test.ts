@@ -16,6 +16,7 @@ import Macros from "./screens/Macros.svelte";
 import Exports from "./screens/Exports.svelte";
 import CommandPalette from "./components/CommandPalette.svelte";
 import MarcPanel from "./components/MarcPanel.svelte";
+import CopyCat from "./screens/CopyCat.svelte";
 import VocabPicker from "./components/VocabPicker.svelte";
 import { invalidateAccess, loginLocal } from "./lib/auth";
 import { setConfig } from "./lib/config";
@@ -601,6 +602,96 @@ describe("a11y", () => {
     posBtn?.click();
     flushSync();
     expect(host.textContent).toContain("Date entered");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("CopyCat with search results and a staged batch review has no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    const staged = {
+      batch: {
+        id: "b1",
+        label: "search: gideon",
+        source: "search",
+        policy: "replace-feed",
+        status: "STAGED",
+        records: 2,
+        owner: "staff@example.org",
+        createdAt: "2026-07-01T00:00:00Z",
+      },
+      records: [
+        {
+          index: 0,
+          title: "Gideon the Ninth",
+          record: { node: "", leader: "", fields: [] },
+          match: { matchedWork: true, matchedInstance: false, workId: "wabc123def456" },
+          decision: "import",
+        },
+        {
+          index: 1,
+          title: "Harrow the Ninth",
+          record: { node: "", leader: "", fields: [] },
+          match: { matchedWork: false, matchedInstance: false },
+          decision: "import",
+        },
+      ],
+    };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/v1/copycat/targets"))
+        return Promise.resolve(json({ targets: [{ name: "loc", url: "http://lx2.loc.gov:210/LCDB", protocol: "sru" }] }));
+      if (url.includes("/v1/copycat/search"))
+        return Promise.resolve(
+          json({
+            results: [
+              {
+                target: "loc",
+                title: "Gideon the Ninth",
+                author: "Muir, Tamsyn",
+                date: "2019",
+                isbn: "9781250313195",
+                record: { node: "", leader: "", fields: [] },
+              },
+            ],
+            failures: { flaky: "connection refused" },
+          }),
+        );
+      if (url.match(/\/v1\/copycat\/batches\/b1$/)) return Promise.resolve(json(staged));
+      if (url.includes("/v1/copycat/batches")) return Promise.resolve(json({ batches: [staged.batch] }));
+      return Promise.resolve(json({}));
+    });
+    sessionStore.set({ email: "staff@example.org", roles: ["librarian"] });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(CopyCat, { target: host });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      sessionStore.set(null);
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    // Run a search so results + per-target failure join the tree.
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Search query"]');
+    input!.value = "gideon";
+    input!.dispatchEvent(new Event("input"));
+    flushSync();
+    const searchBtn = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Search");
+    searchBtn?.click();
+    await tick();
+    expect(host.textContent).toContain("Muir, Tamsyn");
+    expect(host.textContent).toContain("connection refused");
+    // Open the staged batch so the match banner and review controls render.
+    const batchBtn = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("search: gideon"));
+    batchBtn?.click();
+    await tick();
+    expect(host.textContent).toContain("would merge with an existing work");
+    expect(host.textContent).toContain("open wabc123def456");
     const results = await audit(host);
     expect(results.violations).toEqual([]);
   });
