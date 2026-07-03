@@ -8,9 +8,11 @@ import (
 // benchCorpus loads the benchmark corpus: point LCAT_BENCH_CATALOG at a real
 // catalog.nq (e.g. the 5,659-work QLL corpus) for representative numbers;
 // without it the benchmark skips rather than flattering itself on a toy file.
+// LCAT_BENCH_PROVIDER overrides the corpus's feed provider (default
+// "overdrive"; the playground corpus is "marc").
 //
 //	LCAT_BENCH_CATALOG=/path/catalog.nq go test ./project/ -bench . -benchmem
-func benchCorpus(b *testing.B) []byte {
+func benchCorpus(b *testing.B) ([]byte, string) {
 	b.Helper()
 	path := os.Getenv("LCAT_BENCH_CATALOG")
 	if path == "" {
@@ -20,16 +22,20 @@ func benchCorpus(b *testing.B) []byte {
 	if err != nil {
 		b.Fatal(err)
 	}
-	return data
+	provider := os.Getenv("LCAT_BENCH_PROVIDER")
+	if provider == "" {
+		provider = "overdrive"
+	}
+	return data, provider
 }
 
 func BenchmarkProject(b *testing.B) {
-	data := benchCorpus(b)
+	data, provider := benchCorpus(b)
 	b.SetBytes(int64(len(data)))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		cat, err := Project(data, "overdrive")
+		cat, err := Project(data, provider)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -40,8 +46,8 @@ func BenchmarkProject(b *testing.B) {
 }
 
 func BenchmarkFacets(b *testing.B) {
-	data := benchCorpus(b)
-	cat, err := Project(data, "overdrive")
+	data, provider := benchCorpus(b)
+	cat, err := Project(data, provider)
 	if err != nil {
 		b.Fatal(err)
 	}
