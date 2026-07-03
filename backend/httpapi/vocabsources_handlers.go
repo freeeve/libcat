@@ -67,6 +67,21 @@ func registerVocabSources(mux *http.ServeMux, svc *vocabsrc.Service, verifier au
 		writeJSON(w, http.StatusOK, map[string]bool{"removed": true})
 	})))
 
+	// Cache a live pick (tasks/072): the picked term's label and exactMatch
+	// siblings land in the local index so the subject resolves forever.
+	mux.Handle("POST /v1/vocabcache", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var sugg vocabsrc.Suggestion
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&sugg); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if err := svc.CacheTerm(r.Context(), sugg); err != nil {
+			writeVocabSrcError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"cached": true})
+	})))
+
 	mux.Handle("GET /v1/vocabsuggest", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("source")
 		q := r.URL.Query().Get("q")

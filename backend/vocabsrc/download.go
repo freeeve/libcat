@@ -272,6 +272,7 @@ var keepPredicates = map[string]bool{
 	"http://www.w3.org/2004/02/skos/core#narrower":   true,
 	"http://www.w3.org/2004/02/skos/core#related":    true,
 	"http://www.w3.org/2004/02/skos/core#exactMatch": true,
+	"http://www.w3.org/2004/02/skos/core#closeMatch": true,
 	"http://www.w3.org/2000/01/rdf-schema#label":     true,
 }
 

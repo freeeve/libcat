@@ -281,8 +281,8 @@ func (s *Service) Installed(ctx context.Context) ([]InstallInfo, error) {
 }
 
 // Schemes computes the index's effective scheme filter: the configured base
-// filter plus every installed snapshot's scheme, or nil (= everything) when
-// no base filter is configured.
+// filter plus every installed snapshot's and cached live pick's scheme, or
+// nil (= everything) when no base filter is configured.
 func (s *Service) Schemes(ctx context.Context) ([]string, error) {
 	if len(s.BaseSchemes) == 0 {
 		return nil, nil
@@ -295,6 +295,15 @@ func (s *Service) Schemes(ctx context.Context) ([]string, error) {
 	for _, info := range installed {
 		if !slices.Contains(schemes, info.Scheme) {
 			schemes = append(schemes, info.Scheme)
+		}
+	}
+	cached, err := s.cachedSchemes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, scheme := range cached {
+		if !slices.Contains(schemes, scheme) {
+			schemes = append(schemes, scheme)
 		}
 	}
 	return schemes, nil

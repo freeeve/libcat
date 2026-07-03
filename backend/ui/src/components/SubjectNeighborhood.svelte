@@ -5,7 +5,7 @@
   // children) -- each neighbor with Replace and Add actions that stage
   // ordinary ops through the parent form.
   import { onMount } from "svelte";
-  import { resolveTerm } from "../lib/api";
+  import { resolveTerm, resolveTermURIs } from "../lib/api";
   import { allAltLabels, bestDefinition, bestLabel } from "../lib/vocab";
   import type { Term } from "../lib/types";
 
@@ -25,6 +25,10 @@
   }
 
   let groups = $state<Group[]>([]);
+  // Equivalents (tasks/072): skos:exactMatch/closeMatch links resolved
+  // scheme-agnostically -- the one-click homosaurus->LCSH crosswalk.
+  let equivalents = $state<Term[]>([]);
+  let unresolvedEq = $state<string[]>([]);
   let loading = $state(true);
 
   onMount(() => void load());
@@ -52,6 +56,17 @@
       }
     }
     const siblings = await resolveAll(siblingIds);
+    // Equivalents cross schemes, so they resolve scheme-agnostically.
+    const eqIds = [...(term.exactMatch ?? []), ...(term.closeMatch ?? [])];
+    if (eqIds.length > 0) {
+      try {
+        const res = await resolveTermURIs(eqIds);
+        equivalents = eqIds.flatMap((id) => (res.terms[id] ? [res.terms[id]] : []));
+        unresolvedEq = eqIds.filter((id) => !res.terms[id]);
+      } catch {
+        unresolvedEq = eqIds;
+      }
+    }
     groups = [
       { rel: "Broader", terms: broader },
       { rel: "Narrower", terms: narrower },
@@ -72,9 +87,37 @@
 
   {#if loading}
     <p class="muted small" role="status">Loading neighborhood…</p>
-  {:else if groups.length === 0}
-    <p class="muted small">No broader, narrower, related, or sibling terms.</p>
+  {:else if groups.length === 0 && equivalents.length === 0 && unresolvedEq.length === 0}
+    <p class="muted small">No broader, narrower, related, sibling, or equivalent terms.</p>
   {:else}
+    {#if equivalents.length > 0 || unresolvedEq.length > 0}
+      <div class="rel">
+        <h4>Equivalents</h4>
+        <ul>
+          {#each equivalents as t (t.id)}
+            <li>
+              <span class="nlabel" title={bestDefinition(t) || t.id}>{bestLabel(t)}</span>
+              <span class="eq-scheme">{t.scheme}</span>
+              <button
+                class="button act"
+                onclick={() => onreplace(t)}
+                title={"Replace this subject with " + bestLabel(t)}
+              >
+                Replace
+              </button>
+              <button class="button button--quiet act" onclick={() => onadd(t)} title={"Also add " + bestLabel(t)}>
+                Add
+              </button>
+            </li>
+          {/each}
+          {#each unresolvedEq as id (id)}
+            <li>
+              <span class="nlabel uri muted" title="not in the local index -- install its vocabulary to crosswalk">{id}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
     {#each groups as g (g.rel)}
       <div class="rel">
         <h4>{g.rel}</h4>
@@ -139,6 +182,21 @@
   .nlabel {
     flex: 1;
     min-width: 8rem;
+  }
+  .nlabel.uri {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    word-break: break-all;
+  }
+  .eq-scheme {
+    font-size: 0.66rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-muted);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.05em 0.55em;
   }
   .act {
     font-size: 0.72rem;

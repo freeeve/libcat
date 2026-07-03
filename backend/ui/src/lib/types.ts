@@ -154,6 +154,7 @@ export interface Term {
   narrower?: string[];
   related?: string[];
   exactMatch?: string[];
+  closeMatch?: string[];
   mergedInto?: string; // set = retired: merged into the referenced term
 }
 

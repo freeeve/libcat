@@ -30,6 +30,7 @@ const (
 	skosNarrower   = "http://www.w3.org/2004/02/skos/core#narrower"
 	skosRelated    = "http://www.w3.org/2004/02/skos/core#related"
 	skosExactMatch = "http://www.w3.org/2004/02/skos/core#exactMatch"
+	skosCloseMatch = "http://www.w3.org/2004/02/skos/core#closeMatch"
 	rdfsLabel      = "http://www.w3.org/2000/01/rdf-schema#label"
 	// authorityGraphPrefix matches bibframe.AuthorityGraph's naming.
 	authorityGraphPrefix = "authority:"
@@ -46,6 +47,7 @@ type Term struct {
 	Narrower   []string            `json:"narrower,omitempty"`
 	Related    []string            `json:"related,omitempty"`
 	ExactMatch []string            `json:"exactMatch,omitempty"`
+	CloseMatch []string            `json:"closeMatch,omitempty"`
 	// MergedInto marks a retired term: it was merged into the referenced
 	// URI (lcat:mergedInto, tasks/046). Retired terms resolve via Lookup
 	// (so old references still label) but leave the search index.
@@ -201,6 +203,10 @@ func (s *snapshot) addDataset(ds *rdf.Dataset, want map[string]bool) {
 			if q.O.IsIRI() {
 				t.ExactMatch = appendUnique(t.ExactMatch, q.O.Value)
 			}
+		case skosCloseMatch:
+			if q.O.IsIRI() {
+				t.CloseMatch = appendUnique(t.CloseMatch, q.O.Value)
+			}
 		case bibframe.PredMergedInto:
 			if q.O.IsIRI() {
 				t.MergedInto = q.O.Value
@@ -233,6 +239,7 @@ func (s *snapshot) finish() {
 			sort.Strings(t.Narrower)
 			sort.Strings(t.Related)
 			sort.Strings(t.ExactMatch)
+			sort.Strings(t.CloseMatch)
 			if t.MergedInto != "" {
 				continue
 			}

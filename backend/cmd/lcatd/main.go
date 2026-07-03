@@ -276,6 +276,19 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 			}
 		}
 	}
+	// Every loaded vocabulary is a crosswalk target (tasks/072): walking
+	// subjects' exactMatch/closeMatch links into it queues moderated
+	// equivalent-heading suggestions. Vocabularies installed later join at
+	// the next restart.
+	if deps.Vocab != nil && deps.Suggest != nil {
+		for _, scheme := range deps.Vocab.Schemes() {
+			xw := vocabsrc.NewCrosswalk(deps.Vocab, scheme)
+			if _, taken := enrichSources[xw.Name()]; taken {
+				continue
+			}
+			enrichSources[xw.Name()] = enrich.Source{Enricher: xw, Mode: enrich.ModeQueue, Scheme: scheme}
+		}
+	}
 	if len(enrichSources) > 0 && deps.Blob != nil {
 		deps.Enrich = &enrich.Service{Blob: deps.Blob, Queue: deps.Suggest, Sources: enrichSources}
 	}

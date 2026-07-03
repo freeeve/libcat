@@ -6,14 +6,14 @@
   // highlighted term. Modal owns the trap/Escape/focus restore; Enter or
   // click emits the term through onselect.
   import { onMount } from "svelte";
-  import { fetchVocabSources, searchTerms, vocabSuggest } from "../lib/api";
+  import { cacheVocabTerm, fetchVocabSources, searchTerms, vocabSuggest } from "../lib/api";
   import { getConfig } from "../lib/config";
   import { popScope, pushScope } from "../lib/keyboard";
   import { allAltLabels, bestDefinition, bestLabel } from "../lib/vocab";
   import Modal from "./Modal.svelte";
   import NeighborhoodPanel from "./NeighborhoodPanel.svelte";
   import RowList from "./RowList.svelte";
-  import type { Term } from "../lib/types";
+  import type { Term, VocabSuggestion } from "../lib/types";
 
   let {
     title = "Pick a term",
@@ -42,6 +42,9 @@
   let active = $state(0);
   let q = $state("");
   let results = $state<Term[]>([]);
+  // The last live search's raw suggestions by URI, so a pick can cache its
+  // label into the local index (tasks/072).
+  let liveSuggs: Record<string, VocabSuggestion> = {};
   let highlight = $state(0);
   let searching = $state(false);
   let error = $state("");
@@ -94,6 +97,7 @@
     try {
       if (tab.live && tab.source) {
         const res = await vocabSuggest(tab.source, query);
+        liveSuggs = Object.fromEntries((res.suggestions ?? []).map((s) => [s.id, s]));
         results = (res.suggestions ?? []).map((s) => ({
           scheme: s.scheme,
           id: s.id,
@@ -114,6 +118,16 @@
     }
   }
 
+  /** Emits the pick; a live-source pick first caches its label into the
+   *  local index (fire-and-forget) so the stored URI resolves forever. */
+  function pick(t: Term): void {
+    const sugg = liveSuggs[t.id];
+    if (tab?.live && sugg) {
+      cacheVocabTerm(sugg).catch(() => {});
+    }
+    onselect(t);
+  }
+
   function onInputKeydown(ev: KeyboardEvent): void {
     if (ev.key === "ArrowDown") {
       ev.preventDefault();
@@ -123,7 +137,7 @@
       list?.move(-1);
     } else if (ev.key === "Enter") {
       ev.preventDefault();
-      if (current) onselect(current);
+      if (current) pick(current);
     }
   }
 </script>
@@ -181,7 +195,7 @@
           ariaLabel="Matching terms"
         >
           {#snippet row(t: Term)}
-            <button class="opt" onclick={() => onselect(t)}>
+            <button class="opt" onclick={() => pick(t)}>
               <span class="opt-label">{bestLabel(t)}</span>
               <span class="opt-id">{t.id}</span>
             </button>
