@@ -9,6 +9,8 @@ import axe from "axe-core";
 import Login from "./screens/Login.svelte";
 import Queue from "./screens/Queue.svelte";
 import WorkEditor from "./screens/WorkEditor.svelte";
+import Authorities from "./screens/Authorities.svelte";
+import AuthorityEditor from "./screens/AuthorityEditor.svelte";
 import VocabPicker from "./components/VocabPicker.svelte";
 import { invalidateAccess, loginLocal } from "./lib/auth";
 import { setConfig } from "./lib/config";
@@ -227,6 +229,111 @@ describe("a11y", () => {
     approveBtn?.click();
     flushSync();
     expect(host.textContent).toContain("staged");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("Authorities search with results and the create affordance has no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh", "local"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        json({
+          terms: [
+            {
+              scheme: "local",
+              id: "https://github.com/freeeve/libcatalog/authority/a0123456789ab",
+              labels: { en: "Cozy fantasy" },
+              altLabels: { en: ["Comfort fantasy"] },
+            },
+            {
+              scheme: "local",
+              id: "https://github.com/freeeve/libcatalog/authority/a0123456789ac",
+              labels: { en: "Trans folks" },
+              mergedInto: "https://homosaurus.org/v4/homoit0001235",
+            },
+          ],
+        }),
+      ),
+    );
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(Authorities, { target: host });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      resetKeyboard();
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    expect(host.textContent).toContain("Cozy fantasy");
+    expect(host.textContent).toContain("merged");
+    // Type an unmatched heading so the create button joins the audited tree.
+    const input = host.querySelector<HTMLInputElement>("#auth-q");
+    expect(input).not.toBeNull();
+    input!.value = "Bone magic";
+    input!.dispatchEvent(new Event("input"));
+    await new Promise((r) => setTimeout(r, 300)); // debounce
+    await tick();
+    expect(host.textContent).toContain("Create local authority");
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("AuthorityEditor with a retired term and the merge tool has no axe violations", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh", "local"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/profile"))
+        return Promise.resolve(
+          json({
+            id: "authority-topic",
+            label: "Authority (topical term)",
+            resourceType: "authority",
+            fields: [
+              { path: "prefLabel", label: "Preferred label" },
+              { path: "broader", label: "Broader terms" },
+              { path: "exactMatch", label: "Exact match (external vocabulary)", help: "URI of the same concept." },
+            ],
+          }),
+        );
+      return Promise.resolve(
+        json({
+          id: "a0123456789ab",
+          etag: "etag-1",
+          term: {
+            uri: "https://github.com/freeeve/libcatalog/authority/a0123456789ab",
+            prefLabel: { en: "Cozy fantasy", es: "Fantasía acogedora" },
+            altLabel: { en: ["Comfort fantasy"] },
+            definition: { en: "Low-stakes fantasy centered on comfort." },
+            broader: ["https://example.org/vocab/fantasy"],
+            exactMatch: ["http://id.loc.gov/authorities/subjects/sh1"],
+          },
+        }),
+      );
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(AuthorityEditor, { target: host, props: { authorityId: "a0123456789ab" } });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      setConfig(null);
+      resetKeyboard();
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    expect(host.textContent).toContain("Cozy fantasy");
+    expect(host.textContent).toContain("Exact match (external vocabulary)");
     const results = await audit(host);
     expect(results.violations).toEqual([]);
   });

@@ -79,8 +79,43 @@ func TestScanSummaries(t *testing.T) {
 	if len(s.ISBNs) != 1 || s.ISBNs[0] != "9781250313195" {
 		t.Fatalf("isbns = %v", s.ISBNs)
 	}
+	if len(s.Subjects) != 0 {
+		t.Fatalf("blank-node-only fixture should carry no controlled subjects: %v", s.Subjects)
+	}
 	if paths[s.WorkID] == "" {
 		t.Fatalf("paths = %v", paths)
+	}
+}
+
+// TestSummarizeGrainControlledSubjects covers the IRI-object bf:subject
+// dimension merges rewrite (tasks/046): controlled references surface in
+// Subjects, uncontrolled blank-node labels stay in Tags.
+func TestSummarizeGrainControlledSubjects(t *testing.T) {
+	st := enrichFixture(t)
+	grain, _, err := st.Get(t.Context(), bibframe.GrainPath("wenrich000001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const termURI = "https://homosaurus.org/v4/homoit0001235"
+	grain, err = bibframe.AppendAuthoritySubject(grain, "wenrich000001", bibframe.AuthoritySubject{
+		URI: termURI, Labels: map[string]string{"en": "Transgender people"},
+	}, "homosaurus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := ingest.SummarizeGrain(grain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("summaries = %+v", summaries)
+	}
+	s := summaries[0]
+	if len(s.Subjects) != 1 || s.Subjects[0] != termURI {
+		t.Fatalf("subjects = %v", s.Subjects)
+	}
+	if len(s.Tags) != 2 {
+		t.Fatalf("tags disturbed = %v", s.Tags)
 	}
 }
 

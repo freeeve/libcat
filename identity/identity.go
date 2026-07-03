@@ -17,10 +17,13 @@ import (
 )
 
 // Id prefixes distinguish the two tiers in a bare id string and in the public
-// URL space (/works/w..., an Instance's i...).
+// URL space (/works/w..., an Instance's i...). AuthorityPrefix marks locally
+// minted authority terms (tasks/046) -- not a bibliographic tier, but minted
+// through the same opaque-id discipline so local headings get stable IRIs.
 const (
-	WorkPrefix     = "w"
-	InstancePrefix = "i"
+	WorkPrefix      = "w"
+	InstancePrefix  = "i"
+	AuthorityPrefix = "a"
 )
 
 // idBytes is the entropy per minted id: 8 bytes (64 bits) encodes to 13 base32

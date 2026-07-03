@@ -116,6 +116,89 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestMatchLabel(t *testing.T) {
+	ix := loadFixture(t, nil)
+	// Whole-heading pref match, case/whitespace-insensitive.
+	hits := ix.MatchLabel("homosaurus", "  transgender   PEOPLE ")
+	if len(hits) != 1 || hits[0].Term.ID != "https://homosaurus.org/v4/homoit0001235" || hits[0].Alt {
+		t.Fatalf("pref match = %+v", hits)
+	}
+	// Alt-label match flagged as such.
+	hits = ix.MatchLabel("homosaurus", "trans people")
+	if len(hits) != 1 || !hits[0].Alt {
+		t.Fatalf("alt match = %+v", hits)
+	}
+	// A prefix is not a whole heading.
+	if hits := ix.MatchLabel("homosaurus", "trans"); hits != nil {
+		t.Fatalf("prefix matched = %+v", hits)
+	}
+	if hits := ix.MatchLabel("homosaurus", ""); hits != nil {
+		t.Fatalf("empty matched = %+v", hits)
+	}
+}
+
+func TestReloadAndMergedTerms(t *testing.T) {
+	data, err := os.ReadFile("testdata/authorities.nq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := blob.NewMem()
+	if _, err := st.Put(t.Context(), "data/authorities/ho/vocab.nq", data, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Load(t.Context(), st, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ix.Lookup("local", "https://example.org/local/a1"); ok {
+		t.Fatal("local term present before write")
+	}
+	// A local grain lands (with an exactMatch and, later, a retirement);
+	// the swapped snapshot serves it through the same *Index pointer.
+	local := `<https://example.org/local/a1> <http://www.w3.org/2004/02/skos/core#prefLabel> "Cozy fantasy"@en <authority:local> .
+<https://example.org/local/a1> <http://www.w3.org/2004/02/skos/core#exactMatch> <http://id.loc.gov/authorities/subjects/sh1> <authority:local> .
+`
+	if _, err := st.Put(t.Context(), "data/authorities/aa/a1.nq", []byte(local), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Reload(t.Context(), st, "data/authorities/", nil); err != nil {
+		t.Fatal(err)
+	}
+	term, ok := ix.Lookup("local", "https://example.org/local/a1")
+	if !ok || len(term.ExactMatch) != 1 || term.ExactMatch[0] != "http://id.loc.gov/authorities/subjects/sh1" {
+		t.Fatalf("local term after reload = %+v", term)
+	}
+	if hits := ix.Search("local", "cozy", 5); len(hits) != 1 {
+		t.Fatalf("local search = %v", hits)
+	}
+	if all := ix.Terms("local"); len(all) != 1 || all[0].ID != "https://example.org/local/a1" {
+		t.Fatalf("Terms = %+v", all)
+	}
+	// Retire the term: it leaves search but still resolves (old references
+	// keep labeling), and Terms still lists it for the management screen.
+	retired := local + `<https://example.org/local/a1> <https://github.com/freeeve/libcatalog/ns#mergedInto> <https://homosaurus.org/v4/homoit0001235> <authority:local> .
+`
+	if _, err := st.Put(t.Context(), "data/authorities/aa/a1.nq", []byte(retired), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Reload(t.Context(), st, "data/authorities/", nil); err != nil {
+		t.Fatal(err)
+	}
+	term, ok = ix.Lookup("local", "https://example.org/local/a1")
+	if !ok || term.MergedInto != "https://homosaurus.org/v4/homoit0001235" {
+		t.Fatalf("retired lookup = %+v", term)
+	}
+	if hits := ix.Search("local", "cozy", 5); hits != nil {
+		t.Fatalf("retired term still searchable = %v", hits)
+	}
+	if hits := ix.MatchLabel("local", "cozy fantasy"); hits != nil {
+		t.Fatalf("retired term still matchable = %v", hits)
+	}
+	if all := ix.Terms("local"); len(all) != 1 {
+		t.Fatalf("retired term missing from Terms = %+v", all)
+	}
+}
+
 func TestNormalizeFolk(t *testing.T) {
 	good := map[string]string{
 		"Cozy Fantasy":      "cozy fantasy",

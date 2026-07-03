@@ -24,6 +24,9 @@ type WorkSummary struct {
 	// approved folksonomy) -- the raw material tag-to-controlled-term
 	// reconciliation enrichers match against.
 	Tags []string
+	// Subjects are the Work's controlled subject IRIs (bf:subject with an
+	// IRI object, any graph) -- what authority merges rewrite (tasks/046).
+	Subjects []string
 }
 
 // Enrichment is one Work's enrichment result: controlled subjects to assert.
@@ -153,7 +156,7 @@ func ScanSummaries(ctx context.Context, st blob.Store, prefix string) ([]WorkSum
 		if err != nil {
 			return nil, nil, err
 		}
-		grainSummaries, err := summarizeGrain(grain)
+		grainSummaries, err := SummarizeGrain(grain)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", entry.Path, err)
 		}
@@ -166,9 +169,10 @@ func ScanSummaries(ctx context.Context, st blob.Store, prefix string) ([]WorkSum
 	return summaries, paths, nil
 }
 
-// summarizeGrain extracts the WorkSummaries a grain carries (post-merge
-// grains can hold several Works).
-func summarizeGrain(grain []byte) ([]WorkSummary, error) {
+// SummarizeGrain extracts the WorkSummaries a grain carries (post-merge
+// grains can hold several Works). Exported for callers that already hold the
+// grain bytes, like the on-save authority auto-linker (tasks/046).
+func SummarizeGrain(grain []byte) ([]WorkSummary, error) {
 	const (
 		bfNS      = "http://id.loc.gov/ontologies/bibframe/"
 		rdfsLabel = "http://www.w3.org/2000/01/rdf-schema#label"
@@ -210,6 +214,9 @@ func summarizeGrain(grain []byte) ([]WorkSummary, error) {
 					s.Tags = append(s.Tags, label)
 				}
 			}
+			if subj.IsIRI() {
+				s.Subjects = append(s.Subjects, subj.Value)
+			}
 		}
 		for _, tag := range merged.Objects(work, bibframe.PredTag) {
 			if tag.IsLiteral() {
@@ -226,6 +233,7 @@ func summarizeGrain(grain []byte) ([]WorkSummary, error) {
 			}
 		}
 		sort.Strings(s.Tags)
+		sort.Strings(s.Subjects)
 		sort.Strings(s.ISBNs)
 		out = append(out, s)
 	}

@@ -33,11 +33,26 @@
       "marcHint": "550"
     },
     {
+      "path": "narrower",
+      "predicates": ["http://www.w3.org/2004/02/skos/core#narrower"],
+      "label": "Narrower terms",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "550"
+    },
+    {
       "path": "related",
       "predicates": ["http://www.w3.org/2004/02/skos/core#related"],
       "label": "Related terms",
       "valueSource": {"kind": "entity"},
       "marcHint": "550"
+    },
+    {
+      "path": "exactMatch",
+      "predicates": ["http://www.w3.org/2004/02/skos/core#exactMatch"],
+      "label": "Exact match (external vocabulary)",
+      "help": "URI of the same concept in an established vocabulary (LCSH, Homosaurus, ...).",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "750"
     }
   ]
 }

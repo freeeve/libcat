@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,10 +27,17 @@ type grainView struct {
 	NQuads string `json:"nquads"`
 }
 
+// WorkSaveHook runs after a successful record write -- the seam the authority
+// auto-linker plugs into (tasks/046). Hook failures never fail the save; the
+// moderation queue is best-effort from the editor's perspective.
+type WorkSaveHook interface {
+	AutoLink(ctx context.Context, workID string, grain []byte) (int, error)
+}
+
 // registerRecords mounts the librarian record-editing surface: grain
 // read/write with ETag optimistic locking, dry-run validation, drafts,
 // merge/split, and quad-level batch edits.
-func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *suggest.Service, verifier auth.TokenVerifier) {
+func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *suggest.Service, verifier auth.TokenVerifier, hook WorkSaveHook) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	readGrain := func(w http.ResponseWriter, r *http.Request) ([]byte, string, string, bool) {
@@ -130,6 +138,9 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
 			})
 		}
+		if hook != nil {
+			_, _ = hook.AutoLink(r.Context(), workID, updated)
+		}
 		w.Header().Set("ETag", newTag)
 		writeJSON(w, http.StatusOK, map[string]string{"workId": workID, "etag": newTag})
 	})))
@@ -196,6 +207,9 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
 				Note: fmt.Sprintf("%d ops", len(req.Ops)),
 			})
+		}
+		if hook != nil {
+			_, _ = hook.AutoLink(r.Context(), workID, updated)
 		}
 		w.Header().Set("ETag", newTag)
 		writeJSON(w, http.StatusOK, map[string]any{"workId": workID, "etag": newTag, "diff": diff})

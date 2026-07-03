@@ -22,6 +22,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/auth/local"
 	"github.com/freeeve/libcatalog/backend/auth/oidc"
+	"github.com/freeeve/libcatalog/backend/authoritiesvc"
 	"github.com/freeeve/libcatalog/ingest/locsh"
 
 	"github.com/freeeve/libcatalog/backend/config"
@@ -97,15 +98,23 @@ func main() {
 // deployment task.
 func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi.Deps, error) {
 	deps := httpapi.Deps{Logger: logger}
+	// A configured scheme filter always admits the local scheme, or a fresh
+	// deployment could never index its first minted authority (tasks/046).
+	vocabSchemes := cfg.VocabSchemes
+	if len(vocabSchemes) > 0 && !slices.Contains(vocabSchemes, authoritiesvc.LocalScheme) {
+		vocabSchemes = append(vocabSchemes, authoritiesvc.LocalScheme)
+	}
 	if cfg.BlobDir != "" {
 		deps.Blob = blob.NewDir(cfg.BlobDir)
-		ix, err := vocab.Load(ctx, deps.Blob, cfg.AuthoritiesPrefix, cfg.VocabSchemes)
+		// The index mounts even when empty: local-authority creation is
+		// what populates it, and Reload swaps terms in as they land.
+		ix, err := vocab.Load(ctx, deps.Blob, cfg.AuthoritiesPrefix, vocabSchemes)
 		if err != nil {
 			return httpapi.Deps{}, fmt.Errorf("load vocabularies: %w", err)
 		}
+		deps.Vocab = ix
 		if schemes := ix.Schemes(); len(schemes) > 0 {
 			logger.Info("vocabularies loaded", "schemes", schemes)
-			deps.Vocab = ix
 		}
 	}
 	db := store.NewMem()
@@ -118,22 +127,29 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		deps.Abuse = abuse
 		deps.Suggest = suggest.New(db, deps.Vocab, suggest.Caps{})
 	}
+	var fan trigger.Fanout
+	if cfg.WebhookURL != "" {
+		fan = append(fan, trigger.Webhook{URL: cfg.WebhookURL, Secret: []byte(cfg.WebhookSecret)})
+	}
+	if cfg.RebuildCmd != "" {
+		fan = append(fan, &trigger.Command{Cmd: cfg.RebuildCmd, Dir: cfg.RebuildDir, Logger: logger})
+	}
+	var notifier trigger.Notifier = trigger.Noop{}
+	if len(fan) > 0 {
+		notifier = fan
+	}
 	if deps.Suggest != nil && deps.Blob != nil {
-		var fan trigger.Fanout
-		if cfg.WebhookURL != "" {
-			fan = append(fan, trigger.Webhook{URL: cfg.WebhookURL, Secret: []byte(cfg.WebhookSecret)})
-		}
-		if cfg.RebuildCmd != "" {
-			fan = append(fan, &trigger.Command{Cmd: cfg.RebuildCmd, Dir: cfg.RebuildDir, Logger: logger})
-		}
-		var notifier trigger.Notifier = trigger.Noop{}
-		if len(fan) > 0 {
-			notifier = fan
-		}
 		deps.Publisher = &publish.Publisher{
 			Blob: deps.Blob, Queue: deps.Suggest, Vocab: deps.Vocab,
 			Trigger: notifier, Lease: publish.NewLease(db, "ingest", 15*time.Minute),
 			Logger: logger,
+		}
+	}
+	if deps.Blob != nil {
+		deps.Authorities = &authoritiesvc.Service{
+			Blob: deps.Blob, Vocab: deps.Vocab, Queue: deps.Suggest,
+			Trigger: notifier, AuthoritiesPrefix: cfg.AuthoritiesPrefix,
+			Schemes: vocabSchemes, Logger: logger,
 		}
 	}
 	verifiers := map[string]auth.TokenVerifier{}

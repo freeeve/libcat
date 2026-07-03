@@ -12,6 +12,7 @@ import (
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/auth/local"
+	"github.com/freeeve/libcatalog/backend/authoritiesvc"
 	"github.com/freeeve/libcatalog/backend/enrich"
 	"github.com/freeeve/libcatalog/backend/export"
 	"github.com/freeeve/libcatalog/backend/publish"
@@ -46,6 +47,9 @@ type Deps struct {
 	// (challenge, submit, public counts).
 	Suggest *suggest.Service
 	Abuse   *suggest.Abuse
+	// Authorities, when set, mounts the local-authority editing surface
+	// (tasks/046) and hooks the on-save auto-linker into record writes.
+	Authorities *authoritiesvc.Service
 	// Publisher, when set, carries approved decisions into the grain store
 	// (POST /v1/publish and the review publish flag).
 	Publisher GraphPublisher
@@ -90,10 +94,19 @@ func New(deps Deps) http.Handler {
 	if deps.Suggest != nil && deps.Verifier != nil {
 		registerReview(mux, deps.Suggest, deps.Verifier, deps.Publisher)
 	}
+	// The auto-linker seam stays a nil interface unless a service is
+	// configured (a typed-nil *Service must not masquerade as a hook).
+	var hook WorkSaveHook
+	if deps.Authorities != nil {
+		hook = deps.Authorities
+	}
 	if deps.Blob != nil && deps.DB != nil && deps.Verifier != nil {
-		registerRecords(mux, deps.Blob, deps.DB, deps.Suggest, deps.Verifier)
+		registerRecords(mux, deps.Blob, deps.DB, deps.Suggest, deps.Verifier, hook)
 		wl := registerWorksList(mux, deps.Blob, deps.Verifier)
 		registerTags(mux, wl, deps.Verifier)
+	}
+	if deps.Authorities != nil && deps.Verifier != nil {
+		registerAuthorities(mux, deps.Authorities, deps.Verifier)
 	}
 	if deps.Suggest != nil && deps.Verifier != nil {
 		registerPromotions(mux, deps.Suggest, deps.Publisher, deps.Verifier)

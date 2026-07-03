@@ -142,6 +142,53 @@ export interface Term {
   broader?: string[];
   narrower?: string[];
   related?: string[];
+  exactMatch?: string[];
+  mergedInto?: string; // set = retired: merged into the referenced term
+}
+
+/** bibframe.AuthorityTerm -- one local authority description (tasks/046). */
+export interface AuthorityTerm {
+  uri?: string; // server-assigned, read-only
+  prefLabel: Record<string, string>; // lang -> label ("" = untagged)
+  altLabel?: Record<string, string[]>;
+  definition?: Record<string, string>;
+  broader?: string[];
+  narrower?: string[];
+  related?: string[];
+  exactMatch?: string[];
+  mergedInto?: string;
+}
+
+/** GET/PUT /v1/authorities/{id} read shape. */
+export interface AuthorityView {
+  id: string;
+  etag: string;
+  term: AuthorityTerm;
+}
+
+/** POST /v1/authorities/merge response. */
+export interface AuthorityMergeResult {
+  loser: string;
+  winner: string;
+  rewritten: number;
+}
+
+/** profiles.Profile -- the field definitions an editor form renders from. */
+export interface Profile {
+  id: string;
+  label: string;
+  resourceType: string;
+  fields: ProfileField[];
+}
+
+/** profiles.Field -- one editable field of a profile. */
+export interface ProfileField {
+  path: string;
+  label: string;
+  help?: string;
+  min?: number;
+  max?: number;
+  marcHint?: string;
 }
 
 export type SuggType = "ADD" | "REMOVE";

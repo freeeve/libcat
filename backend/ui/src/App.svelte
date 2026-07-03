@@ -15,6 +15,8 @@
   import WorkEditor from "./screens/WorkEditor.svelte";
   import Queue from "./screens/Queue.svelte";
   import Promotions from "./screens/Promotions.svelte";
+  import Authorities from "./screens/Authorities.svelte";
+  import AuthorityEditor from "./screens/AuthorityEditor.svelte";
 
   const routes: RouteDef[] = [
     { name: "dashboard", pattern: "/" },
@@ -22,6 +24,8 @@
     { name: "callback", pattern: "/callback" },
     { name: "works", pattern: "/works" },
     { name: "work", pattern: "/works/:id" },
+    { name: "authorities", pattern: "/authorities" },
+    { name: "authority", pattern: "/authorities/:id" },
     { name: "queue", pattern: "/queue" },
     { name: "promotions", pattern: "/promotions" },
   ];
@@ -71,6 +75,7 @@
     <a class="brand" href="#/">libcatalog</a>
     <nav aria-label="Primary">
       <a href="#/works" class:current={route.name === "works" || route.name === "work"}>Works</a>
+      <a href="#/authorities" class:current={route.name === "authorities" || route.name === "authority"}>Authorities</a>
       <a href="#/queue" class:current={route.name === "queue"}>Queue</a>
     </nav>
     <span class="side">
@@ -94,6 +99,12 @@
     {/key}
   {:else if route.name === "works"}
     <WorkSearch />
+  {:else if route.name === "authority"}
+    {#key route.params.id}
+      <AuthorityEditor authorityId={route.params.id} />
+    {/key}
+  {:else if route.name === "authorities"}
+    <Authorities />
   {:else if route.name === "queue"}
     <Queue />
   {:else if route.name === "promotions"}
