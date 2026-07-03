@@ -1,0 +1,31 @@
+{{- /* Patron-facing light/dark toggle (Aspen "display modes"): sets and
+       persists data-lcat-theme on <html>; the OS preference applies when no
+       choice is stored (the pre-paint script in baseof.html avoids a flash).
+       Progressive: the button stays hidden without JavaScript. */ -}}
+<button type="button" class="lcat-theme-toggle" id="lcat-theme-toggle" hidden
+        aria-pressed="false">{{ i18n "darkMode" | default "Dark mode" }}</button>
+<script>
+  (function () {
+    var btn = document.getElementById("lcat-theme-toggle");
+    if (!btn) return;
+    var root = document.documentElement;
+    function dark() {
+      var forced = root.getAttribute("data-lcat-theme");
+      if (forced) return forced === "dark";
+      return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    function paint() {
+      var d = dark();
+      btn.setAttribute("aria-pressed", String(d));
+      btn.textContent = d ? {{ i18n "lightMode" | default "Light mode" | jsonify }} : {{ i18n "darkMode" | default "Dark mode" | jsonify }};
+    }
+    btn.addEventListener("click", function () {
+      var next = dark() ? "light" : "dark";
+      root.setAttribute("data-lcat-theme", next);
+      try { localStorage.setItem("lcat-theme", next); } catch (e) {}
+      paint();
+    });
+    paint();
+    btn.hidden = false;
+  })();
+</script>

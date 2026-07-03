@@ -61,3 +61,9 @@ other = "Search"
 [workCount]
 one = "{{ .Count }} work"
 other = "{{ .Count }} works"
+
+[darkMode]
+other = "Dark mode"
+
+[lightMode]
+other = "Light mode"

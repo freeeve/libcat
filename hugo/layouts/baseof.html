@@ -2,6 +2,8 @@
 <html lang="{{ or site.Language.LanguageCode site.Language.Lang "en" }}">
 <head>
   <meta charset="utf-8">
+  {{- /* Pre-paint theme application so a stored dark choice never flashes light. */}}
+  <script>try{var t=localStorage.getItem("lcat-theme");if(t)document.documentElement.setAttribute("data-lcat-theme",t)}catch(e){}</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }} · {{ site.Title }}{{ end }}</title>
   {{ with resources.Get "lcat.css" }}<link rel="stylesheet" href="{{ .RelPermalink }}">{{ end }}{{ partial "head-extra.html" . }}
@@ -12,6 +14,7 @@
   <header class="lcat-header" data-pagefind-ignore>
     <a class="lcat-brand" href="{{ "/" | relURL }}">{{ site.Title }}</a>
     {{ partial "search.html" . }}
+    {{ partial "theme-toggle.html" . }}
   </header>{{ block "hero" . }}{{ end }}
   <div class="lcat-layout">
     {{ block "sidebar" . }}{{ end }}

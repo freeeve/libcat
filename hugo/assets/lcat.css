@@ -23,9 +23,58 @@
   --lcat-maxw: 72rem;           /* readable measure, wider than the old minimal 68rem */
   /* Type roles: display carries the bookish personality (work titles only); the
      body stays a modern sans; mono covers identifiers and call numbers. */
+  --lcat-on-accent: #fff;      /* text on accent-filled controls */
+  --lcat-avail-ok: #1e6b4e;
+  --lcat-avail-hold: #8a5a00;
+  --lcat-avail-none: #a34224;
   --lcat-display: "Charter", "Iowan Old Style", "Palatino", Georgia, serif;
   --lcat-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --lcat-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+/* Dark mode: the closed stacks -- the light theme's ink becomes the card
+   surface, bone becomes the text, and the inks brighten to hold AA. Applies
+   automatically from the OS preference, or explicitly via
+   data-lcat-theme="dark"/"light" on <html> (the theme-toggle partial sets
+   and persists it). All pairs AA-verified. */
+/* Dark mode: the closed stacks -- the light theme's ink becomes the card
+   surface, bone becomes the text, and the inks brighten to hold AA. Applies
+   automatically from the OS preference, or explicitly via
+   data-lcat-theme="dark"/"light" on <html> (the theme-toggle partial sets
+   and persists it). Values duplicated across the two selectors because a
+   media query and an attribute cannot share one block in plain CSS. */
+:root[data-lcat-theme="dark"] {
+  --lcat-fg: #e9e7e0;
+  --lcat-bg: #171b19;
+  --lcat-accent: #6dbd97;
+  --lcat-accent-ink: #8fd0b1;
+  --lcat-muted: #a8ada4;
+  --lcat-border: #3d443f;
+  --lcat-surface: #212724;
+  --lcat-surface-alt: #2a302c;
+  --lcat-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 3px 10px rgba(0, 0, 0, 0.3);
+  --lcat-on-accent: #10261c;
+  --lcat-avail-ok: #6dbd97;
+  --lcat-avail-hold: #d9b96a;
+  --lcat-avail-none: #e09479;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-lcat-theme="light"]) {
+    --lcat-fg: #e9e7e0;
+    --lcat-bg: #171b19;
+    --lcat-accent: #6dbd97;
+    --lcat-accent-ink: #8fd0b1;
+    --lcat-muted: #a8ada4;
+    --lcat-border: #3d443f;
+    --lcat-surface: #212724;
+    --lcat-surface-alt: #2a302c;
+    --lcat-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 3px 10px rgba(0, 0, 0, 0.3);
+    --lcat-on-accent: #10261c;
+    --lcat-avail-ok: #6dbd97;
+    --lcat-avail-hold: #d9b96a;
+    --lcat-avail-none: #e09479;
+    color-scheme: dark;
+  }
 }
 * { box-sizing: border-box; }
 body {
@@ -92,7 +141,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   padding: 0.4rem 0.9rem;
   border: 1px solid var(--lcat-accent);
   background: var(--lcat-accent);
-  color: #fff;
+  color: var(--lcat-on-accent);
   border-radius: 4px;
   cursor: pointer;
 }
@@ -190,9 +239,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
    not-yet-fetched) stays invisible so it never shows a misleading state. */
 .lcat-availability { margin-left: 0.5rem; font-size: 0.9em; }
 .lcat-availability:empty { display: none; }
-.lcat-availability[data-status="available"] { color: #1e6b4e; }
-.lcat-availability[data-status="holdable"] { color: #8a5a00; }
-.lcat-availability[data-status="unavailable"] { color: #a34224; }
+.lcat-availability[data-status="available"] { color: var(--lcat-avail-ok); }
+.lcat-availability[data-status="holdable"] { color: var(--lcat-avail-hold); }
+.lcat-availability[data-status="unavailable"] { color: var(--lcat-avail-none); }
 .lcat-meta dt { font-weight: 600; }
 /* Optional cover art (tasks/025): rendered by lcat-cover.html only when the site sets
    [params] covers = true. Set BOTH width and height in CSS per variant -- the <img>
@@ -233,7 +282,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   color: var(--lcat-accent);
 }
 .pagination .page-link:hover { border-color: var(--lcat-accent); }
-.pagination .active .page-link { background: var(--lcat-accent); border-color: var(--lcat-accent); color: #fff; }
+.pagination .active .page-link { background: var(--lcat-accent); border-color: var(--lcat-accent); color: var(--lcat-on-accent); }
 .pagination .disabled .page-link { color: var(--lcat-muted); border-color: var(--lcat-border); pointer-events: none; }
 
 /* Work detail heading: the display serif over an index-card double rule --
@@ -254,3 +303,16 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   letter-spacing: 0.07em;
   color: var(--lcat-muted);
 }
+
+/* Theme toggle (theme-toggle.html): hidden until its script runs, so a
+   no-JS page shows no dead control. */
+.lcat-theme-toggle {
+  border: 1px solid var(--lcat-border);
+  background: var(--lcat-surface);
+  color: var(--lcat-fg);
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.lcat-theme-toggle[hidden] { display: none; }
