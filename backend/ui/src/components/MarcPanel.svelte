@@ -1,13 +1,18 @@
 <script lang="ts">
   // The MARC tab of the dual-view editor (tasks/049): loads the grain's
-  // records as field arrays, hosts the grid per record, previews the exact
-  // quad delta (dry run), and saves under If-Match. Untouched saves are
-  // no-ops server-side; a concurrent edit reloads with a notice.
+  // records as field arrays, hosts the grid or the mrk-style text surface
+  // per record (tasks/076) -- two views of the same in-memory doc, so edits
+  // carry across the toggle -- previews the exact quad delta (dry run), and
+  // saves under If-Match. A text buffer that does not parse blocks preview
+  // and save with its line-anchored errors. Untouched saves are no-ops
+  // server-side; a concurrent edit reloads with a notice.
   import { onMount } from "svelte";
   import { ApiError, ConflictError, fetchMarc, postMarc } from "../lib/api";
   import DiffPreview from "./DiffPreview.svelte";
+  import FieldClipboardPane from "./FieldClipboardPane.svelte";
   import MarcGrid from "./MarcGrid.svelte";
-  import type { Diff, MarcRecordDoc } from "../lib/types";
+  import MarcTextEditor from "./MarcTextEditor.svelte";
+  import type { Diff, MarcField, MarcRecordDoc } from "../lib/types";
 
   let { workId, scope }: { workId: string; scope?: string } = $props();
 
@@ -20,6 +25,17 @@
   let busy = $state(false);
   let status = $state("");
   let error = $state("");
+  let mode = $state<"grid" | "text">("grid");
+  let textValid = $state(true);
+
+  const blocked = $derived(mode === "text" && !textValid);
+
+  /** A clipboard-pane paste appends to the active record; in text mode the
+   *  buffer re-serializes off the same doc. */
+  function pasteFromPane(f: MarcField): void {
+    const rec = records[active];
+    if (rec) records[active] = { ...rec, fields: [...rec.fields, f] };
+  }
 
   onMount(() => void load());
 
@@ -32,6 +48,7 @@
       records = res.records ?? [];
       knownLoss = res.knownLoss ?? {};
       active = Math.min(active, Math.max(0, records.length - 1));
+      textValid = true;
     } catch (e) {
       error = e instanceof ApiError ? e.message : "MARC load failed";
     } finally {
@@ -92,21 +109,42 @@
   {#if records.length > 1}
     <div class="tabs" role="group" aria-label="Record">
       {#each records as r, i (r.node)}
-        <button class="tab" class:active={i === active} aria-pressed={i === active} onclick={() => ((active = i), (diff = null))}>
+        <button class="tab" class:active={i === active} aria-pressed={i === active}
+          onclick={() => ((active = i), (diff = null), (textValid = true))}>
           Record {i + 1}
         </button>
       {/each}
     </div>
   {/if}
 
-  <p class="muted head">record node <code>{records[active].node}</code> · etag <code>{etag.slice(0, 12)}…</code></p>
+  <p class="muted head">
+    record node <code>{records[active].node}</code> · etag <code>{etag.slice(0, 12)}…</code>
+    <span class="modes" role="group" aria-label="Editing surface">
+      <button class="tab mini" class:active={mode === "grid"} aria-pressed={mode === "grid"} disabled={blocked}
+        title={blocked ? "fix the text errors first" : ""} onclick={() => (mode = "grid")}>Grid</button>
+      <button class="tab mini" class:active={mode === "text"} aria-pressed={mode === "text"}
+        onclick={() => ((mode = "text"), (textValid = true))}>Text</button>
+    </span>
+  </p>
   <p aria-live="polite">
     {#if status}<span class="ok">{status}</span>{/if}
     {#if error}<span class="error">{error}</span>{/if}
   </p>
 
+  <FieldClipboardPane onpaste={pasteFromPane} />
+
   {#key records[active].node}
-    <MarcGrid record={records[active]} {knownLoss} {scope} onchange={(r) => (records[active] = r)} />
+    {#if mode === "grid"}
+      <MarcGrid record={records[active]} {knownLoss} {scope} onchange={(r) => (records[active] = r)} />
+    {:else}
+      <MarcTextEditor
+        record={records[active]}
+        {knownLoss}
+        {scope}
+        onchange={(r) => (records[active] = r)}
+        onvalid={(ok) => (textValid = ok)}
+      />
+    {/if}
   {/key}
 
   {#if diff}
@@ -114,9 +152,10 @@
   {/if}
 
   <p class="actions">
-    <button class="button button--quiet" onclick={() => void preview()} disabled={busy}>Preview delta</button>
-    <button class="button" onclick={() => void save()} disabled={busy}>{busy ? "Working…" : "Save MARC"}</button>
+    <button class="button button--quiet" onclick={() => void preview()} disabled={busy || blocked}>Preview delta</button>
+    <button class="button" onclick={() => void save()} disabled={busy || blocked}>{busy ? "Working…" : "Save MARC"}</button>
     <button class="button button--quiet" onclick={() => void load()} disabled={busy}>Discard edits</button>
+    {#if blocked}<span class="error">the text buffer has parse errors -- saving is blocked</span>{/if}
   </p>
 {/if}
 
@@ -142,6 +181,19 @@
   }
   .head {
     font-size: 0.8rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .modes {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 0.3rem;
+  }
+  .tab.mini {
+    font-size: 0.72rem;
+    padding: 0.1em 0.7em;
   }
   .actions {
     display: flex;
