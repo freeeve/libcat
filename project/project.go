@@ -287,8 +287,11 @@ type RedirectMap struct {
 // editorial graph's lcat:mergedInto statements and collapsing merge chains
 // (A->B->C yields A->C and B->C) to the final survivor. A merge cycle terminates
 // at the last id reached rather than looping.
+//
+// catalogNQ must not be modified while the returned map is in use: the parse
+// is zero-copy (ParseNQuadsShared, tasks/057), so ids alias the buffer.
 func Redirects(catalogNQ []byte) (RedirectMap, error) {
-	ds, err := rdf.ParseNQuads(catalogNQ)
+	ds, err := rdf.ParseNQuadsShared(catalogNQ)
 	if err != nil {
 		return RedirectMap{}, err
 	}
@@ -362,8 +365,12 @@ func follow(raw map[string]string, start string) string {
 // lcat:overrides markers shadow the feed first (tasks/042): a property a
 // cataloger claimed shows only its editorial values, and deleting the marker
 // resurfaces the feed untouched.
+//
+// catalogNQ must not be modified while the returned Catalog is in use: the
+// parse is zero-copy (ParseNQuadsShared, tasks/057) -- one input-sized
+// allocation saved at corpus scale -- so projected strings alias the buffer.
 func Project(catalogNQ []byte, provider string) (*Catalog, error) {
-	ds, err := rdf.ParseNQuads(catalogNQ)
+	ds, err := rdf.ParseNQuadsShared(catalogNQ)
 	if err != nil {
 		return nil, err
 	}
