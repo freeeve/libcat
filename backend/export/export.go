@@ -20,6 +20,7 @@ import (
 	"github.com/freeeve/libcatalog/storage/blob"
 
 	"github.com/freeeve/libcatalog/backend/store"
+	"github.com/freeeve/libcatalog/backend/vocab"
 )
 
 // Format selects the output serialization.
@@ -57,16 +58,19 @@ const (
 
 // Job is one export request.
 type Job struct {
-	ID         string    `json:"id"`
-	Requester  string    `json:"requester"`
-	Format     Format    `json:"format"`
-	Selection  Selection `json:"selection"`
-	Status     Status    `json:"status"`
-	Records    int       `json:"records,omitempty"`
-	OutputPath string    `json:"outputPath,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
-	FinishedAt time.Time `json:"finishedAt,omitzero"`
+	ID        string    `json:"id"`
+	Requester string    `json:"requester"`
+	Format    Format    `json:"format"`
+	Selection Selection `json:"selection"`
+	// Authorities, when set, makes this an authority export (tasks/069):
+	// the format renders terms instead of work grains.
+	Authorities *AuthoritySelection `json:"authorities,omitempty"`
+	Status      Status              `json:"status"`
+	Records     int                 `json:"records,omitempty"`
+	OutputPath  string              `json:"outputPath,omitempty"`
+	Error       string              `json:"error,omitempty"`
+	CreatedAt   time.Time           `json:"createdAt"`
+	FinishedAt  time.Time           `json:"finishedAt,omitzero"`
 	// ExpiresAt bounds the download's availability (bucket lifecycle rules
 	// enforce the object side).
 	ExpiresAt time.Time `json:"expiresAt,omitzero"`
@@ -92,6 +96,9 @@ type Service struct {
 	GrainPrefix string
 	// Provider names the feed graph the CSV projection reads.
 	Provider string
+	// Vocab, when set, enables authority exports over the loaded term index
+	// (tasks/069).
+	Vocab *vocab.Index
 	// tokenSecret signs fallback download tokens.
 	tokenSecret []byte
 	now         func() time.Time

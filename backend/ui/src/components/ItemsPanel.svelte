@@ -1,10 +1,11 @@
 <script lang="ts">
   // Holdings editor (tasks/051): the minimal bf:Item rows -- call number,
   // location, barcode, note -- per instance, replaced wholesale on save.
-  // Circulation state never lives here.
+  // Circulation state never lives here. Item templates pre-fill rows and
+  // bulk add generates N copies with sequential barcodes (tasks/069).
   import { onMount } from "svelte";
-  import { fetchItems, putItems, ApiError } from "../lib/api";
-  import type { WorkItem } from "../lib/types";
+  import { ApiError, bulkAddItems, createItemTemplate, fetchItems, fetchItemTemplates, putItems } from "../lib/api";
+  import type { ItemTemplate, WorkItem } from "../lib/types";
 
   let { workId, instanceId }: { workId: string; instanceId: string } = $props();
 
@@ -13,8 +14,21 @@
   let busy = $state(false);
   let status = $state("");
   let error = $state("");
+  let templates = $state<ItemTemplate[]>([]);
+  let templateId = $state("");
+  let bulkCount = $state(2);
+  let bulkPrefix = $state("");
+  let bulkPreview = $state<WorkItem[]>([]);
 
-  onMount(() => void load());
+  const template = $derived(templates.find((t) => t.id === templateId) ?? null);
+
+  onMount(() => {
+    void load();
+    fetchItemTemplates().then(
+      (r) => (templates = r.templates ?? []),
+      () => {},
+    );
+  });
 
   async function load(): Promise<void> {
     try {
@@ -34,6 +48,75 @@
   function add(): void {
     items = [...items, { callNumber: "", location: "", barcode: "", note: "" }];
     dirty = true;
+  }
+
+  /** Pushes a row pre-filled from the selected template. */
+  function applyTemplate(): void {
+    if (!template) return;
+    items = [
+      ...items,
+      {
+        callNumber: template.callNumber ?? "",
+        location: template.location ?? "",
+        barcode: "",
+        note: template.note ?? "",
+      },
+    ];
+    if (template.barcodePrefix) bulkPrefix = template.barcodePrefix;
+    dirty = true;
+  }
+
+  /** Saves the last row's fields as a reusable template. */
+  async function saveAsTemplate(shared: boolean): Promise<void> {
+    const last = items[items.length - 1];
+    if (!last) return;
+    const label = prompt("Template label?");
+    if (!label) return;
+    error = "";
+    try {
+      const created = await createItemTemplate({
+        label,
+        callNumber: last.callNumber,
+        location: last.location,
+        note: last.note,
+        barcodePrefix: bulkPrefix || undefined,
+        shared,
+      });
+      templates = [...templates, created];
+      templateId = created.id ?? "";
+      status = `template "${label}" saved${shared ? " (shared)" : ""}`;
+    } catch (e) {
+      error = e instanceof ApiError ? e.message : "saving the template failed";
+    }
+  }
+
+  async function bulk(dryRun: boolean): Promise<void> {
+    busy = true;
+    error = "";
+    status = "";
+    try {
+      const res = await bulkAddItems(workId, {
+        instanceId,
+        count: bulkCount,
+        barcodePrefix: bulkPrefix,
+        barcodeWidth: template?.barcodeWidth,
+        callNumber: template?.callNumber ?? items[items.length - 1]?.callNumber ?? "",
+        location: template?.location ?? items[items.length - 1]?.location ?? "",
+        note: template?.note ?? "",
+        dryRun,
+      });
+      if (dryRun) {
+        bulkPreview = res.items ?? [];
+      } else {
+        bulkPreview = [];
+        status = `added ${res.items.length} copies (${res.items[0]?.barcode}…${res.items[res.items.length - 1]?.barcode})`;
+        await load();
+      }
+    } catch (e) {
+      error = e instanceof ApiError ? e.message : "bulk add failed";
+    } finally {
+      busy = false;
+    }
   }
 
   function remove(i: number): void {
@@ -77,11 +160,38 @@
   {/each}
   <p class="acts">
     <button class="button button--quiet mini" onclick={add}>Add item</button>
+    {#if templates.length > 0}
+      <select class="mini-select" aria-label="Item template" bind:value={templateId}>
+        <option value="">template…</option>
+        {#each templates as t (t.id)}
+          <option value={t.id}>{t.label}{t.shared ? " (shared)" : ""}</option>
+        {/each}
+      </select>
+      <button class="button button--quiet mini" onclick={applyTemplate} disabled={!template}>Apply</button>
+    {/if}
+    {#if items.length > 0}
+      <button class="button button--quiet mini" onclick={() => void saveAsTemplate(false)}>Save row as template</button>
+      <button class="button button--quiet mini" onclick={() => void saveAsTemplate(true)}>…shared</button>
+    {/if}
     <button class="button mini" onclick={() => void save()} disabled={busy || !dirty}>Save items</button>
     <span aria-live="polite">
       {#if status}<span class="ok">{status}</span>{/if}
       {#if error}<span class="error">{error}</span>{/if}
     </span>
+  </p>
+  <p class="acts bulk">
+    <span class="muted">Bulk add</span>
+    <input class="count" type="number" min="1" max="100" aria-label="Copy count" bind:value={bulkCount} />
+    <input class="bc mono" aria-label="Barcode prefix" bind:value={bulkPrefix} placeholder="barcode prefix (B-)" />
+    <button class="button button--quiet mini" onclick={() => void bulk(true)} disabled={busy || !bulkPrefix || bulkCount < 1}>
+      Preview barcodes
+    </button>
+    {#if bulkPreview.length > 0}
+      <span class="mono preview">{bulkPreview.map((it) => it.barcode).join(" ")}</span>
+      <button class="button mini" onclick={() => void bulk(false)} disabled={busy}>
+        Add {bulkPreview.length} copies
+      </button>
+    {/if}
   </p>
 </details>
 
@@ -124,6 +234,21 @@
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    flex-wrap: wrap;
+  }
+  .bulk {
+    font-size: 0.85rem;
+  }
+  .count {
+    width: 4rem;
+  }
+  .mini-select {
+    font-size: 0.8rem;
+  }
+  .preview {
+    font-size: 0.75rem;
+    color: var(--ink-muted);
+    word-break: break-all;
   }
   .ok {
     color: var(--accent);

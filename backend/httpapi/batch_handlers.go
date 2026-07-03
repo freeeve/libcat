@@ -132,6 +132,53 @@ func registerBatch(mux *http.ServeMux, svc *batch.Service, verifier auth.TokenVe
 		w.WriteHeader(http.StatusNoContent)
 	})))
 
+	// Item templates (tasks/069): saved item field sets on the macros
+	// sharing model; applying one pre-fills the item form.
+	mux.Handle("GET /v1/item-templates", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		templates, err := svc.ListItemTemplates(r.Context(), id.Email)
+		if writeBatchError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"templates": templates})
+	})))
+
+	mux.Handle("POST /v1/item-templates", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		var t batch.ItemTemplate
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&t); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		created, err := svc.CreateItemTemplate(r.Context(), t, id.Email)
+		if writeBatchError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, created)
+	})))
+
+	mux.Handle("PUT /v1/item-templates/{id}", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		var t batch.ItemTemplate
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&t); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		updated, err := svc.UpdateItemTemplate(r.Context(), r.PathValue("id"), t, id.Email)
+		if writeBatchError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+	})))
+
+	mux.Handle("DELETE /v1/item-templates/{id}", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		if writeBatchError(w, svc.DeleteItemTemplate(r.Context(), id.Email, r.PathValue("id"))) {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
 	mux.Handle("GET /v1/queries", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := auth.FromContext(r.Context())
 		queries, err := svc.ListQueries(r.Context(), id.Email)

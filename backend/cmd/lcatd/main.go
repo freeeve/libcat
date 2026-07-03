@@ -284,6 +284,7 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		if err != nil {
 			return httpapi.Deps{}, err
 		}
+		exports.Vocab = deps.Vocab
 		deps.Exports = exports
 		// Container worker: drain queued export jobs on a ticker.
 		go func() {

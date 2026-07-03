@@ -38,12 +38,22 @@ func registerExports(mux *http.ServeMux, svc *export.Service, batchSvc *batch.Se
 	mux.Handle("POST /v1/exports", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := auth.FromContext(r.Context())
 		var req struct {
-			Format         export.Format    `json:"format"`
-			Selection      export.Selection `json:"selection"`
-			BatchSelection *batch.Selection `json:"batchSelection"`
+			Format         export.Format              `json:"format"`
+			Selection      export.Selection           `json:"selection"`
+			BatchSelection *batch.Selection           `json:"batchSelection"`
+			Authorities    *export.AuthoritySelection `json:"authorities"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if req.Authorities != nil {
+			job, err := svc.CreateAuthorities(r.Context(), id.Email, req.Format, *req.Authorities)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusAccepted, view(r, job))
 			return
 		}
 		if req.BatchSelection != nil {

@@ -383,6 +383,21 @@ export interface WorkItem {
   note?: string;
 }
 
+/** batch.ItemTemplate -- a saved item field set (tasks/069). */
+export interface ItemTemplate {
+  id?: string;
+  label: string;
+  callNumber?: string;
+  location?: string;
+  note?: string;
+  barcodePrefix?: string;
+  barcodeWidth?: number;
+  shared?: boolean;
+  owner?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 /** GET /v1/duplicates -- one clustering-key collision group. */
 export interface DuplicateGroup {
   key: string;
@@ -459,12 +474,20 @@ export interface CopycatRevertResult {
 export type ExportFormat = "marc" | "nquads" | "jsonld" | "csv";
 export type ExportStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
 
+/** export.AuthoritySelection -- scopes an authority export (tasks/069). */
+export interface AuthoritySelection {
+  all?: boolean;
+  vocabs?: string[];
+  label?: string;
+}
+
 /** httpapi.exportView -- one export job with its download link when ready. */
 export interface ExportJob {
   id: string;
   requester: string;
   format: ExportFormat;
   selection: { all?: boolean; workIds?: string[] };
+  authorities?: AuthoritySelection;
   status: ExportStatus;
   records?: number;
   error?: string;

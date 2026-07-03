@@ -5,7 +5,8 @@
   // and the batch screen deep-link here with the selection prefilled
   // (#/exports?kind=search&q=…).
   import { onMount } from "svelte";
-  import { ApiError, createExport, fetchSavedQueries, resolveBatch, fetchExports } from "../lib/api";
+  import { ApiError, createAuthorityExport, createExport, fetchSavedQueries, resolveBatch, fetchExports } from "../lib/api";
+  import { getConfig } from "../lib/config";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import type { ExportFormat, ExportJob, SavedQuery, Selection } from "../lib/types";
 
@@ -42,6 +43,11 @@
   let savedQueryId = $state(initialSavedQuery);
   let savedQueries = $state<SavedQuery[]>([]);
   let format = $state<ExportFormat>("csv");
+  // Authority exports (tasks/069): terms instead of work grains.
+  let target = $state<"works" | "authorities">("works");
+  let vocabPicks = $state<Record<string, boolean>>({});
+  let labelFilter = $state("");
+  const schemes = (getConfig().schemes ?? []).filter((s) => s !== "folk");
   let matched = $state<number | null>(null);
   let jobs = $state<ExportJob[]>([]);
   let selected = $state(0);
@@ -54,6 +60,11 @@
 
   const formatNote = $derived(FORMATS.find((f) => f.value === format)?.note ?? "");
   const hasActive = $derived(jobs.some((j) => j.status === "QUEUED" || j.status === "RUNNING"));
+
+  // CSV has no authority shape; switching targets steers off it.
+  $effect(() => {
+    if (target === "authorities" && format === "csv") format = "nquads";
+  });
 
   onMount(() => {
     pushScope(SCOPE);
@@ -125,7 +136,18 @@
     error = "";
     status = "";
     try {
-      const job = await createExport(format, selection());
+      let job: ExportJob;
+      if (target === "authorities") {
+        const vocabs = Object.entries(vocabPicks)
+          .filter(([, on]) => on)
+          .map(([s]) => s);
+        job = await createAuthorityExport(format, {
+          ...(vocabs.length > 0 ? { vocabs } : { all: true }),
+          ...(labelFilter.trim() ? { label: labelFilter.trim() } : {}),
+        });
+      } else {
+        job = await createExport(format, selection());
+      }
       status =
         job.status === "DONE"
           ? `export ready: ${job.records} record${job.records === 1 ? "" : "s"}`
@@ -158,6 +180,10 @@
   }
 
   function describeSelection(j: ExportJob): string {
+    if (j.authorities) {
+      const scope = j.authorities.vocabs?.length ? j.authorities.vocabs.join(", ") : "all vocabularies";
+      return `authorities: ${scope}${j.authorities.label ? ` "${j.authorities.label}…"` : ""}`;
+    }
     if (j.selection.all) return "entire catalog";
     return `${j.selection.workIds?.length ?? 0} works`;
   }
@@ -168,6 +194,28 @@
 
   <section aria-label="New export">
     <h2>New export</h2>
+    <div class="row">
+      <label for="ex-target" class="muted">Export</label>
+      <select id="ex-target" bind:value={target}>
+        <option value="works">Works</option>
+        <option value="authorities">Authorities</option>
+      </select>
+    </div>
+    {#if target === "authorities"}
+      <div class="row">
+        <span class="muted">Vocabularies</span>
+        {#each schemes as s (s)}
+          <label class="pick"><input type="checkbox" bind:checked={vocabPicks[s]} /> {s}</label>
+        {:else}
+          <span class="muted">none loaded</span>
+        {/each}
+        <span class="muted">(none checked = all)</span>
+      </div>
+      <div class="row">
+        <label for="ex-label" class="muted">Label filter</label>
+        <input id="ex-label" class="grow" bind:value={labelFilter} placeholder="optional label prefix (runs immediately)" />
+      </div>
+    {:else}
     <div class="row">
       <label for="ex-kind" class="muted">Selection</label>
       <select id="ex-kind" bind:value={kind} onchange={() => (matched = null)}>
@@ -195,12 +243,13 @@
       <textarea aria-label="Work ids" bind:value={idsText} rows="3" placeholder="wabc123… one per line or comma-separated"
       ></textarea>
     {/if}
+    {/if}
 
     <div class="row">
       <label for="ex-format" class="muted">Format</label>
       <select id="ex-format" bind:value={format}>
-        {#each FORMATS as f (f.value)}
-          <option value={f.value}>{f.label}</option>
+        {#each FORMATS.filter((f) => target !== "authorities" || f.value !== "csv") as f (f.value)}
+          <option value={f.value}>{target === "authorities" && f.value === "marc" ? "MARC authority (.mrc)" : f.label}</option>
         {/each}
       </select>
     </div>

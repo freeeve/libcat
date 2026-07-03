@@ -124,8 +124,12 @@ func (s *Service) selectionPaths(ctx context.Context, sel Selection) ([]string, 
 }
 
 // emit renders the selection in the job's format. Grains stream one at a
-// time; only the encoded output accumulates.
+// time; only the encoded output accumulates. Authority jobs render from the
+// term index instead (tasks/069).
 func (s *Service) emit(ctx context.Context, job Job) ([]byte, int, error) {
+	if job.Authorities != nil {
+		return s.emitAuthorities(ctx, job)
+	}
 	paths, err := s.selectionPaths(ctx, job.Selection)
 	if err != nil {
 		return nil, 0, err

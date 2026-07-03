@@ -19,6 +19,7 @@ import (
 // duplicate-detection worklist over the identity scan.
 func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Service, verifier auth.TokenVerifier) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
+	registerItemsBulk(mux, bs, queue, librarian)
 
 	mux.Handle("GET /v1/works/{id}/visibility", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		workID := r.PathValue("id")
