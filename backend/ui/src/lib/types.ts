@@ -611,5 +611,7 @@ export interface VocabSuggestion {
   id: string;
   label: string;
   description?: string;
+  /** Variant/"used for" labels when the source exposes them (suggest2). */
+  variants?: string[];
   exactMatch?: string[];
 }

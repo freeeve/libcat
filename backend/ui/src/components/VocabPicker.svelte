@@ -103,6 +103,7 @@
           id: s.id,
           labels: { en: s.label },
           ...(s.description ? { definition: { en: s.description } } : {}),
+          ...(s.variants?.length ? { altLabels: { en: s.variants } } : {}),
           ...(s.exactMatch ? { exactMatch: s.exactMatch } : {}),
         }));
       } else {

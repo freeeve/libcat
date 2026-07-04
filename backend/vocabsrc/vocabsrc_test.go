@@ -110,7 +110,7 @@ func TestSuggestFlavors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/authorities/subjects/suggest2"):
-			_, _ = w.Write([]byte(`{"hits":[{"uri":"http://id.loc.gov/authorities/subjects/sh85118553","aLabel":"Science fiction"}]}`))
+			_, _ = w.Write([]byte(`{"hits":[{"uri":"http://id.loc.gov/authorities/subjects/sh85118553","aLabel":"Science fiction","more":{"variantLabels":["Sci-fi","Science fiction (Literary genre)"]}}]}`))
 		case r.URL.Path == "/w/api.php":
 			_, _ = w.Write([]byte(`{"search":[{"id":"Q24925","label":"science fiction","description":"genre of speculative fiction","concepturi":"http://www.wikidata.org/entity/Q24925"}]}`))
 		case r.URL.Path == "/viaf/AutoSuggest":
@@ -129,6 +129,9 @@ func TestSuggestFlavors(t *testing.T) {
 	}, "science fiction", 5)
 	if err != nil || len(s2) != 1 || s2[0].Label != "Science fiction" || s2[0].Source != "lcsh" {
 		t.Fatalf("suggest2: %v %+v", err, s2)
+	}
+	if len(s2[0].Variants) != 2 || s2[0].Variants[0] != "Sci-fi" {
+		t.Fatalf("suggest2 variants: %+v", s2[0].Variants)
 	}
 
 	wd, err := c.Suggest(ctx, Source{

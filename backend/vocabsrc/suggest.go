@@ -27,12 +27,16 @@ const (
 // clusters map to LCNAF/GND/Wikidata) so a term created from the pick can
 // record skos:exactMatch cross-references.
 type Suggestion struct {
-	Source      string   `json:"source"`
-	Scheme      string   `json:"scheme"`
-	ID          string   `json:"id"`
-	Label       string   `json:"label"`
-	Description string   `json:"description,omitempty"`
-	ExactMatch  []string `json:"exactMatch,omitempty"`
+	Source      string `json:"source"`
+	Scheme      string `json:"scheme"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	// Variants are the heading's variant/"used for" labels when the source
+	// exposes them (suggest2's more.variantLabels) -- often the only context
+	// a bare authorized heading carries.
+	Variants   []string `json:"variants,omitempty"`
+	ExactMatch []string `json:"exactMatch,omitempty"`
 }
 
 // SuggestClient queries a source's live typeahead API.
@@ -125,6 +129,9 @@ func parseSuggest2(src Source, body []byte, limit int) ([]Suggestion, error) {
 			URI          string `json:"uri"`
 			ALabel       string `json:"aLabel"`
 			SuggestLabel string `json:"suggestLabel"`
+			More         struct {
+				VariantLabels []string `json:"variantLabels"`
+			} `json:"more"`
 		} `json:"hits"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
@@ -139,7 +146,10 @@ func parseSuggest2(src Source, body []byte, limit int) ([]Suggestion, error) {
 		if hit.URI == "" || label == "" {
 			continue
 		}
-		out = append(out, Suggestion{Source: src.Name, Scheme: src.Scheme, ID: hit.URI, Label: label})
+		out = append(out, Suggestion{
+			Source: src.Name, Scheme: src.Scheme, ID: hit.URI, Label: label,
+			Variants: hit.More.VariantLabels,
+		})
 		if len(out) >= limit {
 			break
 		}

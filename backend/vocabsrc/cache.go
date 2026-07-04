@@ -33,6 +33,9 @@ func (s *Service) CacheTerm(ctx context.Context, sugg Suggestion) error {
 	if sugg.Description != "" {
 		term.Definition = map[string]string{"en": sugg.Description}
 	}
+	if len(sugg.Variants) > 0 {
+		term.AltLabel = map[string][]string{"en": sugg.Variants}
+	}
 	quads, err := term.Quads()
 	if err != nil {
 		return err
