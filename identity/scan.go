@@ -69,7 +69,10 @@ type GrainIdentity struct {
 // recomputed from its primary author, main title, and language; provider keys
 // come from each bf:identifiedBy value, namespaced by its identifier type. It
 // reads every named graph, since a grain's feed and editorial lines share the
-// file.
+// file. Only minted fragment IRIs count: the crosswalk types 76X-78X
+// related-resource stubs as bf:Work/bf:Instance too (blank or external
+// nodes), and seeding their keys or identifiers would let an unrelated
+// incoming record resolve onto a stub label instead of minting.
 func ScanGrain(nq []byte) (GrainIdentity, error) {
 	ds, err := rdf.ParseNQuads(nq)
 	if err != nil {
@@ -79,12 +82,18 @@ func ScanGrain(nq []byte) (GrainIdentity, error) {
 	for _, gt := range ds.Graphs() {
 		g := ds.Graph(gt)
 		for _, work := range g.SubjectsOfType(bfWork) {
+			if !minted(work, "Work") {
+				continue
+			}
 			gi.Works = append(gi.Works, WorkIdentity{
 				WorkID:     fragID(work.Value, "Work"),
 				ClusterKey: WorkKey(workAuthor(g, work), workTitle(g, work), workLang(g, work)),
 			})
 		}
 		for _, inst := range g.SubjectsOfType(bfInstance) {
+			if !minted(inst, "Instance") {
+				continue
+			}
 			id := InstanceIdentity{InstanceID: fragID(inst.Value, "Instance")}
 			if w, ok := g.Object(inst, bfInstanceOf); ok {
 				id.WorkID = fragID(w.Value, "Work")
@@ -98,6 +107,13 @@ func ScanGrain(nq []byte) (GrainIdentity, error) {
 		}
 	}
 	return gi, nil
+}
+
+// minted reports whether a node is a catalog-minted entity: the "#<id>Work" /
+// "#<id>Instance" fragment-IRI convention, id non-empty.
+func minted(t rdf.Term, suffix string) bool {
+	return t.IsIRI() && strings.HasPrefix(t.Value, "#") && strings.HasSuffix(t.Value, suffix) &&
+		len(t.Value) > len(suffix)+1
 }
 
 // SeedResolver seeds r with the committed identity from scanned grains, so a

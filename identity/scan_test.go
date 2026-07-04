@@ -55,3 +55,30 @@ _:b <http://www.w3.org/1999/02/22-rdf-syntax-ns#value> "od-42" <feed:overdrive> 
 		t.Errorf("ProviderKeys = %v, want %v", got.ProviderKeys, want)
 	}
 }
+
+// TestScanGrainSkipsRelationStubs: the crosswalk types 76X-78X related
+// resources as bf:Work/bf:Instance on blank (or external) nodes. They carry
+// no minted identity, so the scan must not surface them -- seeded stub keys
+// and identifiers would capture unrelated incoming records, and they showed
+// up as bogus "c14n" rows in the duplicates worklist.
+func TestScanGrainSkipsRelationStubs(t *testing.T) {
+	grain := []byte(`<#w1Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:marc> .
+<#w1Work> <http://id.loc.gov/ontologies/bibframe/relation> _:rel <feed:marc> .
+_:rel <http://id.loc.gov/ontologies/bibframe/associatedResource> _:c14n10 <feed:marc> .
+_:c14n10 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:marc> .
+_:c14n11 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:marc> .
+_:c14n11 <http://id.loc.gov/ontologies/bibframe/identifiedBy> _:sid <feed:marc> .
+_:sid <http://www.w3.org/1999/02/22-rdf-syntax-ns#value> "9780000000009" <feed:marc> .
+<https://example.org/otherWork> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:marc> .
+`)
+	gi, err := ScanGrain(grain)
+	if err != nil {
+		t.Fatalf("ScanGrain: %v", err)
+	}
+	if len(gi.Works) != 1 || gi.Works[0].WorkID != "w1" {
+		t.Fatalf("works = %+v, want only w1", gi.Works)
+	}
+	if len(gi.Instances) != 0 {
+		t.Fatalf("instances = %+v, want none", gi.Instances)
+	}
+}

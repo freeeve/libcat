@@ -194,7 +194,8 @@
                       <label class="pick">
                         {#if wi < 9}<kbd class="ord">{wi + 1}</kbd>{/if}
                         <input type="radio" name={"surv-" + g.key} value={w.workId} bind:group={st.survivor} />
-                        keep <a href={"#/works/" + encodeURIComponent(w.workId)}>{w.workId}</a>
+                        keep <a href={"#/works/" + encodeURIComponent(w.workId)}>{w.title || w.workId}</a>
+                        {#if w.title}<span class="wid">{w.workId}</span>{/if}
                       </label>
                     </th>
                   {/each}
@@ -207,6 +208,12 @@
                     {#each g.works as w (w.workId)}
                       <td class:survivor={w.workId === st.survivor}>{values(w.workId, p)}</td>
                     {/each}
+                  </tr>
+                {:else}
+                  <tr>
+                    <td colspan={g.works.length + 1} class="muted">
+                      Nothing to compare -- these works expose no editable fields (still loading, or not real catalog records).
+                    </td>
                   </tr>
                 {/each}
               </tbody>
@@ -290,6 +297,12 @@
     border-bottom-width: 2px;
     border-radius: 4px;
     padding: 0 0.35em;
+  }
+  .wid {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: var(--ink-muted);
   }
   .acts {
     display: flex;
