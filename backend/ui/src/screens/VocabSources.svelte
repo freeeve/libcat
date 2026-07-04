@@ -4,10 +4,45 @@
   // downloadable snapshot), license, and install state; Download fetches the
   // source's SKOS dump into the vocab index (a worker job -- the row polls
   // until it lands), Refresh re-downloads in place, Remove drops the terms.
+  // Admins register drop-in sources (docs/authority-sources.md) right here:
+  // a form over POST /v1/vocabsources plus one-click suggestions, and
+  // registered (non-builtin) sources can be deleted.
   import { onMount } from "svelte";
-  import { ApiError, downloadVocabSource, fetchVocabSources, removeVocabSnapshot } from "../lib/api";
+  import {
+    ApiError,
+    deleteVocabSource,
+    downloadVocabSource,
+    fetchVocabSources,
+    putVocabSource,
+    removeVocabSnapshot,
+  } from "../lib/api";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
-  import type { VocabSourceView } from "../lib/types";
+  import { sessionStore } from "../lib/stores";
+  import type { VocabSource, VocabSourceView } from "../lib/types";
+
+  /** Drop-in sources from docs/authority-sources.md whose dumps the
+   *  converter reads directly (N-Triples, optionally gzipped). Verify the
+   *  URL against the project's downloads page before installing. */
+  const SUGGESTED_SOURCES: (VocabSource & { blurb: string })[] = [
+    {
+      name: "homosaurus",
+      scheme: "homosaurus",
+      license: "CC-BY-4.0",
+      homepage: "https://homosaurus.org",
+      snapshotUrl: "https://homosaurus.org/v4.nt",
+      blurb: "Homosaurus (LGBTQ+ vocabulary)",
+    },
+    {
+      name: "gnd",
+      scheme: "gnd",
+      license: "CC0",
+      homepage: "https://lobid.org/gnd",
+      snapshotUrl: "https://data.dnb.de/opendata/authorities-gnd_lds.nt.gz",
+      blurb: "GND (German authority file)",
+    },
+  ];
+
+  const BLANK_SOURCE: VocabSource = { name: "", scheme: "", license: "", homepage: "", snapshotUrl: "", suggestFlavor: "", suggestUrl: "", suggestDataset: "" };
 
   const SCOPE = "vocabsources";
   const POLL_MS = 4000;
@@ -17,9 +52,12 @@
   let busy = $state("");
   let error = $state("");
   let status = $state("");
+  let newSource = $state<VocabSource>({ ...BLANK_SOURCE });
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const hasActive = $derived(sources.some((s) => s.job?.status === "QUEUED" || s.job?.status === "RUNNING"));
+  const isAdmin = $derived(($sessionStore?.roles ?? []).includes("admin"));
+  const suggestions = $derived(SUGGESTED_SOURCES.filter((s) => !sources.some((v) => v.name === s.name)));
 
   onMount(() => {
     pushScope(SCOPE);
@@ -102,6 +140,35 @@
   function working(s: VocabSourceView): boolean {
     return s.job?.status === "QUEUED" || s.job?.status === "RUNNING";
   }
+
+  /** Registers a drop-in source (or a same-named override of a builtin). */
+  async function register(src: VocabSource): Promise<void> {
+    error = "";
+    status = "";
+    try {
+      const clean = Object.fromEntries(Object.entries(src).filter(([k, v]) => v !== "" && k !== "blurb")) as unknown as VocabSource;
+      await putVocabSource(clean);
+      status = `${src.name} registered -- download its snapshot to install`;
+      newSource = { ...BLANK_SOURCE };
+      await refresh();
+    } catch (e) {
+      error = e instanceof ApiError ? e.message : "registering the source failed";
+    }
+  }
+
+  /** Deletes a registered source (a same-named builtin's shipped
+   *  definition returns). */
+  async function unregister(s: VocabSourceView): Promise<void> {
+    error = "";
+    status = "";
+    try {
+      await deleteVocabSource(s.name);
+      status = `${s.name} deleted`;
+      await refresh();
+    } catch (e) {
+      error = e instanceof ApiError ? e.message : "deleting the source failed";
+    }
+  }
 </script>
 
 <main class="wide">
@@ -172,16 +239,70 @@
                   Remove
                 </button>
               {/if}
+              {#if isAdmin && !s.builtin}
+                <button class="button button--quiet" onclick={() => void unregister(s)} disabled={busy === s.name || working(s)}
+                  title="Delete this registered source definition (an installed snapshot must be removed first)">
+                  Delete source
+                </button>
+              {/if}
             </td>
           </tr>
         {/each}
       </tbody>
     </table>
-    <p class="note">
-      Additional sources (GND, Getty, MeSH, Homosaurus, …) register as drop-in configs through
-      <code>POST /v1/vocabsources</code> -- see <code>docs/authority-sources.md</code>. Download and remove need the
-      admin role.
-    </p>
+    {#if isAdmin}
+      <details class="register">
+        <summary>Register a drop-in source…</summary>
+        <p class="note">
+          A source needs a downloadable SKOS dump (<strong>N-Triples or N-Quads</strong>, optionally gzipped -- not
+          zip, not Turtle) and/or a live typeahead API in one of the implemented dialects. Registering a builtin's
+          name overrides it (delete the override to restore the shipped definition). Details:
+          <code>docs/authority-sources.md</code>.
+        </p>
+        {#if suggestions.length > 0}
+          <div class="suggested">
+            <span class="muted">Suggested:</span>
+            {#each suggestions as s (s.name)}
+              <button class="button button--quiet srcbtn" title={s.snapshotUrl} onclick={() => void register(s)}>
+                + {s.blurb}
+              </button>
+            {/each}
+          </div>
+        {/if}
+        <form
+          class="srcform"
+          onsubmit={(ev) => {
+            ev.preventDefault();
+            void register($state.snapshot(newSource));
+          }}
+        >
+          <input bind:value={newSource.name} aria-label="Source name" placeholder="name (e.g. mesh)" required />
+          <input bind:value={newSource.scheme} aria-label="Vocab scheme" placeholder="scheme (e.g. mesh)" required />
+          <input class="wide2" bind:value={newSource.snapshotUrl} aria-label="Snapshot URL" placeholder="snapshot URL (.nt / .nq, optionally .gz)" />
+          <input bind:value={newSource.license} aria-label="License" placeholder="license (e.g. CC0)" />
+          <input class="wide2" bind:value={newSource.homepage} aria-label="Homepage" placeholder="homepage URL" />
+          <select bind:value={newSource.suggestFlavor} aria-label="Live typeahead dialect">
+            <option value="">no live typeahead</option>
+            <option value="suggest2">suggest2 (id.loc.gov)</option>
+            <option value="wikidata">wikidata (wbsearchentities)</option>
+            <option value="viaf">viaf (AutoSuggest)</option>
+          </select>
+          {#if newSource.suggestFlavor}
+            <input class="wide2" bind:value={newSource.suggestUrl} aria-label="Suggest URL" placeholder="suggest API URL" />
+            {#if newSource.suggestFlavor === "suggest2"}
+              <input bind:value={newSource.suggestDataset} aria-label="Suggest dataset" placeholder="dataset (authorities/subjects)" />
+            {/if}
+          {/if}
+          <button class="button" type="submit" disabled={!newSource.name.trim() || !newSource.scheme.trim()}>Register</button>
+        </form>
+      </details>
+    {:else}
+      <p class="note">
+        Additional sources (GND, Getty, MeSH, Homosaurus, …) register as drop-in configs -- an admin does this from
+        this screen (or <code>POST /v1/vocabsources</code>; see <code>docs/authority-sources.md</code>). Download and
+        remove need the admin role too.
+      </p>
+    {/if}
   {/if}
 </main>
 
@@ -247,6 +368,43 @@
     max-width: 46rem;
     border-left: 3px solid var(--rule);
     padding-left: 0.7rem;
+  }
+  .register {
+    margin-top: 0.9rem;
+  }
+  .register summary {
+    cursor: pointer;
+    color: var(--ink-muted);
+    font-weight: 600;
+  }
+  .suggested {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 0.5rem 0;
+    font-size: 0.85rem;
+  }
+  .srcbtn {
+    font-size: 0.8rem;
+    padding: 0.1em 0.7em;
+  }
+  .srcform {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 0.5rem 0 0.2rem;
+  }
+  .srcform input,
+  .srcform select {
+    font-size: 0.85rem;
+    min-height: 1.9rem;
+  }
+  .srcform .wide2 {
+    min-width: 22rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
   }
   .ok {
     color: var(--accent);

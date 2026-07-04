@@ -49,6 +49,7 @@ import type {
   Term,
   TermRef,
   VocabJob,
+  VocabSource,
   VocabSourceView,
   VocabSuggestion,
   WorkDocResponse,
@@ -570,6 +571,17 @@ export function downloadVocabSource(name: string): Promise<VocabJob> {
 /** Removes an installed snapshot; its terms leave the index (admin). */
 export function removeVocabSnapshot(name: string): Promise<{ removed: boolean }> {
   return call("DELETE", `/v1/vocabsources/${encodeURIComponent(name)}/snapshot`);
+}
+
+/** Registers (or overrides) a drop-in authority source (admin). */
+export function putVocabSource(src: VocabSource): Promise<VocabSource> {
+  return call("POST", "/v1/vocabsources", src);
+}
+
+/** Deletes a registered source; a same-named builtin's shipped definition
+ *  returns (admin). */
+export function deleteVocabSource(name: string): Promise<{ deleted: boolean }> {
+  return call("DELETE", `/v1/vocabsources/${encodeURIComponent(name)}`);
 }
 
 /** Live typeahead against a registered suggest source, proxied server-side
