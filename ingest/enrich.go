@@ -27,6 +27,18 @@ type WorkSummary struct {
 	// Subjects are the Work's controlled subject IRIs (bf:subject with an
 	// IRI object, any graph) -- what authority merges rewrite (tasks/046).
 	Subjects []string
+	// Visibility and holdings signals for the admin works list (tasks/078):
+	// the editor deliberately shows everything, so each row says what the
+	// public projection would do with it.
+	Suppressed bool   `json:",omitempty"`
+	Tombstoned bool   `json:",omitempty"`
+	Withdrawn  string `json:",omitempty"` // date the feed reconciliation flagged it
+	Kept       bool   `json:",omitempty"` // curator keeps it despite withdrawal
+	// Items counts physical holdings across the Work's instances;
+	// HasAvailability reports a live-availability identifier (a digital
+	// holding as long as the Work is not withdrawn).
+	Items           int  `json:",omitempty"`
+	HasAvailability bool `json:",omitempty"`
 }
 
 // Matches reports whether the summary matches a lowercased search query --
@@ -165,6 +177,11 @@ func replaceGrainGraph(ctx context.Context, st blob.Store, grainPath string, gra
 	return fmt.Errorf("ingest: enrichment write kept conflicting")
 }
 
+// availabilitySources are the bf:source schemes a runtime availability
+// adapter can resolve -- the digital-holding signal (tasks/078); mirrors the
+// projector's list.
+var availabilitySources = map[string]bool{"overdrive-reserve": true}
+
 // ScanSummaries walks the grain tree and extracts a WorkSummary per Work,
 // plus each Work's grain path.
 func ScanSummaries(ctx context.Context, st blob.Store, prefix string) ([]WorkSummary, map[string]string, error) {
@@ -255,8 +272,27 @@ func SummarizeGrain(grain []byte) ([]WorkSummary, error) {
 					if v, ok := merged.Literal(ident, "http://www.w3.org/1999/02/22-rdf-syntax-ns#value"); ok {
 						s.ISBNs = append(s.ISBNs, v)
 					}
+					continue
+				}
+				if src, ok := merged.Object(ident, bfNS+"source"); ok {
+					if label, ok := merged.Literal(src, rdfsLabel); ok && availabilitySources[label] {
+						s.HasAvailability = true
+					}
 				}
 			}
+			s.Items += len(merged.Objects(inst, bfNS+"hasItem"))
+		}
+		// Visibility + reconciliation stance (tasks/078); statements are
+		// editorial, so the merged view carries them.
+		s.Tombstoned = len(merged.Objects(work, bibframe.PredTombstoned)) > 0
+		if v, ok := merged.Literal(work, bibframe.PredSuppressed); ok {
+			s.Suppressed = v == "true"
+		}
+		if v, ok := merged.Literal(work, bibframe.PredWithdrawn); ok {
+			s.Withdrawn = v
+		}
+		if v, ok := merged.Literal(work, bibframe.PredFeedKept); ok {
+			s.Kept = v == "true"
 		}
 		sort.Strings(s.Tags)
 		sort.Strings(s.Subjects)

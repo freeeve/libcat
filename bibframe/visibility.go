@@ -16,13 +16,36 @@ const (
 	PredTombstoned = LcatNS + "tombstoned"
 	// PredSuppressed hides a Work from projection: object literal "true".
 	PredSuppressed = LcatNS + "suppressed"
+	// PredWithdrawn flags a Work whose sole bib feed no longer lists it
+	// (tasks/078 reconciliation): object literal is the ISO date of the pass
+	// that noticed. A flag, not a deletion -- identity and editorial
+	// statements survive a title returning to the collection.
+	PredWithdrawn = LcatNS + "withdrawnFromFeed"
+	// PredSuppressedBy records what set the suppression ("feed-reconcile"
+	// for the auto-suppress policy), so clearing a withdrawal un-suppresses
+	// only suppressions that pass created.
+	PredSuppressedBy = LcatNS + "suppressedBy"
+	// PredFeedKept records a curator's "keep despite withdrawal" decision:
+	// object literal "true". Reconciliation never re-flags a kept Work.
+	PredFeedKept = LcatNS + "feedWithdrawalKept"
 )
+
+// SuppressedByReconcile is the PredSuppressedBy actor the auto-suppress
+// reconciliation policy writes.
+const SuppressedByReconcile = "feed-reconcile"
 
 // WorkVisibility is one Work's projection stance.
 type WorkVisibility struct {
 	Tombstoned bool   `json:"tombstoned"`
 	RedirectTo string `json:"redirectTo,omitempty"` // successor Work id, when named
 	Suppressed bool   `json:"suppressed"`
+	// Withdrawn is the date the feed reconciliation flagged this Work as
+	// gone from its sole bib feed ("" = not withdrawn).
+	Withdrawn string `json:"withdrawn,omitempty"`
+	// SuppressedBy names what set the suppression ("" = a curator).
+	SuppressedBy string `json:"suppressedBy,omitempty"`
+	// Kept records a curator's decision to keep the Work despite withdrawal.
+	Kept bool `json:"kept,omitempty"`
 }
 
 // Visibility reads a Work's stance from its grain.
@@ -46,6 +69,12 @@ func Visibility(grainNQ []byte, workID string) (WorkVisibility, error) {
 			}
 		case PredSuppressed:
 			v.Suppressed = q.O.Value == "true"
+		case PredWithdrawn:
+			v.Withdrawn = q.O.Value
+		case PredSuppressedBy:
+			v.SuppressedBy = q.O.Value
+		case PredFeedKept:
+			v.Kept = q.O.Value == "true"
 		}
 	}
 	return v, nil
@@ -67,13 +96,46 @@ func ClearTombstone(grainNQ []byte, workID string) ([]byte, error) {
 	return replaceWorkStatement(grainNQ, workID, PredTombstoned, nil)
 }
 
-// SetSuppressed hides or unhides a Work from projection.
+// SetSuppressed hides or unhides a Work from projection. Unsuppressing also
+// drops any PredSuppressedBy provenance.
 func SetSuppressed(grainNQ []byte, workID string, suppressed bool) ([]byte, error) {
 	if !suppressed {
-		return replaceWorkStatement(grainNQ, workID, PredSuppressed, nil)
+		grainNQ, err := replaceWorkStatement(grainNQ, workID, PredSuppressed, nil)
+		if err != nil {
+			return nil, err
+		}
+		return replaceWorkStatement(grainNQ, workID, PredSuppressedBy, nil)
 	}
 	object := rdf.NewLiteral("true", "", "")
 	return replaceWorkStatement(grainNQ, workID, PredSuppressed, &object)
+}
+
+// SetSuppressedBy records what set a Work's suppression.
+func SetSuppressedBy(grainNQ []byte, workID, actor string) ([]byte, error) {
+	object := rdf.NewLiteral(actor, "", "")
+	return replaceWorkStatement(grainNQ, workID, PredSuppressedBy, &object)
+}
+
+// SetWithdrawn flags a Work as gone from its sole bib feed on the given ISO
+// date; ClearWithdrawn removes the flag.
+func SetWithdrawn(grainNQ []byte, workID, date string) ([]byte, error) {
+	object := rdf.NewLiteral(date, "", "")
+	return replaceWorkStatement(grainNQ, workID, PredWithdrawn, &object)
+}
+
+// ClearWithdrawn removes a Work's withdrawal flag.
+func ClearWithdrawn(grainNQ []byte, workID string) ([]byte, error) {
+	return replaceWorkStatement(grainNQ, workID, PredWithdrawn, nil)
+}
+
+// SetFeedKept records (or clears) a curator's keep-despite-withdrawal
+// decision.
+func SetFeedKept(grainNQ []byte, workID string, kept bool) ([]byte, error) {
+	if !kept {
+		return replaceWorkStatement(grainNQ, workID, PredFeedKept, nil)
+	}
+	object := rdf.NewLiteral("true", "", "")
+	return replaceWorkStatement(grainNQ, workID, PredFeedKept, &object)
 }
 
 // replaceWorkStatement drops every editorial (work, pred, *) statement and,

@@ -18,6 +18,14 @@ export interface WorkSummary {
   Contributors: string[];
   ISBNs: string[];
   Tags: string[];
+  /** Visibility + holdings signals (tasks/078): the editor list shows
+   *  everything, so rows badge what public projection would do. */
+  Suppressed?: boolean;
+  Tombstoned?: boolean;
+  Withdrawn?: string; // date the feed reconciliation flagged it
+  Kept?: boolean;
+  Items?: number;
+  HasAvailability?: boolean;
 }
 
 export interface WorksPage {
@@ -373,6 +381,10 @@ export interface WorkVisibility {
   tombstoned: boolean;
   redirectTo?: string;
   suppressed: boolean;
+  /** Date the feed reconciliation flagged the work withdrawn (tasks/078). */
+  withdrawn?: string;
+  suppressedBy?: string;
+  kept?: boolean;
 }
 
 /** bibframe.Item -- one holding of an instance (minimal bf:Item). */

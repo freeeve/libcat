@@ -117,6 +117,12 @@
       <a class="row-link" href={"#/works/" + encodeURIComponent(w.WorkID)} title={w.Tags?.length ? w.Tags.join(", ") : undefined}>
         <span class="title">{w.Title || "(untitled)"}</span>
         <span class="muted who">{w.Contributors?.join("; ") ?? ""}</span>
+        <span class="flags">
+          {#if w.Tombstoned}<span class="flag" data-kind="tombstoned" title="retired; public search redirects or serves gone">tombstoned</span>{/if}
+          {#if w.Suppressed}<span class="flag" data-kind="suppressed" title="hidden from public projection and search">suppressed</span>{/if}
+          {#if w.Withdrawn}<span class="flag" data-kind="withdrawn" title={"gone from its feed since " + w.Withdrawn + " (tasks/078)"}>withdrawn</span>{/if}
+          {#if !w.Items && !w.HasAvailability && !w.Tombstoned}<span class="flag" data-kind="unheld" title="no items and no live-availability identifier">no holdings</span>{/if}
+        </span>
         <span class="id">{w.WorkID}</span>
       </a>
     {/snippet}
@@ -142,12 +148,34 @@
   }
   .row-link {
     display: grid;
-    grid-template-columns: minmax(12rem, auto) 1fr auto;
+    grid-template-columns: minmax(12rem, auto) 1fr auto auto;
     gap: 0 0.9rem;
     align-items: baseline;
     padding: 0.22rem 0.55rem;
     text-decoration: none;
     color: inherit;
+  }
+  .flags {
+    display: inline-flex;
+    gap: 0.3rem;
+  }
+  .flag {
+    font-size: 0.68rem;
+    font-weight: 650;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.02em 0.55em;
+    color: var(--ink-muted);
+    white-space: nowrap;
+  }
+  .flag[data-kind="suppressed"],
+  .flag[data-kind="tombstoned"] {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .flag[data-kind="withdrawn"] {
+    border-color: #c77d0a;
+    color: #c77d0a;
   }
   .title {
     font-weight: 600;

@@ -27,6 +27,7 @@
   import CopyCat from "./screens/CopyCat.svelte";
   import NewRecord from "./screens/NewRecord.svelte";
   import Duplicates from "./screens/Duplicates.svelte";
+  import Withdrawals from "./screens/Withdrawals.svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
 
   const routes: RouteDef[] = [
@@ -44,6 +45,7 @@
     { name: "copycat", pattern: "/copycat" },
     { name: "newrecord", pattern: "/copycat/new" },
     { name: "duplicates", pattern: "/duplicates" },
+    { name: "withdrawals", pattern: "/withdrawals" },
     { name: "queue", pattern: "/queue" },
     { name: "promotions", pattern: "/promotions" },
   ];
@@ -72,6 +74,7 @@
       "g e": ["/exports", "go to exports"],
       "g i": ["/copycat", "go to import"],
       "g u": ["/duplicates", "go to duplicates"],
+      "g t": ["/withdrawals", "go to withdrawals"],
       "g p": ["/promotions", "go to promotions"],
     };
     const specs: Parameters<typeof bindKeys>[1] = {
@@ -144,6 +147,7 @@
       <a href="#/exports" class:current={route.name === "exports"}>Exports</a>
       <a href="#/copycat" class:current={route.name === "copycat"}>Import</a>
       <a href="#/duplicates" class:current={route.name === "duplicates"}>Duplicates</a>
+      <a href="#/withdrawals" class:current={route.name === "withdrawals"}>Withdrawals</a>
       <a href="#/queue" class:current={route.name === "queue"}>Queue</a>
     </nav>
     <span class="side">
@@ -185,6 +189,8 @@
     <NewRecord />
   {:else if route.name === "duplicates"}
     <Duplicates />
+  {:else if route.name === "withdrawals"}
+    <Withdrawals />
   {:else if route.name === "exports"}
     <Exports
       initialKind={route.query.get("kind") ?? ""}

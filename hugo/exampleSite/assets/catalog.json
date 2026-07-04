@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "works": [
     {
       "id": "wexampleone",
@@ -63,7 +63,8 @@
               "source": "overdrive-reserve",
               "value": "24760f5d-028e-4749-968f-85a458a79ad2"
             }
-          ]
+          ],
+          "held": true
         },
         {
           "id": "iexoneebook",
@@ -76,9 +77,11 @@
               "source": "overdrive-reserve",
               "value": "bbbb2222-cccc-3333-dddd-444455556666"
             }
-          ]
+          ],
+          "held": true
         }
-      ]
+      ],
+      "held": true
     },
     {
       "id": "wexampletwo",
@@ -126,9 +129,11 @@
               "source": "overdrive-reserve",
               "value": "aaaa1111-bbbb-2222-cccc-333344445555"
             }
-          ]
+          ],
+          "held": true
         }
-      ]
+      ],
+      "held": true
     },
     {
       "id": "wexamplethree",
@@ -164,9 +169,11 @@
               "source": "overdrive-reserve",
               "value": "cccc3333-dddd-4444-eeee-555566667777"
             }
-          ]
+          ],
+          "held": true
         }
-      ]
+      ],
+      "held": true
     }
   ]
 }

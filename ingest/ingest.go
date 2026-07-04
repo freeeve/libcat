@@ -22,6 +22,9 @@ type Result struct {
 	MintedInstances int
 	Retired         int
 	Conflicts       []string
+	// WorkIDs are the Works this run's records resolved to -- the presence
+	// set the feed reconciliation pass (tasks/078) diffs the corpus against.
+	WorkIDs []string
 }
 
 // Run ingests a provider's records into canonical grains under out, the shared
@@ -134,6 +137,7 @@ func cluster(recs []Record, prior bibframe.Prior) ([]bibframe.WorkGroup, Result,
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
+	res.WorkIDs = ids
 	works := make([]bibframe.WorkGroup, 0, len(ids))
 	for _, id := range ids {
 		wg := byWork[id]

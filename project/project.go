@@ -62,7 +62,9 @@ const (
 // formats facet, so a clustered mixed-format Work exposes each format (tasks/011).
 // v5 added subject skos:broader parents (Subject.Broader / SubjectFacet.Broader) so
 // consumers render vocabulary hierarchy without re-reading the graph (tasks/015).
-const SchemaVersion = 5
+// v6 added the holdings signal (Instance.Held / Work.Held): physical items or a
+// live-availability identifier whose feed still lists the Work (tasks/078).
+const SchemaVersion = 6
 
 // Catalog is the projected corpus: one record per Work, sorted by id.
 type Catalog struct {
@@ -85,6 +87,10 @@ type Work struct {
 	// so a clustered mixed-format Work is faceted under each format it offers.
 	Formats   []string   `json:"formats,omitempty"`
 	Instances []Instance `json:"instances,omitempty"`
+	// Held is true when any Instance is held (tasks/078): physical items, or
+	// a live-availability identifier whose feed still lists the Work. Whether
+	// unheld Works are hidden or merely badged is the importing site's call.
+	Held bool `json:"held,omitempty"`
 	// Extra holds the Work's non-BIBFRAME adopter display fields (e.g. cover, rating,
 	// dateRead) a provider carried through the feed graph under bibframe.ExtraPred
 	// (tasks/026). The Hugo module forwards it to page params (tasks/022). Omitted (nil)
@@ -125,6 +131,10 @@ type Instance struct {
 	// shelving location, barcode, note -- never circulation state, which
 	// stays live-only (ARCHITECTURE §5).
 	Items []Item `json:"items,omitempty"`
+	// Held is true when this Instance has >=1 item (physical) or a
+	// live-availability identifier whose feed still lists the Work (digital,
+	// unless the reconciliation flagged the Work withdrawn) -- tasks/078.
+	Held bool `json:"held,omitempty"`
 }
 
 // Item is one holding of an Instance (the minimal bf:Item model, tasks/051).
@@ -493,6 +503,12 @@ func (p *projector) work(w rdf.Term) Work {
 	wk.Instances = p.instances(w)
 	wk.Formats = formatUnion(wk.Instances)
 	wk.Extra = p.extras[w.Value]
+	for _, inst := range wk.Instances {
+		if inst.Held {
+			wk.Held = true
+			break
+		}
+	}
 	return wk
 }
 
@@ -739,7 +755,16 @@ func (p *projector) classifications(w rdf.Term) []string {
 	return sortedKeys(set)
 }
 
+// availabilitySources are the bf:source schemes whose identifiers a runtime
+// availability adapter can resolve -- the digital-holding signal for Held
+// (tasks/078). Bibliographic control numbers (LCCN, local ids) are not
+// holdings.
+var availabilitySources = map[string]bool{"overdrive-reserve": true}
+
 func (p *projector) instances(w rdf.Term) []Instance {
+	// A withdrawal flag (tasks/078) means the availability feed stopped
+	// listing this Work: its identifiers no longer count as digital holdings.
+	withdrawn := len(p.view.Objects(w, bibframe.PredWithdrawn)) > 0
 	var out []Instance
 	for _, inst := range p.view.Objects(w, pHasInstance) {
 		i := Instance{ID: fragID(inst.Value, "Instance"), Format: p.instanceFormat(inst)}
@@ -765,6 +790,15 @@ func (p *projector) instances(w rdf.Term) []Instance {
 		})
 		i.ISBNs, i.ProviderIDs = isbns, pids
 		i.Items = p.items(inst)
+		i.Held = len(i.Items) > 0
+		if !i.Held && !withdrawn {
+			for _, pid := range pids {
+				if availabilitySources[pid.Source] {
+					i.Held = true
+					break
+				}
+			}
+		}
 		out = append(out, i)
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].ID < out[b].ID })

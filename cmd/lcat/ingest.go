@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/freeeve/libcatalog/ingest"
+	"github.com/freeeve/libcatalog/storage/blob"
 )
 
 // runIngestCmd ingests any registered provider into canonical grains under --out:
-// `lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>]`.
+// `lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>]
+// [--reconcile review|auto-suppress]`.
 // Which provider runs is a runtime selection against the built-in registry, so
 // enabling a source is a config/flag change, not a code change (ARCHITECTURE §9a,
 // tasks/006). The OverDrive `lcat overdrive` command is a convenience alias for
@@ -21,6 +25,7 @@ func runIngestCmd(args []string) error {
 	source := fs.String("source", "", "provider input (e.g. an OverDrive page-cache directory)")
 	out := fs.String("out", "", "output directory for canonical grains and catalog.nq")
 	feed := fs.String("feed", "", "provenance graph feed:<name> (default: the provider name)")
+	reconcile := fs.String("reconcile", "", "flag feed-only works this scan no longer lists: review | auto-suppress (tasks/078)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -31,13 +36,15 @@ func runIngestCmd(args []string) error {
 		return fmt.Errorf("--out is required")
 	}
 	cfg := ingest.Config{Feed: *feed, Source: *source}
-	return runIngest(reg, *provider, cfg, *out)
+	return runIngest(reg, *provider, cfg, *out, *reconcile)
 }
 
 // runIngest constructs the named provider from reg and runs the shared ingest
-// pipeline into out, surfacing resolver conflicts on stderr and a run summary on
-// stdout. It is shared by `lcat ingest` and the `lcat overdrive` alias.
-func runIngest(reg *ingest.Registry, name string, cfg ingest.Config, out string) error {
+// pipeline into out, surfacing resolver conflicts on stderr and a run summary
+// on stdout. With a reconcile policy it then diffs the corpus against the
+// scan and flags feed-only works the scan no longer lists (tasks/078). It is
+// shared by `lcat ingest` and the `lcat overdrive` alias.
+func runIngest(reg *ingest.Registry, name string, cfg ingest.Config, out, reconcile string) error {
 	prov, err := reg.New(name, cfg)
 	if err != nil {
 		return err
@@ -51,5 +58,22 @@ func runIngest(reg *ingest.Registry, name string, cfg ingest.Config, out string)
 	}
 	fmt.Printf("built %d works from %d instances under %s (feed:%s); minted %d works, %d instances; retired %d works\n",
 		res.Stats.Grains, res.Stats.Records, out, prov.Name(), res.MintedWorks, res.MintedInstances, res.Retired)
+	if reconcile == "" {
+		return nil
+	}
+	present := make(map[string]bool, len(res.WorkIDs))
+	for _, id := range res.WorkIDs {
+		present[id] = true
+	}
+	date := time.Now().UTC().Format("2006-01-02")
+	rec, err := ingest.Reconcile(context.Background(), blob.NewDir(out), "", prov.Name(), present, reconcile, date)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("reconciled feed:%s (%s): %d flagged withdrawn, %d auto-suppressed, %d cleared, %d unsuppressed\n",
+		prov.Name(), reconcile, rec.Flagged, rec.Suppressed, rec.Cleared, rec.Unsuppressed)
+	for _, id := range rec.FlaggedIDs {
+		fmt.Fprintln(os.Stderr, "withdrawn:", id)
+	}
 	return nil
 }

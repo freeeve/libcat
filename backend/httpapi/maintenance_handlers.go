@@ -153,6 +153,72 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 		writeJSON(w, http.StatusOK, map[string]string{"workId": workID, "etag": etag})
 	})))
 
+	// The withdrawal review queue (tasks/078): feed-only works the last
+	// reconciliation flagged as gone from their feed, awaiting a curator's
+	// suppress-or-keep call. Auto-suppressed rows are decided, so they stay
+	// out of the queue.
+	mux.Handle("GET /v1/withdrawn", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		summaries, _, err := ingest.ScanSummaries(r.Context(), bs, "data/works/")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "scan failed")
+			return
+		}
+		queue := []ingest.WorkSummary{}
+		for _, s := range summaries {
+			if s.Withdrawn != "" && !s.Suppressed {
+				queue = append(queue, s)
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"works": queue})
+	})))
+
+	mux.Handle("POST /v1/works/{id}/withdrawn", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		workID := r.PathValue("id")
+		if !workIDPattern.MatchString(workID) {
+			writeError(w, http.StatusBadRequest, "bad work id")
+			return
+		}
+		var req struct {
+			Action string `json:"action"` // keep | suppress
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		mutate := map[string]func([]byte) ([]byte, error){
+			// keep: the withdrawal is overruled -- clear the flag and record
+			// the decision so reconciliation never re-flags this work.
+			"keep": func(g []byte) ([]byte, error) {
+				g, err := bibframe.ClearWithdrawn(g, workID)
+				if err != nil {
+					return nil, err
+				}
+				return bibframe.SetFeedKept(g, workID, true)
+			},
+			// suppress: hide from projection; the flag stays as the reason.
+			"suppress": func(g []byte) ([]byte, error) { return bibframe.SetSuppressed(g, workID, true) },
+		}[req.Action]
+		if mutate == nil {
+			writeError(w, http.StatusBadRequest, "action must be keep|suppress")
+			return
+		}
+		etag, err := mutateWorkGrain(r, bs, workID, mutate)
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if queue != nil {
+			queue.WriteAudit(r.Context(), suggest.AuditEntry{
+				WorkID: workID, Action: "WITHDRAWN_" + req.Action, Actor: id.Email, ETag: etag,
+			})
+		}
+		grain, _, _ := bs.Get(r.Context(), bibframe.GrainPath(workID))
+		v, _ := bibframe.Visibility(grain, workID)
+		w.Header().Set("ETag", etag)
+		writeJSON(w, http.StatusOK, v)
+	})))
+
 	// The duplicate-detection worklist: Works sharing a clustering key
 	// (author+title+language) that nonetheless hold separate ids -- the
 	// candidates the merge tool resolves (tasks/051).

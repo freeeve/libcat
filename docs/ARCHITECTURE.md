@@ -115,7 +115,15 @@ BIBFRAME-native, matching FRBR/LRM:
 - **Availability stays out of the graph.** Available copies / holds / estimated
   wait are live and volatile; they are fetched client-side at view time via a
   provider's availability adapter (see 9), never committed. The graph is
-  diffable precisely because it excludes them.
+  diffable precisely because it excludes them. *Being in the collection at all*
+  is a slower fact the graph does track (`tasks/078`): a post-ingest
+  reconciliation pass flags feed-only Works the latest scan no longer lists
+  (`lcat:withdrawnFromFeed`, editorial graph -- a flag, never a deletion;
+  policy `review` queues them, `auto-suppress` also hides them and un-hides on
+  return), and the projector emits a per-Instance/per-Work `held` boolean
+  (physical items, or a live-availability identifier whose feed still lists the
+  Work) so a site can badge, facet, or hide unheld records -- its call, not the
+  projector's.
 - **Extend, don't fight the model.** Anything BIBFRAME 2.0 doesn't cover uses a
   framework namespace (`lcat:`); a deployment adds its own (e.g. `qll:`). RDF is
   open-world -- extensions never require forking the ontology.

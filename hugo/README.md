@@ -108,8 +108,11 @@ if you need those localized.
 
 Both JSON files carry a top-level `version` (`project.SchemaVersion`). The adapter
 fails the build loudly if `catalog.json`'s version does not match the version the
-module targets (`params.catalogSchemaVersion`, currently **5**). Reproject with a
-matching `lcat` if you hit a mismatch.
+module targets (`params.catalogSchemaVersion`, currently **6**). Reproject with a
+matching `lcat` if you hit a mismatch. v6 added the holdings signal: `held` on each
+instance and work (physical items, or a live-availability identifier whose feed
+still lists the work -- tasks/078). Whether unheld works are hidden, badged, or
+faceted is the site's choice; the module renders them unchanged by default.
 
 ## Live availability (optional)
 

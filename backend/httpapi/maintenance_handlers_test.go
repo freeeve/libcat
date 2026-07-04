@@ -22,6 +22,57 @@ func newMaintenanceAPI(t *testing.T) (http.Handler, blob.Store) {
 	return New(Deps{Blob: bs, DB: store.NewMem(), Verifier: verifier}), bs
 }
 
+// TestWithdrawnQueue is the tasks/078 review surface: a reconciliation-
+// flagged work appears in the queue; "suppress" hides it (leaving the flag
+// as the reason) and "keep" clears the flag with a sticky keep decision.
+func TestWithdrawnQueue(t *testing.T) {
+	h, bs := newMaintenanceAPI(t)
+	const workID = "wvis00000001"
+
+	// Flag the seeded work the way a reconcile pass would.
+	grain, _, _ := bs.Get(t.Context(), bibframe.GrainPath(workID))
+	grain, err := bibframe.SetWithdrawn(grain, workID, "2026-07-03")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), bibframe.GrainPath(workID), grain, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := request(t, h, http.MethodGet, "/v1/withdrawn", "lib-token", "", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), workID) {
+		t.Fatalf("queue = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Suppress: hidden, flag stays, queue empties.
+	rec = request(t, h, http.MethodPost, "/v1/works/"+workID+"/withdrawn", "lib-token", "",
+		map[string]string{"action": "suppress"})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"suppressed":true`) ||
+		!strings.Contains(rec.Body.String(), `"withdrawn":"2026-07-03"`) {
+		t.Fatalf("suppress = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = request(t, h, http.MethodGet, "/v1/withdrawn", "lib-token", "", nil)
+	if strings.Contains(rec.Body.String(), workID) {
+		t.Fatalf("suppressed row still queued: %s", rec.Body.String())
+	}
+
+	// Keep: unsuppress first (the curator changed their mind), then keep --
+	// the flag clears and the decision sticks.
+	request(t, h, http.MethodPost, "/v1/works/"+workID+"/visibility", "lib-token", "",
+		map[string]string{"action": "unsuppress"})
+	rec = request(t, h, http.MethodPost, "/v1/works/"+workID+"/withdrawn", "lib-token", "",
+		map[string]string{"action": "keep"})
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `"withdrawn"`) ||
+		!strings.Contains(rec.Body.String(), `"kept":true`) {
+		t.Fatalf("keep = %d %s", rec.Code, rec.Body.String())
+	}
+
+	if rec := request(t, h, http.MethodPost, "/v1/works/"+workID+"/withdrawn", "lib-token", "",
+		map[string]string{"action": "purge"}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad action = %d", rec.Code)
+	}
+}
+
 func TestVisibilityFlow(t *testing.T) {
 	h, bs := newMaintenanceAPI(t)
 	const workID = "wvis00000001"

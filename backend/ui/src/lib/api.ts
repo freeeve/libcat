@@ -53,6 +53,7 @@ import type {
   VocabSuggestion,
   WorkDocResponse,
   WorksPage,
+  WorkSummary,
 } from "./types";
 
 export class ApiError extends Error {
@@ -115,6 +116,18 @@ async function call<T>(method: string, path: string, body?: unknown, headers?: R
     return (await res.json()) as T;
   }
   throw new ApiError(401, "authentication failed");
+}
+
+/** The withdrawal review queue (tasks/078): reconciliation-flagged works
+ *  awaiting a suppress-or-keep decision (librarian). */
+export function fetchWithdrawn(): Promise<{ works: WorkSummary[] }> {
+  return call("GET", "/v1/withdrawn");
+}
+
+/** Decides one withdrawn work: "suppress" hides it, "keep" clears the flag
+ *  and pins the decision so reconciliation never re-flags it (librarian). */
+export function decideWithdrawn(workId: string, action: "keep" | "suppress"): Promise<WorkVisibility> {
+  return call("POST", `/v1/works/${encodeURIComponent(workId)}/withdrawn`, { action });
 }
 
 /** Work search over the grain tree (librarian); offset pages the matches. */
