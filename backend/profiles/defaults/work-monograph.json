@@ -21,6 +21,15 @@
       "marcHint": "245$b"
     },
     {
+      "path": "contributors",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/contribution", "http://id.loc.gov/ontologies/bibframe/agent", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "label": "Contributors",
+      "help": "Agent names from the record's contributions; edit via the MARC tab for now",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "100/700"
+    },
+    {
       "path": "summary",
       "predicates": ["http://id.loc.gov/ontologies/bibframe/summary", "http://www.w3.org/2000/01/rdf-schema#label"],
       "label": "Summary",
@@ -44,11 +53,44 @@
       "marcHint": "650"
     },
     {
+      "path": "subjectLabels",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/subject", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "label": "Subject headings",
+      "help": "Vendor/uncontrolled headings on subject nodes; reconcile to controlled terms via the lookup",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "650"
+    },
+    {
       "path": "tags",
       "predicates": ["https://github.com/freeeve/libcatalog/ns#tag"],
       "label": "Tags",
       "help": "Uncontrolled community/staff tags",
       "valueSource": {"kind": "literal"}
+    },
+    {
+      "path": "genreForm",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/genreForm", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "label": "Genre / form",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "655"
+    },
+    {
+      "path": "content",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/content"],
+      "label": "Content type",
+      "help": "RDA content IRI (id.loc.gov/vocabulary/contentTypes)",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "336"
+    },
+    {
+      "path": "classification",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/classification", "http://id.loc.gov/ontologies/bibframe/classificationPortion"],
+      "label": "Classification",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "072/084"
     }
   ]
 }

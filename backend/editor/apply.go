@@ -101,6 +101,9 @@ func applyOne(m *Mapper, doc *WorkDoc, workID string, op Op, patch *bibframe.Pat
 	if err != nil {
 		return err
 	}
+	if field.ReadOnly {
+		return fmt.Errorf("field %q is read-only", op.Path)
+	}
 	switch op.Action {
 	case "add":
 		if op.Value == nil {

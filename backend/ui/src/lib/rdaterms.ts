@@ -1,9 +1,9 @@
-// RDA media and carrier types as the LOC value vocabularies the crosswalk
-// emits (id.loc.gov/vocabulary/mediaTypes and /carriers): IRI, human label,
-// and MARC 337/338 code. Small closed lists, so they ship as data -- the
-// editor renders stored IRIs as labels and offers a picker instead of a raw
-// URL box. Unknown IRIs (rdaregistry numerics, local terms) fall back to the
-// generic IRI display.
+// RDA content, media, and carrier types as the LOC value vocabularies the
+// crosswalk emits (id.loc.gov/vocabulary/contentTypes, /mediaTypes, and
+// /carriers): IRI, human label, and MARC 336/337/338 code. Small closed
+// lists, so they ship as data -- the editor renders stored IRIs as labels
+// and offers a picker instead of a raw URL box. Unknown IRIs (rdaregistry
+// numerics, local terms) fall back to the generic IRI display.
 
 export interface RdaTerm {
   iri: string;
@@ -13,12 +13,42 @@ export interface RdaTerm {
   group?: string;
 }
 
+const CONTENT_NS = "http://id.loc.gov/vocabulary/contentTypes/";
 const MEDIA_NS = "http://id.loc.gov/vocabulary/mediaTypes/";
 const CARRIER_NS = "http://id.loc.gov/vocabulary/carriers/";
 
 function terms(ns: string, group: string | undefined, defs: [string, string][]): RdaTerm[] {
   return defs.map(([code, label]) => ({ iri: ns + code, label, code, ...(group ? { group } : {}) }));
 }
+
+/** RDA content types (MARC 336). */
+export const CONTENT_TYPES: RdaTerm[] = terms(CONTENT_NS, undefined, [
+  ["txt", "text"],
+  ["spw", "spoken word"],
+  ["prm", "performed music"],
+  ["ntm", "notated music"],
+  ["ntv", "notated movement"],
+  ["snd", "sounds"],
+  ["sti", "still image"],
+  ["tdi", "two-dimensional moving image"],
+  ["tdm", "three-dimensional moving image"],
+  ["tdf", "three-dimensional form"],
+  ["cri", "cartographic image"],
+  ["crm", "cartographic moving image"],
+  ["crd", "cartographic dataset"],
+  ["crt", "cartographic tactile image"],
+  ["crn", "cartographic tactile three-dimensional form"],
+  ["crf", "cartographic three-dimensional form"],
+  ["cod", "computer dataset"],
+  ["cop", "computer program"],
+  ["tci", "tactile image"],
+  ["tcm", "tactile notated music"],
+  ["tcn", "tactile notated movement"],
+  ["tct", "tactile text"],
+  ["tcf", "tactile three-dimensional form"],
+  ["xxx", "other"],
+  ["zzz", "unspecified"],
+]);
 
 /** RDA media types (MARC 337). */
 export const MEDIA_TYPES: RdaTerm[] = terms(MEDIA_NS, undefined, [
@@ -110,9 +140,9 @@ export const CARRIER_TYPES: RdaTerm[] = [
   ...terms(CARRIER_NS, "unspecified", [["zu", "unspecified"]]),
 ];
 
-const byIRI = new Map<string, RdaTerm>([...MEDIA_TYPES, ...CARRIER_TYPES].map((t) => [t.iri, t]));
+const byIRI = new Map<string, RdaTerm>([...CONTENT_TYPES, ...MEDIA_TYPES, ...CARRIER_TYPES].map((t) => [t.iri, t]));
 
-/** The known media/carrier term for an IRI, or undefined (generic display). */
+/** The known content/media/carrier term for an IRI, or undefined (generic display). */
 export function rdaTerm(iri: string): RdaTerm | undefined {
   return byIRI.get(iri);
 }

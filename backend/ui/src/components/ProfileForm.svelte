@@ -13,11 +13,11 @@
   import { resolveTermURIs } from "../lib/api";
   import { valueKey } from "../lib/ops";
   import { LANGUAGES, LANG_TAGS, languageTerm } from "../lib/languages";
-  import { CARRIER_TYPES, MEDIA_TYPES, rdaTerm, type RdaTerm } from "../lib/rdaterms";
+  import { CARRIER_TYPES, CONTENT_TYPES, MEDIA_TYPES, rdaTerm, type RdaTerm } from "../lib/rdaterms";
   import { bestLabel } from "../lib/vocab";
   import type { FieldValue, Op, OpValue, ResourceDoc, Term } from "../lib/types";
 
-  type FieldKind = "single" | "langLiteral" | "iri" | "vocab" | "tag" | "literal";
+  type FieldKind = "single" | "langLiteral" | "iri" | "vocab" | "tag" | "literal" | "readonly";
 
   interface FieldSpec {
     path: string;
@@ -28,6 +28,10 @@
      *  searchable picker and labeled chips instead of raw URLs; the pinned
      *  "Other IRI…" keeps free entry available. */
     options?: SearchOption[];
+    /** "more" fields fold into the default-collapsed "Additional details"
+     *  disclosure (tasks/083) -- present, but not competing with the
+     *  primary worksheet. */
+    section?: "more";
   }
 
   /** Closed-list terms as searchable-picker entries. */
@@ -36,18 +40,37 @@
   }
 
   // The shipped work-monograph and instance-ebook shapes (profiles/defaults).
+  // "readonly" fields surface values living inside typed blank structures
+  // (contributions, notes, publication) -- rendered with provenance, edited
+  // via the MARC tab until the op layer builds structures (tasks/083).
   const WORK_FIELDS: FieldSpec[] = [
     { path: "title", label: "Title", kind: "single" },
     { path: "subtitle", label: "Subtitle", kind: "single" },
+    { path: "contributors", label: "Contributors", kind: "readonly" },
     { path: "summary", label: "Summary", kind: "langLiteral" },
     { path: "language", label: "Language", kind: "iri", options: termOptions(LANGUAGES) },
     { path: "subjects", label: "Subjects", kind: "vocab" },
+    { path: "subjectLabels", label: "Subject headings", kind: "readonly" },
     { path: "tags", label: "Tags", kind: "tag" },
+    { path: "genreForm", label: "Genre / form", kind: "readonly", section: "more" },
+    { path: "content", label: "Content type", kind: "iri", options: termOptions(CONTENT_TYPES), section: "more" },
+    { path: "classification", label: "Classification", kind: "readonly", section: "more" },
   ];
   const INSTANCE_FIELDS: FieldSpec[] = [
     { path: "isbn", label: "Identifiers", kind: "literal", hint: "9780000000000" },
     { path: "media", label: "Media type", kind: "iri", options: termOptions(MEDIA_TYPES) },
     { path: "carrier", label: "Carrier type", kind: "iri", options: termOptions(CARRIER_TYPES) },
+    { path: "links", label: "Links", kind: "iri", hint: "https://…" },
+    { path: "responsibility", label: "Responsibility", kind: "single", section: "more" },
+    { path: "edition", label: "Edition", kind: "single", section: "more" },
+    { path: "publicationPlace", label: "Publication place", kind: "readonly", section: "more" },
+    { path: "publisher", label: "Publisher", kind: "readonly", section: "more" },
+    { path: "publicationDate", label: "Publication date", kind: "readonly", section: "more" },
+    { path: "extent", label: "Extent", kind: "readonly", section: "more" },
+    { path: "duration", label: "Duration", kind: "single", section: "more" },
+    { path: "notes", label: "Notes", kind: "readonly", section: "more" },
+    { path: "format", label: "Digital format", kind: "readonly", section: "more" },
+    { path: "issuance", label: "Issuance", kind: "readonly", section: "more" },
   ];
 
   const CUSTOM_IRI = "__custom__";
@@ -90,6 +113,9 @@
   const specs = kind === "work" ? WORK_FIELDS : INSTANCE_FIELDS;
   // svelte-ignore state_referenced_locally
   const heading = kind === "work" ? "h2" : "h4";
+  const primarySpecs = specs.filter((s) => !s.section);
+  const moreSpecs = specs.filter((s) => s.section === "more");
+  const moreCount = $derived(moreSpecs.reduce((n, s) => n + (res.fields[s.path]?.length ?? 0), 0));
 
   let entry = $state(Object.fromEntries(specs.map((s) => [s.path, { v: "", lang: "", custom: "", langCustom: "" }])));
   let pickerFor = $state<string | null>(null);
@@ -236,7 +262,7 @@
 </script>
 
 <div class="profileform">
-  {#each specs as spec (spec.path)}
+  {#snippet fieldBlock(spec: FieldSpec)}
     {@const values = res.fields[spec.path] ?? []}
     {@const adds = pendingAdds(spec.path)}
     <div class="field">
@@ -263,6 +289,12 @@
               {@const rt = iriTerm(fv.v)!}
               <span class="v" title={fv.v}>{rt.label}</span>
               <span class="rdacode" title={fv.v}>{rt.code}</span>
+            {:else if fv.iri && /^https?:\/\//.test(fv.v)}
+              {@const p = iriParts(fv.v)}
+              <a class="v iri" href={fv.v} target="_blank" rel="noreferrer" title={fv.v}>
+                {#if p.host}<span class="iri-host">{p.host}</span>{/if}{p.tail}
+              </a>
+              {#if spec.kind === "vocab"}<span class="unres muted">not in local index</span>{/if}
             {:else if fv.iri}
               {@const p = iriParts(fv.v)}
               <span class="v iri" title={fv.v}>
@@ -283,7 +315,7 @@
               <button class="undo" onclick={() => onunstage(removal)} aria-label={"Undo removing " + fv.v}>
                 ✕ undo
               </button>
-            {:else if !fv.overridden}
+            {:else if !fv.overridden && spec.kind !== "readonly"}
               <button class="button button--quiet act" onclick={() => stageRemove(spec.path, fv)}>Remove</button>
             {/if}
           </li>
@@ -407,7 +439,22 @@
         <TagInput id={"tag-" + resource} label="Add a tag" hideLabel placeholder="Type a tag…" onselect={(tag) => onstage({ resource, path: spec.path, action: "add", value: { v: tag } })} />
       {/if}
     </div>
+  {/snippet}
+
+  {#each primarySpecs as spec (spec.path)}
+    {@render fieldBlock(spec)}
   {/each}
+
+  {#if moreSpecs.length > 0}
+    <details class="morefields">
+      <summary>Additional details{#if moreCount > 0}&nbsp;({moreCount}){/if}</summary>
+      <div class="moregrid">
+        {#each moreSpecs as spec (spec.path)}
+          {@render fieldBlock(spec)}
+        {/each}
+      </div>
+    </details>
+  {/if}
 
   {#each extraFields as [path, values] (path)}
     <div class="field">
@@ -480,6 +527,36 @@
     margin: 0;
     padding: 0;
     list-style: none;
+  }
+  /* tasks/083: secondary fields fold under one full-width disclosure; the
+     summary reads like a field label so the closed state stays quiet. */
+  .morefields {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0.55rem 0 0;
+    border-top: 1px solid var(--rule);
+  }
+  .morefields summary {
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--ink-muted);
+  }
+  .moregrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(30rem, 1fr));
+    gap: 0 2.5rem;
+    align-items: start;
+    margin-top: 0.35rem;
+  }
+  a.v.iri {
+    color: inherit;
+    text-decoration-color: var(--ink-muted);
+  }
+  a.v.iri:hover {
+    color: var(--accent);
   }
   @media (max-width: 40rem) {
     .field {

@@ -75,6 +75,14 @@ func TestValidateRejects(t *testing.T) {
 				"http://id.loc.gov/ontologies/bibframe/a",
 				"http://id.loc.gov/ontologies/bibframe/b",
 				"http://id.loc.gov/ontologies/bibframe/c",
+				"http://id.loc.gov/ontologies/bibframe/d",
+			}
+		},
+		"editable 3-chain": func(p *Profile) {
+			p.Fields[0].Predicates = []string{
+				"http://id.loc.gov/ontologies/bibframe/a",
+				"http://id.loc.gov/ontologies/bibframe/b",
+				"http://id.loc.gov/ontologies/bibframe/c",
 			}
 		},
 		"unknown kind":         func(p *Profile) { p.Fields[0].ValueSource.Kind = "magic" },
@@ -107,5 +115,16 @@ func TestValidateRejects(t *testing.T) {
 	p.Fields[0].Default = "2026-07-02"
 	if err := p.Validate(); err != nil {
 		t.Fatalf("date default rejected: %v", err)
+	}
+	// A read-only 3-chain (contribution -> agent -> label) is valid.
+	p = valid()
+	p.Fields[0].Predicates = []string{
+		"http://id.loc.gov/ontologies/bibframe/contribution",
+		"http://id.loc.gov/ontologies/bibframe/agent",
+		"http://www.w3.org/2000/01/rdf-schema#label",
+	}
+	p.Fields[0].ReadOnly = true
+	if err := p.Validate(); err != nil {
+		t.Fatalf("read-only 3-chain rejected: %v", err)
 	}
 }

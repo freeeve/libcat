@@ -15,40 +15,45 @@ import (
 	"github.com/freeeve/libcatalog/backend/profiles"
 )
 
-const marcSample = "../../ingest/overdrive/testdata/marc-express/od-sample-ebook.mrc"
+var marcSamples = []string{
+	"../../ingest/overdrive/testdata/marc-express/od-sample-ebook.mrc",
+	"../../ingest/overdrive/testdata/marc-express/od-sample-audiobook.mrc",
+}
 
-// realGrains ingests the vendored MARC Express sample and returns each
+// realGrains ingests the vendored MARC Express samples and returns each
 // grain's bytes keyed by Work id -- the golden corpus for round-trips.
 func realGrains(t *testing.T) map[string][]byte {
 	t.Helper()
-	dir := t.TempDir()
-	prov, err := marc.New(ingest.Config{Source: marcSample})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ingest.Run(prov, dir); err != nil {
-		t.Fatal(err)
-	}
 	grains := map[string][]byte{}
-	err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".nq") || d.Name() == "catalog.nq" {
-			return err
-		}
-		data, err := os.ReadFile(path)
+	for _, sample := range marcSamples {
+		dir := t.TempDir()
+		prov, err := marc.New(ingest.Config{Source: sample})
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		gi, err := identity.ScanGrain(data)
+		if _, err := ingest.Run(prov, dir); err != nil {
+			t.Fatal(err)
+		}
+		err = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".nq") || d.Name() == "catalog.nq" {
+				return err
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			gi, err := identity.ScanGrain(data)
+			if err != nil {
+				return err
+			}
+			for _, w := range gi.Works {
+				grains[w.WorkID] = data
+			}
+			return nil
+		})
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		for _, w := range gi.Works {
-			grains[w.WorkID] = data
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	if len(grains) == 0 {
 		t.Fatal("no grains")
@@ -119,6 +124,42 @@ func TestFieldExtraction(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no grains had titles")
+	}
+}
+
+// TestStructuredFieldsClaimed proves the tasks/083 additions surface values
+// living inside blank structures: the 3-hop contributor chain and the
+// 2-hop label chains (subject headings, notes, extent, publication) that
+// used to hide in passthrough.
+func TestStructuredFieldsClaimed(t *testing.T) {
+	m := newMapper(t)
+	found := map[string]bool{}
+	for workID, grain := range realGrains(t) {
+		doc, err := m.ToDoc(grain, workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"contributors", "subjectLabels"} {
+			for _, v := range doc.Work.Fields[path] {
+				if v.V != "" && strings.HasPrefix(v.Prov, "feed:") {
+					found[path] = true
+				}
+			}
+		}
+		for _, inst := range doc.Instances {
+			for _, path := range []string{"links", "notes", "extent", "publisher"} {
+				for _, v := range inst.Fields[path] {
+					if v.V != "" {
+						found[path] = true
+					}
+				}
+			}
+		}
+	}
+	for _, path := range []string{"contributors", "subjectLabels", "links", "notes", "extent", "publisher"} {
+		if !found[path] {
+			t.Errorf("no grain surfaced %q", path)
+		}
 	}
 }
 

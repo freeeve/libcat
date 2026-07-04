@@ -167,18 +167,26 @@ func objectSyntax(t rdf.Term) string {
 func claimFields(ds *rdf.Dataset, claimed []bool, node rdf.Term, profile *profiles.Profile, out map[string][]FieldValue, overrides bibframe.Overrides) {
 	for _, field := range profile.Fields {
 		var values []FieldValue
-		switch len(field.Predicates) {
-		case 1:
+		if len(field.Predicates) == 1 {
 			values = claimDirect(ds, claimed, node, field.Predicates[0], overrides, false)
-		case 2:
-			// The link quads (node -> intermediate) stay unclaimed: they
+		} else {
+			// The link quads (node -> intermediates) stay unclaimed: they
 			// belong to the structure, not the value, and passthrough
 			// preserves them. An override marker for a chained field sits
 			// on the chain head (resource, first predicate) -- when
 			// present, every feed-sourced leaf value is shadowed.
 			headOverridden := node.IsIRI() && overrides.Shadows(node.Value, field.Predicates[0])
-			for _, mid := range objectsAll(ds, node, field.Predicates[0]) {
-				values = append(values, claimDirect(ds, claimed, mid, field.Predicates[1], overrides, headOverridden)...)
+			mids := []rdf.Term{node}
+			for _, pred := range field.Predicates[:len(field.Predicates)-1] {
+				var next []rdf.Term
+				for _, mid := range mids {
+					next = append(next, objectsAll(ds, mid, pred)...)
+				}
+				mids = next
+			}
+			leaf := field.Predicates[len(field.Predicates)-1]
+			for _, mid := range mids {
+				values = append(values, claimDirect(ds, claimed, mid, leaf, overrides, headOverridden)...)
 			}
 		}
 		if len(values) > 0 {

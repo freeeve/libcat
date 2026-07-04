@@ -165,6 +165,8 @@ func TestOpValidation(t *testing.T) {
 		"multi for max1":   {Resource: "work", Path: "title", Action: "set", Values: []OpValue{{V: "a"}, {V: "b"}}},
 		"unknown instance": {Resource: "izzznope", Path: "isbn", Action: "add", Value: &OpValue{V: "1"}},
 		"remove missing":   {Resource: "work", Path: "tags", Action: "remove", Value: &OpValue{V: "never added"}},
+		"read-only field":  {Resource: "work", Path: "contributors", Action: "add", Value: &OpValue{V: "Doe, Jane"}},
+		"read-only clear":  {Resource: "work", Path: "subjectLabels", Action: "clear"},
 	}
 	for name, op := range cases {
 		if _, err := ApplyOps(m, grain, workID, []Op{op}); err == nil {

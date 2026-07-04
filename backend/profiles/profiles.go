@@ -70,8 +70,9 @@ type Field struct {
 	// Path is the field's key in the WorkDoc (unique per profile).
 	Path string `json:"path"`
 	// Predicates is the property chain from the resource node to the value:
-	// one IRI for a direct property, two for a value hanging off an
-	// intermediate node (e.g. bf:title -> bf:mainTitle).
+	// one IRI for a direct property, two or three for a value hanging off
+	// intermediate nodes (e.g. bf:title -> bf:mainTitle, or
+	// bf:contribution -> bf:agent -> rdfs:label).
 	Predicates []string `json:"predicates"`
 	Label      string   `json:"label"`
 	Help       string   `json:"help,omitempty"`
@@ -79,8 +80,12 @@ type Field struct {
 	Min         int         `json:"min,omitempty"`
 	Max         int         `json:"max,omitempty"`
 	ValueSource ValueSource `json:"valueSource"`
-	Default     string      `json:"default,omitempty"`
-	Hidden      bool        `json:"hidden,omitempty"`
+	// ReadOnly renders the field's values (with provenance) but rejects
+	// ops against it -- for values living inside typed blank structures
+	// the op layer cannot rebuild yet (e.g. contributions).
+	ReadOnly bool   `json:"readOnly,omitempty"`
+	Default  string `json:"default,omitempty"`
+	Hidden   bool   `json:"hidden,omitempty"`
 	// MarcHint names the roughly-equivalent MARC field for copy catalogers.
 	MarcHint string `json:"marcHint,omitempty"`
 }
@@ -127,8 +132,11 @@ func (p *Profile) Validate() error {
 			return fmt.Errorf("profiles: %s: duplicate field path %q", p.ID, f.Path)
 		}
 		seen[f.Path] = true
-		if n := len(f.Predicates); n < 1 || n > 2 {
-			return fmt.Errorf("profiles: %s/%s: predicate chains must be 1 or 2 long", p.ID, f.Path)
+		if n := len(f.Predicates); n < 1 || n > 3 {
+			return fmt.Errorf("profiles: %s/%s: predicate chains must be 1 to 3 long", p.ID, f.Path)
+		}
+		if len(f.Predicates) == 3 && !f.ReadOnly {
+			return fmt.Errorf("profiles: %s/%s: 3-predicate chains must be readOnly (ops cannot build nested structures)", p.ID, f.Path)
 		}
 		for _, pred := range f.Predicates {
 			if !knownPredicate(pred) {

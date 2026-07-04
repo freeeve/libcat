@@ -25,6 +25,94 @@
       "label": "Carrier type",
       "valueSource": {"kind": "entity"},
       "marcHint": "338"
+    },
+    {
+      "path": "links",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/electronicLocator"],
+      "label": "Links",
+      "help": "Access, cover-image, and sample URLs",
+      "valueSource": {"kind": "entity"},
+      "marcHint": "856$u"
+    },
+    {
+      "path": "responsibility",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/responsibilityStatement"],
+      "label": "Responsibility",
+      "max": 1,
+      "valueSource": {"kind": "literal"},
+      "marcHint": "245$c"
+    },
+    {
+      "path": "edition",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/editionStatement"],
+      "label": "Edition",
+      "max": 1,
+      "valueSource": {"kind": "literal"},
+      "marcHint": "250"
+    },
+    {
+      "path": "publicationPlace",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/provisionActivity", "http://id.loc.gov/ontologies/bflc/simplePlace"],
+      "label": "Publication place",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "260$a"
+    },
+    {
+      "path": "publisher",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/provisionActivity", "http://id.loc.gov/ontologies/bflc/simpleAgent"],
+      "label": "Publisher",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "260$b"
+    },
+    {
+      "path": "publicationDate",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/provisionActivity", "http://id.loc.gov/ontologies/bflc/simpleDate"],
+      "label": "Publication date",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "260$c"
+    },
+    {
+      "path": "extent",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/extent", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "label": "Extent",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "300"
+    },
+    {
+      "path": "duration",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/duration"],
+      "label": "Duration",
+      "max": 1,
+      "valueSource": {"kind": "literal"},
+      "marcHint": "306"
+    },
+    {
+      "path": "notes",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/note", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "label": "Notes",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "500/538"
+    },
+    {
+      "path": "format",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/digitalCharacteristic", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "label": "Digital format",
+      "valueSource": {"kind": "literal"},
+      "readOnly": true,
+      "marcHint": "347"
+    },
+    {
+      "path": "issuance",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/issuance"],
+      "label": "Issuance",
+      "valueSource": {"kind": "entity"},
+      "readOnly": true,
+      "marcHint": "LDR/07"
     }
   ]
 }
