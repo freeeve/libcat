@@ -141,6 +141,126 @@
     }
   }
 
+  // ---- DAIA physical-ILS reference adapter --------------------------------------
+
+  var DAIA_BATCH = 20; // DAIA batches by repeating the id query parameter
+
+  // daiaServiceName reduces a DAIA service (a bare token like "loan", or a URI
+  // like "http://purl.org/ontology/dso#Loan") to its lowercased short name. An
+  // omitted service defaults to loan, DAIA's primary circulation service.
+  function daiaServiceName(s) {
+    var v = String((s && s.service) || "loan");
+    var cut = Math.max(v.lastIndexOf("/"), v.lastIndexOf("#"));
+    return (cut >= 0 ? v.slice(cut + 1) : v).toLowerCase();
+  }
+
+  // daiaItemStatus classifies one holding: a currently-available circulation
+  // service is "available"; else an unavailable service that can be reserved (a
+  // hold href or a queue) is "holdable"; a known-but-out holding is
+  // "unavailable"; nothing decidable is "unknown".
+  function daiaItemStatus(item) {
+    var avail = item.available || [];
+    var unavail = item.unavailable || [];
+    var loanable = avail.some(function (s) {
+      var n = daiaServiceName(s);
+      return n === "loan" || n === "openaccess" || n === "presentation";
+    });
+    if (loanable) return "available";
+    if (unavail.some(function (s) { return s.href || s.queue != null; })) return "holdable";
+    if (unavail.length || avail.length) return "unavailable";
+    return "unknown";
+  }
+
+  // daiaItemLocation maps one holding to a normalized location row. The shelf
+  // location prefers department, then storage, then institution; the due date is
+  // the earliest concrete `expected` on an unavailable service.
+  function daiaItemLocation(item) {
+    var place = item.department || item.storage || item.institution || null;
+    var due;
+    (item.unavailable || []).forEach(function (s) {
+      if (!due && s.expected && s.expected !== "unknown") due = s.expected;
+    });
+    return {
+      library: place ? place.content || place.id : undefined,
+      callNumber: item.label,
+      status: daiaItemStatus(item),
+      dueDate: due,
+    };
+  }
+
+  var STATUS_RANK = { available: 3, holdable: 2, unavailable: 1, unknown: 0 };
+
+  // normalizeDaia maps one DAIA document (a bib record with its holdings) to the
+  // normalized model: locations[] per holding, the best holding status as the
+  // overall status, and the first reservation/catalog href as the action.
+  function normalizeDaia(doc, cfg, now) {
+    var items = doc.item || [];
+    var locations = items.map(daiaItemLocation);
+    var status = locations.reduce(function (best, loc) {
+      return STATUS_RANK[loc.status] > STATUS_RANK[best] ? loc.status : best;
+    }, "unknown");
+    var actionUrl;
+    items.forEach(function (it) {
+      (it.unavailable || []).forEach(function (s) {
+        if (!actionUrl && s.href) actionUrl = s.href;
+      });
+    });
+    if (!actionUrl) items.forEach(function (it) { if (!actionUrl && it.href) actionUrl = it.href; });
+    if (!actionUrl) actionUrl = doc.href;
+    return {
+      provider: "daia",
+      id: doc.id,
+      status: status,
+      format: "physical",
+      locations: locations,
+      actionUrl: actionUrl,
+      fetchedAt: now,
+    };
+  }
+
+  // daiaRequest builds the {url, method, body} for a batch. "direct" issues a
+  // GET with a repeated id parameter (the DAIA query form); "proxied" posts the
+  // batch to a configured proxy that forwards to the ILS behind its scoped
+  // token and returns the same {document} response, so normalization is shared.
+  function daiaRequest(ids, cfg) {
+    if (cfg.transport === "proxied") {
+      if (!cfg.proxyUrl) {
+        throw new Error("lcat-availability: daia.proxyUrl required for proxied transport");
+      }
+      return { url: cfg.proxyUrl, method: "POST", body: { provider: "daia", ids: ids } };
+    }
+    if (!cfg.baseUrl) throw new Error("lcat-availability: daia.baseUrl not configured");
+    var q = ids.map(function (id) { return "id=" + encodeURIComponent(id); }).join("&");
+    return { url: cfg.baseUrl + (cfg.baseUrl.indexOf("?") >= 0 ? "&" : "?") + q + "&format=json", method: "GET" };
+  }
+
+  // fetchDaiaBatch fetches one batch and returns an id->model map, aborting on a
+  // timeout and rejecting on non-2xx so the caller degrades to "unknown".
+  async function fetchDaiaBatch(ids, cfg, deps) {
+    var fetchFn = (deps && deps.fetch) || (typeof fetch !== "undefined" ? fetch : null);
+    if (!fetchFn) throw new Error("lcat-availability: no fetch available");
+    var now = (deps && deps.now) || Date.now();
+    var req = daiaRequest(ids, cfg || {});
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl
+      ? setTimeout(function () { ctrl.abort(); }, (cfg && cfg.timeoutMs) || DEFAULT_TIMEOUT_MS)
+      : null;
+    try {
+      var init = { method: req.method, headers: { "content-type": "application/json" }, signal: ctrl ? ctrl.signal : undefined };
+      if (req.body) init.body = JSON.stringify(req.body);
+      var resp = await fetchFn(req.url, init);
+      if (!resp.ok) throw new Error("availability HTTP " + resp.status);
+      var data = await resp.json();
+      var out = {};
+      (data.document || []).forEach(function (doc) {
+        if (doc && doc.id) out[doc.id] = normalizeDaia(doc, cfg, now);
+      });
+      return out;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   // ---- adapter registry ---------------------------------------------------------
 
   var adapters = {};
@@ -158,6 +278,13 @@
     domAttr: "data-overdrive-reserve",
     batchSize: OVERDRIVE_BATCH,
     fetchBatch: fetchOverdriveBatch,
+  });
+
+  registerAdapter({
+    providerKey: "daia",
+    domAttr: "data-daia-id",
+    batchSize: DAIA_BATCH,
+    fetchBatch: fetchDaiaBatch,
   });
 
   // ---- batching + cache + in-flight de-dup --------------------------------------
@@ -266,11 +393,37 @@
 
   // ---- rendering ----------------------------------------------------------------
 
-  // statusText is the human string for a status, using wait/holds detail when holdable.
+  // locationSummary is the short shelf line for a physical holding: the first
+  // location's library and call number, plus a "+N more" when several hold it.
+  function locationSummary(model) {
+    if (!model.locations || !model.locations.length) return "";
+    var loc = model.locations[0];
+    var parts = [];
+    if (loc.library) parts.push(loc.library);
+    if (loc.callNumber) parts.push(loc.callNumber);
+    var s = parts.join(" · ");
+    if (model.locations.length > 1) s += " (+" + (model.locations.length - 1) + " more)";
+    return s;
+  }
+
+  // earliestDue returns the soonest due date across a model's locations, so a
+  // checked-out physical item can say when it comes back.
+  function earliestDue(model) {
+    var due;
+    (model.locations || []).forEach(function (loc) {
+      if (loc.dueDate && (!due || loc.dueDate < due)) due = loc.dueDate;
+    });
+    return due;
+  }
+
+  // statusText is the human string for a status, using wait/holds detail when
+  // holdable and the shelf location for physical holdings.
   function statusText(model) {
+    var loc = locationSummary(model);
+    var tail = loc ? " · " + loc : "";
     switch (model.status) {
       case "available":
-        return "Available now";
+        return "Available now" + tail;
       case "holdable":
         var t =
           model.estimatedWaitDays != null
@@ -279,9 +432,11 @@
         if (model.holdsCount) {
           t += " · " + model.holdsCount + (model.holdsCount === 1 ? " hold" : " holds");
         }
-        return t;
+        var due = earliestDue(model);
+        if (due) t += " · due " + due;
+        return t + tail;
       case "unavailable":
-        return "Not available";
+        return "Not available" + tail;
       default:
         return ""; // unknown: say nothing rather than mislead
     }
@@ -292,6 +447,12 @@
   function renderInto(el, model) {
     el.setAttribute("data-status", model.status);
     if (model.actionUrl) el.setAttribute("data-action-url", model.actionUrl);
+    if (model.format) el.setAttribute("data-format", model.format);
+    // Physical holdings carry their full location list for a theme that wants to
+    // render a per-branch table rather than the one-line summary.
+    if (model.locations && model.locations.length) {
+      el.setAttribute("data-locations", JSON.stringify(model.locations));
+    }
     el.textContent = statusText(model);
   }
 
@@ -368,7 +529,12 @@
     normalizeOverdrive: normalizeOverdrive,
     overdriveRequest: overdriveRequest,
     fetchOverdriveBatch: fetchOverdriveBatch,
+    daiaItemStatus: daiaItemStatus,
+    normalizeDaia: normalizeDaia,
+    daiaRequest: daiaRequest,
+    fetchDaiaBatch: fetchDaiaBatch,
     statusText: statusText,
+    locationSummary: locationSummary,
     chunk: chunk,
     makeStore: makeStore,
     resolve: resolve,

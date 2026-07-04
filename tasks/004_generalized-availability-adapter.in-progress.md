@@ -82,7 +82,9 @@ deployment that needs an "available now" facet opts into the sidecar at Tier 2.
 - [x] OverDrive availability renders from a `direct` adapter with no committed
   secret; proxy fallback produces identical normalized output (client-side `proxied`
   transport delivered; the proxy *function* is a deployment artifact -- see Remaining).
-- [ ] One physical-ILS adapter renders `locations[]` through the proxy.
+- [x] One physical-ILS adapter renders `locations[]` through the proxy (DAIA
+  adapter delivered + tested, `direct` and `proxied`; the proxy *function* itself
+  stays a deployment artifact -- see Remaining, same boundary as OverDrive).
 - [x] A results page issues one batched call per provider, caches within TTL, and
   never blocks render on a failed fetch.
 - [x] Published feasibility matrix covering at least OverDrive + one physical ILS.
@@ -138,16 +140,41 @@ reasoned as proxied patron-authed. It documents how the transport choice flows t
 adapter and the digital-vs-physical superset. Satisfies acceptance item 4 (OverDrive +
 one physical ILS); the digital-vendor cells are marked for per-deployment verification.
 
+## Delivered -- DAIA physical-ILS adapter (commit pending)
+
+The bundled `daia` adapter (`hugo/assets/lcat-availability.js`) proves the
+digital/physical superset by populating `locations[]` that the digital adapters leave
+empty. It maps a DAIA `document`'s holdings to the normalized model:
+
+- **Status** from each holding's DAIA services -- an available circulation service
+  (`loan`/`openaccess`/`presentation`, bare token or `dso#Loan` URI form) is
+  `available`; an unavailable service that is reservable (a hold `href` or a `queue`) is
+  `holdable`; a known-out holding is `unavailable`; the best holding wins the document
+  status.
+- **`locations[]`** per holding: shelf location (department -> storage -> institution),
+  call number (`label`), per-holding status, and the earliest concrete `expected` due
+  date. `format: "physical"`. The first reservation/catalog `href` becomes `actionUrl`.
+- **Transport**: `direct` GETs a repeated-`id=` DAIA query; `proxied` POSTs
+  `{provider:"daia", ids}` and the proxy returns the ILS's **raw** `{document}`, so both
+  paths normalize identically (proven by a `deepEqual` test).
+- **Rendering**: `statusText` appends the shelf line ("Available now · Main · PZ7", a
+  due date when out, "+N more" across branches); `renderInto` also emits `data-format`
+  and the full `data-locations` JSON for a theme that wants a per-branch table. Editions
+  key on `data-daia-id`; the registry-driven DOM wiring picks them up with no code
+  change. README documents the config (## Physical ILS (DAIA)).
+- **Tests**: 6 new cases in `hugo/availability_test.cjs` (23 total pass) -- service
+  classification incl. URI form, `normalizeDaia` locations/best-status/action, the
+  physical `statusText`, direct-vs-proxied request shape, `resolve` with an omitted id ->
+  unknown, and direct/proxied model equality.
+
 ## Remaining (deferred)
 
 - **The proxy *function*** -- a stateless edge/serverless handler that receives
-  `{provider, slug, ids}`, calls the source, strips secrets, and returns the raw
+  `{provider, ..., ids}`, calls the source, strips secrets, and returns the raw
   response. This is a deployment-repo artifact (the client contract is now defined and
-  tested); ship it only for `proxied` providers so pure-`direct` stays backend-free.
-- **Physical-ILS adapter** (DAIA / ILS-DI) populating `locations[]` -- proves the
-  digital/physical superset; needs the proxy.
-- **Feasibility matrix** (CORS/auth/batch/rate-limit per source: OverDrive,
-  Boundless/Axis 360, hoopla, cloudLibrary, a physical ILS).
+  tested for both OverDrive and DAIA); ship it only for `proxied` providers so
+  pure-`direct` stays backend-free. **A libcodex/deployment-repo task should be filed**
+  once a target edge platform is chosen.
 - **Coarse "available now" facet sidecar** (§ Known trade-off) -- **decided: Tier 2
   add-on** (2026-07-02), out of scope for Tier 1's backend-free path.
 - **Live CORS check** against a real deployment origin (can't verify here); if Thunder

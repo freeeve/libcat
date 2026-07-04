@@ -189,6 +189,106 @@ test("proxied transport yields identical normalized models to direct", async () 
   assert.equal(pFetch.calls[0].url, "https://edge.example/avail");
 });
 
+// ---- DAIA physical-ILS adapter ------------------------------------------------
+
+// makeDaiaFetch returns a mock DAIA endpoint: it reads the requested ids from
+// the query string (direct GET) or the JSON body (proxied POST) and answers with
+// the matching documents from a table, mirroring DAIA's { document: [...] }.
+function makeDaiaFetch(table, opts) {
+  opts = opts || {};
+  const calls = [];
+  const fn = async function (url, init) {
+    let ids;
+    if (init.body) ids = JSON.parse(init.body).ids;
+    else ids = Array.from(url.matchAll(/[?&]id=([^&]+)/g)).map((m) => decodeURIComponent(m[1]));
+    calls.push({ url, method: init.method, ids });
+    if (opts.fail) throw new Error("network down");
+    const document = ids.map((id) => table[id]).filter(Boolean);
+    return { ok: true, status: 200, json: async () => ({ document }) };
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+test("daiaItemStatus: available / holdable / unavailable / unknown; service URI form", () => {
+  assert.equal(A.daiaItemStatus({ available: [{ service: "loan" }] }), "available");
+  assert.equal(A.daiaItemStatus({ available: [{ service: "http://purl.org/ontology/dso#Loan" }] }), "available", "full service URI");
+  assert.equal(A.daiaItemStatus({ available: [{}] }), "available", "omitted service defaults to loan");
+  assert.equal(A.daiaItemStatus({ unavailable: [{ service: "loan", href: "https://ils/hold/x" }] }), "holdable");
+  assert.equal(A.daiaItemStatus({ unavailable: [{ service: "loan", queue: 2 }] }), "holdable", "a queue means reservable");
+  assert.equal(A.daiaItemStatus({ unavailable: [{ service: "loan" }] }), "unavailable", "out with no hold path");
+  assert.equal(A.daiaItemStatus({}), "unknown");
+});
+
+test("normalizeDaia: locations[], best status, physical format, action href", () => {
+  const doc = {
+    id: "d3",
+    item: [
+      { label: "A1", department: { content: "Branch A" }, available: [{ service: "loan" }] },
+      { label: "B1", storage: { content: "Branch B" }, unavailable: [{ service: "loan", expected: "2026-09-01", href: "https://ils/hold/d3" }] },
+    ],
+  };
+  const m = A.normalizeDaia(doc, {}, NOW);
+  assert.equal(m.provider, "daia");
+  assert.equal(m.format, "physical");
+  assert.equal(m.status, "available", "best holding wins the document status");
+  assert.equal(m.locations.length, 2);
+  assert.deepEqual(m.locations[0], { library: "Branch A", callNumber: "A1", status: "available", dueDate: undefined });
+  assert.deepEqual(m.locations[1], { library: "Branch B", callNumber: "B1", status: "holdable", dueDate: "2026-09-01" });
+  assert.equal(m.actionUrl, "https://ils/hold/d3", "first reservation href becomes the action");
+  assert.equal(m.fetchedAt, NOW);
+});
+
+test("statusText: physical holding shows shelf location and due date", () => {
+  assert.equal(
+    A.statusText({ status: "available", locations: [{ library: "Main", callNumber: "PZ7" }] }),
+    "Available now · Main · PZ7"
+  );
+  assert.equal(
+    A.statusText({ status: "holdable", locations: [{ library: "Main", callNumber: "PZ7", dueDate: "2026-08-01" }] }),
+    "Place a hold · due 2026-08-01 · Main · PZ7"
+  );
+  assert.equal(
+    A.statusText({ status: "available", locations: [{ library: "A" }, { library: "B" }, { library: "C" }] }),
+    "Available now · A (+2 more)"
+  );
+});
+
+test("daiaRequest: direct GETs repeated id params, proxied POSTs the batch", () => {
+  const direct = A.daiaRequest(["d1", "d2"], { baseUrl: "https://ils.example/daia" });
+  assert.equal(direct.method, "GET");
+  assert.equal(direct.url, "https://ils.example/daia?id=d1&id=d2&format=json");
+
+  const proxied = A.daiaRequest(["d1"], { transport: "proxied", proxyUrl: "https://edge.example/avail" });
+  assert.equal(proxied.method, "POST");
+  assert.deepEqual(proxied.body, { provider: "daia", ids: ["d1"] });
+
+  assert.throws(() => A.daiaRequest(["d1"], {}), "direct without baseUrl errors");
+  assert.throws(() => A.daiaRequest(["d1"], { transport: "proxied" }), "proxied without proxyUrl errors");
+});
+
+test("resolve(daia): renders locations[], omitted id degrades to unknown", async () => {
+  const table = {
+    d1: { id: "d1", item: [{ label: "PZ7", department: { content: "Main" }, available: [{ service: "loan" }] }] },
+  };
+  const fetch = makeDaiaFetch(table);
+  const out = await A.resolve("daia", ["d1", "d2"], { baseUrl: "https://ils.example/daia" }, { fetch, now: NOW, store: A.makeStore(60000) });
+  assert.equal(out.d1.status, "available");
+  assert.equal(out.d1.locations[0].callNumber, "PZ7");
+  assert.equal(out.d2.status, "unknown", "a document the ILS omits is unknown");
+  assert.equal(fetch.calls[0].method, "GET");
+});
+
+test("resolve(daia): proxied and direct yield identical models", async () => {
+  const table = {
+    d1: { id: "d1", item: [{ label: "QA76", storage: { content: "Annex" }, unavailable: [{ service: "loan", expected: "2026-10-01", href: "https://ils/hold/d1" }] }] },
+  };
+  const d = await A.resolve("daia", ["d1"], { baseUrl: "https://ils.example/daia" }, { fetch: makeDaiaFetch(table), now: NOW, store: A.makeStore(60000) });
+  const p = await A.resolve("daia", ["d1"], { transport: "proxied", proxyUrl: "https://edge.example/avail" }, { fetch: makeDaiaFetch(table), now: NOW, store: A.makeStore(60000) });
+  assert.deepEqual(p.d1, d.d1, "proxied physical model must equal direct");
+  assert.equal(d.d1.status, "holdable");
+});
+
 // fakeDoc returns a minimal document exposing one config script by id.
 function fakeDoc(textContent) {
   return {

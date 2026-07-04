@@ -158,8 +158,33 @@ calling the source directly. The proxy is a thin, stateless forwarder: it uses
 normalizes that same response either way, a proxied fetch yields **identical** models
 to a direct one -- the only difference is the URL. The proxy function itself is a
 deployment artifact (an edge/serverless handler), not shipped by this module; enable
-it per provider so a pure-`direct` deployment stays backend-free. A physical-ILS
-adapter (DAIA/ILS-DI, populating `locations[]`) is future work (`tasks/004`).
+it per provider so a pure-`direct` deployment stays backend-free.
+
+### Physical ILS (DAIA)
+
+The bundled `daia` adapter covers physical holdings via
+[DAIA](https://gbv.github.io/daia/) (Document Availability Information API, spoken by
+Koha, Sierra/ILS-DI bridges, and the GBV DAIA servers), proving the digital/physical
+superset: it populates `locations[]` (per-branch shelf location, call number, status,
+and due date) that the digital adapters leave empty.
+
+```toml
+  [params.availability.daia]
+    transport = "proxied"                        # DAIA endpoints are usually patron/IP-scoped
+    proxyUrl  = "https://your-edge-function.example/availability"
+    # baseUrl = "https://your-ils.example/daia"  # for a CORS-open DAIA server, use direct instead
+```
+
+Editions carry `data-daia-id` (the DAIA document id). The adapter batches ids (a
+repeated `id=` query for `direct`, a `{ "provider": "daia", "ids": [...] }` POST for
+`proxied`), then maps each DAIA `document`'s holdings to the normalized model: the best
+holding wins the overall `status` (`available` when a copy circulates, `holdable` when
+it is out but reservable, else `unavailable`), and every holding becomes a
+`locations[]` row. A theme renders the one-line summary from `data-status` /
+textContent, or the full `data-locations` JSON for a per-branch table. Same proxy
+contract as above: the proxy returns the ILS's **raw** `{ document: [...] }` so the
+client normalizes identically. Live availability stays out of the graph, so the catalog
+still cannot facet or sort by "available now" from the static index (`tasks/004`).
 
 ## Search
 
