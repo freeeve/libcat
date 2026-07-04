@@ -11,6 +11,7 @@
   import VocabPicker from "./VocabPicker.svelte";
   import { resolveTermURIs } from "../lib/api";
   import { valueKey } from "../lib/ops";
+  import { CARRIER_TYPES, MEDIA_TYPES, rdaTerm, type RdaTerm } from "../lib/rdaterms";
   import { bestLabel } from "../lib/vocab";
   import type { FieldValue, Op, OpValue, ResourceDoc, Term } from "../lib/types";
 
@@ -21,6 +22,9 @@
     label: string;
     kind: FieldKind;
     hint?: string;
+    /** Closed-list IRI fields (RDA media/carrier) get a picker and labeled
+     *  chips instead of raw URLs; "Other IRI…" keeps free entry available. */
+    options?: RdaTerm[];
   }
 
   // The shipped work-monograph and instance-ebook shapes (profiles/defaults).
@@ -34,9 +38,23 @@
   ];
   const INSTANCE_FIELDS: FieldSpec[] = [
     { path: "isbn", label: "Identifiers", kind: "literal", hint: "9780000000000" },
-    { path: "media", label: "Media type", kind: "iri", hint: "http://rdaregistry.info/termList/RDAMediaType/1003" },
-    { path: "carrier", label: "Carrier type", kind: "iri", hint: "http://rdaregistry.info/termList/RDACarrierType/1018" },
+    { path: "media", label: "Media type", kind: "iri", options: MEDIA_TYPES },
+    { path: "carrier", label: "Carrier type", kind: "iri", options: CARRIER_TYPES },
   ];
+
+  const CUSTOM_IRI = "__custom__";
+
+  /** Carrier optgroups in list order (media types have no groups). */
+  function groupsOf(options: RdaTerm[]): { name: string; terms: RdaTerm[] }[] {
+    const out: { name: string; terms: RdaTerm[] }[] = [];
+    for (const t of options) {
+      const name = t.group ?? "";
+      const g = out.at(-1)?.name === name ? out.at(-1) : undefined;
+      if (g) g.terms.push(t);
+      else out.push({ name, terms: [t] });
+    }
+    return out;
+  }
 
   let {
     res,
@@ -65,7 +83,7 @@
   // svelte-ignore state_referenced_locally
   const heading = kind === "work" ? "h2" : "h4";
 
-  let entry = $state(Object.fromEntries(specs.map((s) => [s.path, { v: "", lang: "" }])));
+  let entry = $state(Object.fromEntries(specs.map((s) => [s.path, { v: "", lang: "", custom: "" }])));
   let pickerFor = $state<string | null>(null);
   let pickedLabels = $state<Record<string, string>>({});
   // Vocabulary chips (tasks/071): stored URIs resolved to full terms so
@@ -180,14 +198,15 @@
 
   function submitEntry(spec: FieldSpec): void {
     const box = entry[spec.path];
-    const v = box.v.trim();
-    if (!v) return;
+    const v = (box.v === CUSTOM_IRI ? box.custom : box.v).trim();
+    if (!v || v === CUSTOM_IRI) return;
     const value: OpValue = { v };
     if (spec.kind === "langLiteral" && box.lang.trim()) value.lang = box.lang.trim();
     if (spec.kind === "iri") value.iri = true;
     if (spec.kind === "single") onstage({ resource, path: spec.path, action: "set", values: [value] });
     else onstage({ resource, path: spec.path, action: "add", value });
     box.v = "";
+    box.custom = "";
   }
 
   function subjectPicked(term: Term): void {
@@ -223,6 +242,10 @@
                 <span class="chip-scheme">{term.scheme}</span>
                 <span class="chip-caret" aria-hidden="true">{expanded === expKey ? "▾" : "▸"}</span>
               </button>
+            {:else if fv.iri && rdaTerm(fv.v)}
+              {@const rt = rdaTerm(fv.v)!}
+              <span class="v" title={fv.v}>{rt.label}</span>
+              <span class="rdacode" title={fv.v}>{rt.code}</span>
             {:else if fv.iri}
               {@const p = iriParts(fv.v)}
               <span class="v iri" title={fv.v}>
@@ -259,7 +282,11 @@
         {/each}
         {#each adds as p, i (i)}
           <li class="value pending-added">
-            {#if p.value.iri && !pickedLabels[p.value.v] && !resolved[p.value.v]}
+            {#if p.value.iri && rdaTerm(p.value.v)}
+              {@const rt = rdaTerm(p.value.v)!}
+              <span class="v" title={p.value.v}>{rt.label}</span>
+              <span class="rdacode" title={p.value.v}>{rt.code}</span>
+            {:else if p.value.iri && !pickedLabels[p.value.v] && !resolved[p.value.v]}
               {@const ip = iriParts(p.value.v)}
               <span class="v iri" title={p.value.v}>
                 {#if ip.host}<span class="iri-host">{ip.host}</span>{/if}{ip.tail}
@@ -308,6 +335,38 @@
           <input type="text" bind:value={entry[spec.path].v} aria-label={"New " + spec.label.toLowerCase()} placeholder={"Add a " + spec.label.toLowerCase() + "…"} />
           <input class="langbox" type="text" bind:value={entry[spec.path].lang} aria-label="Language tag" placeholder="lang (en)" />
           <button class="button button--quiet act" type="submit">Add</button>
+        </form>
+      {:else if spec.options}
+        <form
+          class="addrow"
+          onsubmit={(ev) => {
+            ev.preventDefault();
+            submitEntry(spec);
+          }}
+        >
+          <select bind:value={entry[spec.path].v} aria-label={"Add a " + spec.label.toLowerCase()}>
+            <option value="">Add a {spec.label.toLowerCase()}…</option>
+            {#each groupsOf(spec.options) as g (g.name)}
+              {#if g.name}
+                <optgroup label={g.name}>
+                  {#each g.terms as t (t.iri)}
+                    <option value={t.iri}>{t.label} ({t.code})</option>
+                  {/each}
+                </optgroup>
+              {:else}
+                {#each g.terms as t (t.iri)}
+                  <option value={t.iri}>{t.label} ({t.code})</option>
+                {/each}
+              {/if}
+            {/each}
+            <option value={CUSTOM_IRI}>Other IRI…</option>
+          </select>
+          {#if entry[spec.path].v === CUSTOM_IRI}
+            <input type="text" class="mono" bind:value={entry[spec.path].custom} aria-label={spec.label + " IRI"} placeholder="http://…" />
+          {/if}
+          <button class="button button--quiet act" type="submit" disabled={!entry[spec.path].v || (entry[spec.path].v === CUSTOM_IRI && !entry[spec.path].custom.trim())}>
+            Add
+          </button>
         </form>
       {:else if spec.kind === "iri" || spec.kind === "literal"}
         <form
@@ -474,6 +533,16 @@
     border: 1px solid var(--rule);
     border-radius: 999px;
     padding: 0.05em 0.55em;
+  }
+  /* An RDA media/carrier value reads as its label; the MARC code rides
+     along muted, the IRI stays in the tooltip. */
+  .rdacode {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--ink-muted);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 0.02em 0.5em;
   }
   .hoodrow {
     list-style: none;
