@@ -11,6 +11,7 @@
   import VocabPicker from "./VocabPicker.svelte";
   import { resolveTermURIs } from "../lib/api";
   import { valueKey } from "../lib/ops";
+  import { LANGUAGES, LANG_TAGS, languageTerm } from "../lib/languages";
   import { CARRIER_TYPES, MEDIA_TYPES, rdaTerm, type RdaTerm } from "../lib/rdaterms";
   import { bestLabel } from "../lib/vocab";
   import type { FieldValue, Op, OpValue, ResourceDoc, Term } from "../lib/types";
@@ -32,7 +33,7 @@
     { path: "title", label: "Title", kind: "single" },
     { path: "subtitle", label: "Subtitle", kind: "single" },
     { path: "summary", label: "Summary", kind: "langLiteral" },
-    { path: "language", label: "Language", kind: "iri", hint: "http://id.loc.gov/vocabulary/languages/eng" },
+    { path: "language", label: "Language", kind: "iri", options: LANGUAGES },
     { path: "subjects", label: "Subjects", kind: "vocab" },
     { path: "tags", label: "Tags", kind: "tag" },
   ];
@@ -43,6 +44,12 @@
   ];
 
   const CUSTOM_IRI = "__custom__";
+
+  /** The known closed-list term (RDA media/carrier or MARC language) for an
+   *  IRI, so stored values render as names instead of URLs. */
+  function iriTerm(v: string): RdaTerm | undefined {
+    return rdaTerm(v) ?? languageTerm(v);
+  }
 
   /** Carrier optgroups in list order (media types have no groups). */
   function groupsOf(options: RdaTerm[]): { name: string; terms: RdaTerm[] }[] {
@@ -83,7 +90,7 @@
   // svelte-ignore state_referenced_locally
   const heading = kind === "work" ? "h2" : "h4";
 
-  let entry = $state(Object.fromEntries(specs.map((s) => [s.path, { v: "", lang: "", custom: "" }])));
+  let entry = $state(Object.fromEntries(specs.map((s) => [s.path, { v: "", lang: "", custom: "", langCustom: "" }])));
   let pickerFor = $state<string | null>(null);
   let pickedLabels = $state<Record<string, string>>({});
   // Vocabulary chips (tasks/071): stored URIs resolved to full terms so
@@ -201,7 +208,8 @@
     const v = (box.v === CUSTOM_IRI ? box.custom : box.v).trim();
     if (!v || v === CUSTOM_IRI) return;
     const value: OpValue = { v };
-    if (spec.kind === "langLiteral" && box.lang.trim()) value.lang = box.lang.trim();
+    const lang = (box.lang === CUSTOM_IRI ? box.langCustom : box.lang).trim();
+    if (spec.kind === "langLiteral" && lang && lang !== CUSTOM_IRI) value.lang = lang;
     if (spec.kind === "iri") value.iri = true;
     if (spec.kind === "single") onstage({ resource, path: spec.path, action: "set", values: [value] });
     else onstage({ resource, path: spec.path, action: "add", value });
@@ -242,8 +250,8 @@
                 <span class="chip-scheme">{term.scheme}</span>
                 <span class="chip-caret" aria-hidden="true">{expanded === expKey ? "▾" : "▸"}</span>
               </button>
-            {:else if fv.iri && rdaTerm(fv.v)}
-              {@const rt = rdaTerm(fv.v)!}
+            {:else if fv.iri && iriTerm(fv.v)}
+              {@const rt = iriTerm(fv.v)!}
               <span class="v" title={fv.v}>{rt.label}</span>
               <span class="rdacode" title={fv.v}>{rt.code}</span>
             {:else if fv.iri}
@@ -282,8 +290,8 @@
         {/each}
         {#each adds as p, i (i)}
           <li class="value pending-added">
-            {#if p.value.iri && rdaTerm(p.value.v)}
-              {@const rt = rdaTerm(p.value.v)!}
+            {#if p.value.iri && iriTerm(p.value.v)}
+              {@const rt = iriTerm(p.value.v)!}
               <span class="v" title={p.value.v}>{rt.label}</span>
               <span class="rdacode" title={p.value.v}>{rt.code}</span>
             {:else if p.value.iri && !pickedLabels[p.value.v] && !resolved[p.value.v]}
@@ -333,7 +341,16 @@
           }}
         >
           <input type="text" bind:value={entry[spec.path].v} aria-label={"New " + spec.label.toLowerCase()} placeholder={"Add a " + spec.label.toLowerCase() + "…"} />
-          <input class="langbox" type="text" bind:value={entry[spec.path].lang} aria-label="Language tag" placeholder="lang (en)" />
+          <select class="langbox" bind:value={entry[spec.path].lang} aria-label="Language tag">
+            <option value="">no language tag</option>
+            {#each LANG_TAGS as lt (lt.tag)}
+              <option value={lt.tag}>{lt.label} ({lt.tag})</option>
+            {/each}
+            <option value={CUSTOM_IRI}>Other tag…</option>
+          </select>
+          {#if entry[spec.path].lang === CUSTOM_IRI}
+            <input class="langbox" type="text" bind:value={entry[spec.path].langCustom} aria-label="Custom language tag" placeholder="tag (pt-BR)" />
+          {/if}
           <button class="button button--quiet act" type="submit">Add</button>
         </form>
       {:else if spec.options}
@@ -608,6 +625,7 @@
     flex-wrap: wrap;
   }
   .addrow input,
+  .addrow select,
   .addrow :global(.button) {
     min-height: 1.8rem;
     font-size: 0.85rem;
@@ -620,7 +638,7 @@
     font-size: 0.8rem;
     min-width: 22rem;
   }
-  .addrow .langbox {
+  .addrow input.langbox {
     min-width: 6rem;
     width: 6rem;
   }
