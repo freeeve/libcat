@@ -12,6 +12,7 @@
   import VocabPicker from "./VocabPicker.svelte";
   import { resolveTermURIs } from "../lib/api";
   import { bisacTerm, type BisacTerm } from "../lib/bisac";
+  import { linkInfo } from "../lib/links";
   import { valueKey } from "../lib/ops";
   import { LANGUAGES, LANG_TAGS, languageTerm } from "../lib/languages";
   import { CARRIER_TYPES, CONTENT_TYPES, MEDIA_TYPES, rdaTerm, type RdaTerm } from "../lib/rdaterms";
@@ -293,6 +294,20 @@
               {@const rt = iriTerm(fv.v)!}
               <span class="v" title={fv.v}>{rt.label}</span>
               <span class="rdacode" title={fv.v}>{rt.code}</span>
+            {:else if fv.iri && spec.path === "links" && /^https?:\/\//.test(fv.v)}
+              {@const li = linkInfo(fv.v)}
+              {@const p = iriParts(fv.v)}
+              <a class="v linkval" href={fv.v} target="_blank" rel="noreferrer" title={fv.v}>
+                {#if li.image}
+                  <img class="linkthumb" src={fv.v} alt={li.label || "linked image"} loading="lazy" />
+                {/if}
+                {#if li.label}
+                  <span class="linklabel">{li.label}</span>
+                  <span class="iri linkhost">{p.host}</span>
+                {:else}
+                  <span class="iri">{#if p.host}<span class="iri-host">{p.host}</span>{/if}{p.tail}</span>
+                {/if}
+              </a>
             {:else if fv.iri && /^https?:\/\//.test(fv.v)}
               {@const p = iriParts(fv.v)}
               <a class="v iri" href={fv.v} target="_blank" rel="noreferrer" title={fv.v}>
@@ -658,6 +673,32 @@
   }
   .iri-host::after {
     content: " › ";
+  }
+  .linkval {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+  }
+  .linkval:hover .linklabel {
+    text-decoration: underline;
+  }
+  .linkthumb {
+    display: block;
+    height: 3.4rem;
+    width: auto;
+    max-width: 6rem;
+    object-fit: cover;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: var(--surface-2, transparent);
+  }
+  .linklabel {
+    font-weight: 600;
+  }
+  .linkhost {
+    color: var(--ink-muted);
+    font-size: 0.8em;
   }
   .value.overridden .v,
   .value.pending-removed .v {
