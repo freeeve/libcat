@@ -30,6 +30,36 @@ editing, and exports all work against the local directory; published edits
 land as `editorial:` quads in the grain files, ready for
 `lcat serialize && lcat project`.
 
+## Read-only demo on Lambda (Function URL, ~$0)
+
+A public **read-only** instance (patrons/catalogers explore but nothing
+persists, `LCATD_READ_ONLY=1`) needs no DynamoDB or S3: the in-memory document
+store plus a **bundled read-only grain dir** is enough, and each cold start
+re-creates the bootstrap admin. `cmd/lcatd-lambda` builds the same handler as
+`cmd/lcatd` (shared `backend/appdeps`) and serves the embedded SPA + API through
+the Lambda adapter, so a **Function URL** (no API Gateway -> no per-request
+charge) keeps it inside Lambda's always-free tier.
+
+```sh
+cd backend
+# Build the SPA into the binary, then the arm64 Lambda bootstrap.
+(cd ui && npm ci && npm run build)
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bootstrap ./cmd/lcatd-lambda
+# Bundle the read-only grains next to the binary (LCATD_BLOB_DIR points at them).
+zip -r lcatd-demo.zip bootstrap grains/
+```
+
+Deploy the zip as a `provided.al2023` (arm64) function with a Function URL and:
+`LCATD_READ_ONLY=1`, `LCATD_BLOB_DIR=/var/task/grains`, `LCATD_LOCAL_AUTH=1`,
+`LCATD_BOOTSTRAP_ADMIN=demo@example.org:<pw>`, `LCATD_LOCAL_SIGNING_KEY=<key>`
+(a stable key so a session survives a warm instance), `LCATD_ABUSE_SECRET=<...>`.
+Background workers are skipped in read-only mode, so the freeze-between-
+invocations model is fine. Optionally front it with CloudFront for a custom
+domain and edge-cached `/assets/*`. Caveat: concurrent cold instances have
+separate in-memory stores, so token *refresh* can miss across instances -- use a
+generous access-token TTL. The **writable** production stack (below) is a
+separate deployment (tasks/099).
+
 ## Terraform (AWS reference)
 
 ```sh
