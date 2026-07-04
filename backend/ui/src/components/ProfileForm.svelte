@@ -6,6 +6,7 @@
   // optimistically: pending values carry an undo, suppressed values strike
   // through before the save even lands.
   import ProvenanceBadge from "./ProvenanceBadge.svelte";
+  import SearchSelect, { type SearchOption } from "./SearchSelect.svelte";
   import SubjectNeighborhood from "./SubjectNeighborhood.svelte";
   import TagInput from "./TagInput.svelte";
   import VocabPicker from "./VocabPicker.svelte";
@@ -23,9 +24,15 @@
     label: string;
     kind: FieldKind;
     hint?: string;
-    /** Closed-list IRI fields (RDA media/carrier) get a picker and labeled
-     *  chips instead of raw URLs; "Other IRI…" keeps free entry available. */
-    options?: RdaTerm[];
+    /** Closed-list IRI fields (RDA media/carrier, MARC languages) get a
+     *  searchable picker and labeled chips instead of raw URLs; the pinned
+     *  "Other IRI…" keeps free entry available. */
+    options?: SearchOption[];
+  }
+
+  /** Closed-list terms as searchable-picker entries. */
+  function termOptions(terms: RdaTerm[]): SearchOption[] {
+    return terms.map((t) => ({ value: t.iri, label: t.label, code: t.code, group: t.group }));
   }
 
   // The shipped work-monograph and instance-ebook shapes (profiles/defaults).
@@ -33,34 +40,28 @@
     { path: "title", label: "Title", kind: "single" },
     { path: "subtitle", label: "Subtitle", kind: "single" },
     { path: "summary", label: "Summary", kind: "langLiteral" },
-    { path: "language", label: "Language", kind: "iri", options: LANGUAGES },
+    { path: "language", label: "Language", kind: "iri", options: termOptions(LANGUAGES) },
     { path: "subjects", label: "Subjects", kind: "vocab" },
     { path: "tags", label: "Tags", kind: "tag" },
   ];
   const INSTANCE_FIELDS: FieldSpec[] = [
     { path: "isbn", label: "Identifiers", kind: "literal", hint: "9780000000000" },
-    { path: "media", label: "Media type", kind: "iri", options: MEDIA_TYPES },
-    { path: "carrier", label: "Carrier type", kind: "iri", options: CARRIER_TYPES },
+    { path: "media", label: "Media type", kind: "iri", options: termOptions(MEDIA_TYPES) },
+    { path: "carrier", label: "Carrier type", kind: "iri", options: termOptions(CARRIER_TYPES) },
   ];
 
   const CUSTOM_IRI = "__custom__";
+  const OTHER_IRI: SearchOption[] = [{ value: CUSTOM_IRI, label: "Other IRI…" }];
+  const LANG_TAG_OPTIONS: SearchOption[] = LANG_TAGS.map((lt) => ({ value: lt.tag, label: lt.label, code: lt.tag }));
+  const LANG_TAG_PINNED: SearchOption[] = [
+    { value: "", label: "no language tag" },
+    { value: CUSTOM_IRI, label: "Other tag…" },
+  ];
 
   /** The known closed-list term (RDA media/carrier or MARC language) for an
    *  IRI, so stored values render as names instead of URLs. */
   function iriTerm(v: string): RdaTerm | undefined {
     return rdaTerm(v) ?? languageTerm(v);
-  }
-
-  /** Carrier optgroups in list order (media types have no groups). */
-  function groupsOf(options: RdaTerm[]): { name: string; terms: RdaTerm[] }[] {
-    const out: { name: string; terms: RdaTerm[] }[] = [];
-    for (const t of options) {
-      const name = t.group ?? "";
-      const g = out.at(-1)?.name === name ? out.at(-1) : undefined;
-      if (g) g.terms.push(t);
-      else out.push({ name, terms: [t] });
-    }
-    return out;
   }
 
   let {
@@ -341,13 +342,9 @@
           }}
         >
           <input type="text" bind:value={entry[spec.path].v} aria-label={"New " + spec.label.toLowerCase()} placeholder={"Add a " + spec.label.toLowerCase() + "…"} />
-          <select class="langbox" bind:value={entry[spec.path].lang} aria-label="Language tag">
-            <option value="">no language tag</option>
-            {#each LANG_TAGS as lt (lt.tag)}
-              <option value={lt.tag}>{lt.label} ({lt.tag})</option>
-            {/each}
-            <option value={CUSTOM_IRI}>Other tag…</option>
-          </select>
+          <div class="langpick">
+            <SearchSelect options={LANG_TAG_OPTIONS} pinned={LANG_TAG_PINNED} bind:value={entry[spec.path].lang} ariaLabel="Language tag" placeholder="no language tag" />
+          </div>
           {#if entry[spec.path].lang === CUSTOM_IRI}
             <input class="langbox" type="text" bind:value={entry[spec.path].langCustom} aria-label="Custom language tag" placeholder="tag (pt-BR)" />
           {/if}
@@ -361,23 +358,13 @@
             submitEntry(spec);
           }}
         >
-          <select bind:value={entry[spec.path].v} aria-label={"Add a " + spec.label.toLowerCase()}>
-            <option value="">Add a {spec.label.toLowerCase()}…</option>
-            {#each groupsOf(spec.options) as g (g.name)}
-              {#if g.name}
-                <optgroup label={g.name}>
-                  {#each g.terms as t (t.iri)}
-                    <option value={t.iri}>{t.label} ({t.code})</option>
-                  {/each}
-                </optgroup>
-              {:else}
-                {#each g.terms as t (t.iri)}
-                  <option value={t.iri}>{t.label} ({t.code})</option>
-                {/each}
-              {/if}
-            {/each}
-            <option value={CUSTOM_IRI}>Other IRI…</option>
-          </select>
+          <SearchSelect
+            options={spec.options}
+            pinned={OTHER_IRI}
+            bind:value={entry[spec.path].v}
+            ariaLabel={"Add a " + spec.label.toLowerCase()}
+            placeholder={"Add a " + spec.label.toLowerCase() + "…"}
+          />
           {#if entry[spec.path].v === CUSTOM_IRI}
             <input type="text" class="mono" bind:value={entry[spec.path].custom} aria-label={spec.label + " IRI"} placeholder="http://…" />
           {/if}
@@ -625,7 +612,7 @@
     flex-wrap: wrap;
   }
   .addrow input,
-  .addrow select,
+  .addrow :global(.searchselect input),
   .addrow :global(.button) {
     min-height: 1.8rem;
     font-size: 0.85rem;
@@ -641,5 +628,13 @@
   .addrow input.langbox {
     min-width: 6rem;
     width: 6rem;
+  }
+  /* Term pickers get room for long labels ("Creoles and Pidgins, …"); the
+     tag picker stays subordinate to the literal box beside it. */
+  .addrow > :global(.searchselect) {
+    min-width: 18rem;
+  }
+  .langpick :global(.searchselect) {
+    min-width: 11rem;
   }
 </style>
