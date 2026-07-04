@@ -1,0 +1,19 @@
+{
+  "id": "audiobook",
+  "label": "Audiobook (nonmusical sound)",
+  "record": {
+    "node": "",
+    "leader": "00000nim a2200000 a 4500",
+    "fields": [
+      { "tag": "008", "value": "      s        xx                  eng d" },
+      { "tag": "020", "ind1": " ", "ind2": " ", "subfields": [{ "code": "a", "value": "" }] },
+      { "tag": "100", "ind1": "1", "ind2": " ", "subfields": [{ "code": "a", "value": "" }] },
+      { "tag": "245", "ind1": "1", "ind2": "0", "subfields": [{ "code": "a", "value": "" }, { "code": "b", "value": "" }, { "code": "c", "value": "" }] },
+      { "tag": "264", "ind1": " ", "ind2": "1", "subfields": [{ "code": "a", "value": "" }, { "code": "b", "value": "" }, { "code": "c", "value": "" }] },
+      { "tag": "300", "ind1": " ", "ind2": " ", "subfields": [{ "code": "a", "value": "" }] },
+      { "tag": "306", "ind1": " ", "ind2": " ", "subfields": [{ "code": "a", "value": "" }] },
+      { "tag": "511", "ind1": "0", "ind2": " ", "subfields": [{ "code": "a", "value": "" }] },
+      { "tag": "650", "ind1": " ", "ind2": "0", "subfields": [{ "code": "a", "value": "" }] }
+    ]
+  }
+}

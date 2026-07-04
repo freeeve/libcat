@@ -63,6 +63,40 @@ func registerCopycat(mux *http.ServeMux, svc *copycat.Service, verifier auth.Tok
 		writeJSON(w, http.StatusOK, map[string]any{"results": results, "failures": failures})
 	})))
 
+	// Original cataloging (tasks/077): blank-record skeletons, and staging a
+	// record born in the editor rather than fetched from a target.
+	mux.Handle("GET /v1/copycat/templates", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		templates, err := copycat.LoadTemplates()
+		if writeCopycatError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"templates": templates})
+	})))
+
+	mux.Handle("POST /v1/copycat/original", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		var req struct {
+			Label  string             `json:"label"`
+			Record marcview.RecordDoc `json:"record"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		batch, records, fieldErrs, err := svc.StageOriginal(r.Context(), req.Label, req.Record, id.Email)
+		if len(fieldErrs) > 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{
+				"error":  "the record fails minimum viability",
+				"fields": fieldErrs,
+			})
+			return
+		}
+		if writeCopycatError(w, err) {
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"batch": batch, "records": records})
+	})))
+
 	mux.Handle("POST /v1/copycat/batches", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := auth.FromContext(r.Context())
 		var req struct {

@@ -47,6 +47,9 @@
 
   const SCOPE = "copycat";
 
+  /** A ?batch= deep link (the tasks/077 stage flow) opens that batch. */
+  let { batchId = "" }: { batchId?: string } = $props();
+
   const st = screenState("copycat", () => ({
     query: "",
     advanced: false,
@@ -91,6 +94,7 @@
     void loadTargets();
     void loadBatches();
     void loadProfiles();
+    if (batchId) void open(batchId);
     return unbind;
   });
 
@@ -360,6 +364,7 @@
       <label class="button button--quiet upload-btn">
         Stage a .mrc file… <input type="file" accept=".mrc,.marc" onchange={(ev) => void upload(ev)} hidden />
       </label>
+      <a class="button button--quiet" href="#/copycat/new">New record…</a>
     </div>
     {#if st.advanced}
       <div class="fielded" role="group" aria-label="Fielded search">

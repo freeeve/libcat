@@ -25,6 +25,7 @@
   import Exports from "./screens/Exports.svelte";
   import VocabSources from "./screens/VocabSources.svelte";
   import CopyCat from "./screens/CopyCat.svelte";
+  import NewRecord from "./screens/NewRecord.svelte";
   import Duplicates from "./screens/Duplicates.svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
 
@@ -41,6 +42,7 @@
     { name: "macros", pattern: "/macros" },
     { name: "exports", pattern: "/exports" },
     { name: "copycat", pattern: "/copycat" },
+    { name: "newrecord", pattern: "/copycat/new" },
     { name: "duplicates", pattern: "/duplicates" },
     { name: "queue", pattern: "/queue" },
     { name: "promotions", pattern: "/promotions" },
@@ -178,7 +180,9 @@
   {:else if route.name === "macros"}
     <Macros />
   {:else if route.name === "copycat"}
-    <CopyCat />
+    <CopyCat batchId={route.query.get("batch") ?? ""} />
+  {:else if route.name === "newrecord"}
+    <NewRecord />
   {:else if route.name === "duplicates"}
     <Duplicates />
   {:else if route.name === "exports"}

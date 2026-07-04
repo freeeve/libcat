@@ -438,6 +438,19 @@ export interface CopycatFieldTerm {
   term: string;
 }
 
+/** copycat.Template -- a blank-record MARC skeleton (tasks/077). */
+export interface CopycatTemplate {
+  id: string;
+  label: string;
+  record: MarcRecordDoc;
+}
+
+/** copycat.FieldError -- a validation failure anchored to a MARC field. */
+export interface MarcFieldError {
+  tag: string;
+  message: string;
+}
+
 /** copycat.StagedRecord -- one reviewable record of a batch. */
 export interface CopycatStagedRecord {
   index: number;

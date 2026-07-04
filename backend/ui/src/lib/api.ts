@@ -19,6 +19,8 @@ import type {
   CopycatSearchResult,
   CopycatStagedRecord,
   CopycatTarget,
+  CopycatTemplate,
+  MarcFieldError,
   DecidePromotionResponse,
   DuplicateGroup,
   WorkItem,
@@ -70,6 +72,17 @@ export class ConflictError extends ApiError {
   }
 }
 
+/** A refusal carrying field-anchored validation errors (tasks/077). */
+export class FieldedApiError extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    public fields: MarcFieldError[],
+  ) {
+    super(status, message);
+  }
+}
+
 async function call<T>(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getToken();
@@ -92,7 +105,10 @@ async function call<T>(method: string, path: string, body?: unknown, headers?: R
       throw new ConflictError(state ?? { workId: "", etag: "", nquads: "" });
     }
     if (!res.ok) {
-      const detail = await res.json().catch(() => ({}) as { error?: string });
+      const detail = (await res.json().catch(() => ({}))) as { error?: string; fields?: MarcFieldError[] };
+      if (Array.isArray(detail.fields) && detail.fields.length > 0) {
+        throw new FieldedApiError(res.status, detail.error || res.statusText, detail.fields);
+      }
       throw new ApiError(res.status, detail.error || res.statusText);
     }
     if (res.status === 204) return undefined as T; // e.g. folk governance
@@ -338,6 +354,20 @@ export function stageCopycatBatch(req: {
   policy?: CopycatPolicy;
 }): Promise<{ batch: CopycatBatch; records: CopycatStagedRecord[] }> {
   return call("POST", "/v1/copycat/batches", req);
+}
+
+/** The blank-record MARC skeletons for original cataloging (librarian). */
+export function fetchCopycatTemplates(): Promise<{ templates: CopycatTemplate[] }> {
+  return call("GET", "/v1/copycat/templates");
+}
+
+/** Stages one editor-born record as a source "original" batch (librarian).
+ *  A record failing minimum viability rejects with FieldedApiError. */
+export function stageOriginalRecord(
+  label: string,
+  record: MarcRecordDoc,
+): Promise<{ batch: CopycatBatch; records: CopycatStagedRecord[] }> {
+  return call("POST", "/v1/copycat/original", { label, record });
 }
 
 /** Every staged import, newest first (librarian). */

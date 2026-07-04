@@ -15,6 +15,7 @@ import (
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/copycat"
+	"github.com/freeeve/libcatalog/backend/marcview"
 	"github.com/freeeve/libcatalog/backend/store"
 )
 
@@ -131,5 +132,45 @@ func TestCopycatFlow(t *testing.T) {
 	rec = request(t, h, http.MethodGet, "/v1/copycat/batches", "lib-token", "", nil)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "COMMITTED") {
 		t.Fatalf("batches = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestOriginalRecordFlow is the tasks/077 surface: templates list, the
+// field-anchored refusal, and staging a titled draft as source "original".
+func TestOriginalRecordFlow(t *testing.T) {
+	h, _ := newCopycatAPI(t)
+
+	rec := request(t, h, http.MethodGet, "/v1/copycat/templates", "lib-token", "", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"id":"book"`) {
+		t.Fatalf("templates = %d %s", rec.Code, rec.Body.String())
+	}
+	var tpls struct {
+		Templates []copycat.Template `json:"templates"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &tpls); err != nil {
+		t.Fatal(err)
+	}
+	var book copycat.Template
+	for _, tpl := range tpls.Templates {
+		if tpl.ID == "book" {
+			book = tpl
+		}
+	}
+
+	// Untitled skeleton: refused with the error anchored to 245.
+	rec = request(t, h, http.MethodPost, "/v1/copycat/original", "lib-token", "", map[string]any{"record": book.Record})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"tag":"245"`) {
+		t.Fatalf("untitled = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Titled: stages as a normal batch with source "original".
+	for i, f := range book.Record.Fields {
+		if f.Tag == "245" {
+			book.Record.Fields[i].Subfields = []marcview.Subfield{{Code: "a", Value: "Original works"}}
+		}
+	}
+	rec = request(t, h, http.MethodPost, "/v1/copycat/original", "lib-token", "", map[string]any{"record": book.Record})
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"source":"original"`) {
+		t.Fatalf("stage = %d %s", rec.Code, rec.Body.String())
 	}
 }
