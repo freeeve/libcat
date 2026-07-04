@@ -24,6 +24,7 @@ type Options struct {
 func Run(t *testing.T, s store.Store, opts Options) {
 	t.Run("GetMissing", func(t *testing.T) { testGetMissing(t, s) })
 	t.Run("PutGetRoundTrip", func(t *testing.T) { testPutGetRoundTrip(t, s) })
+	t.Run("EmptyData", func(t *testing.T) { testEmptyData(t, s) })
 	t.Run("VersionLifecycle", func(t *testing.T) { testVersionLifecycle(t, s) })
 	t.Run("CondIfAbsent", func(t *testing.T) { testCondIfAbsent(t, s) })
 	t.Run("CondIfVersion", func(t *testing.T) { testCondIfVersion(t, s) })
@@ -69,6 +70,52 @@ func testPutGetRoundTrip(t *testing.T, s store.Store) {
 	}
 	if !got.ExpireAt.IsZero() {
 		t.Fatalf("ExpireAt = %v, want zero", got.ExpireAt)
+	}
+}
+
+// testEmptyData covers data-less records: index/existence markers that carry a
+// key and version but no payload. The mem store admits them and callers rely on
+// it, so every implementation must round-trip an empty Data (DynamoDB in
+// particular rejects an empty attribute value if written naively).
+func testEmptyData(t *testing.T, s store.Store) {
+	key := k("ED#1", "MARKER")
+	stored, err := s.Put(t.Context(), store.Record{Key: key}, store.CondNone)
+	if err != nil {
+		t.Fatalf("Put empty-data marker: %v", err)
+	}
+	if stored.Version != 1 {
+		t.Fatalf("marker version = %d, want 1", stored.Version)
+	}
+	got, err := s.Get(t.Context(), key)
+	if err != nil {
+		t.Fatalf("Get marker: %v", err)
+	}
+	if len(got.Data) != 0 || got.Version != 1 || got.Key != key {
+		t.Fatalf("Get marker = %+v, want empty data / version 1", got)
+	}
+	// A marker must be visible to Query alongside data-bearing records.
+	found := false
+	for rec, err := range s.Query(t.Context(), "ED#1", "", store.QueryOpt{}) {
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if rec.Key == key {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("empty-data marker missing from Query results")
+	}
+	// data -> empty -> data overwrites must all round-trip.
+	if _, err := s.Put(t.Context(), store.Record{Key: key, Data: []byte("payload")}, store.CondNone); err != nil {
+		t.Fatalf("overwrite with data: %v", err)
+	}
+	back, err := s.Put(t.Context(), store.Record{Key: key}, store.CondNone)
+	if err != nil {
+		t.Fatalf("overwrite back to empty: %v", err)
+	}
+	if got, _ := s.Get(t.Context(), key); len(got.Data) != 0 || got.Version != back.Version {
+		t.Fatalf("after clearing data, Get = %+v", got)
 	}
 }
 

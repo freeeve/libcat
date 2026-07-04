@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"iter"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -76,20 +77,33 @@ func (s *Store) Put(ctx context.Context, r store.Record, cond store.Cond) (store
 	if err := validateKey(r.Key); err != nil {
 		return store.Record{}, err
 	}
-	update := "SET #d = :d, #v = if_not_exists(#v, :zero) + :one"
-	names := map[string]string{"#d": attrData, "#v": attrVersion}
+	// DynamoDB rejects an empty Binary value, but the store contract admits
+	// data-less records (index/existence markers). Set #d only when there is
+	// data and REMOVE it otherwise; itemToRecord leaves Data nil when #d is
+	// absent, so the empty case round-trips.
+	set := []string{"#v = if_not_exists(#v, :zero) + :one"}
+	remove := []string{}
+	names := map[string]string{"#d": attrData, "#v": attrVersion, "#exp": attrExpireAt}
 	values := map[string]types.AttributeValue{
-		":d":    &types.AttributeValueMemberB{Value: append([]byte(nil), r.Data...)},
 		":zero": &types.AttributeValueMemberN{Value: "0"},
 		":one":  &types.AttributeValueMemberN{Value: "1"},
 	}
-	if r.ExpireAt.IsZero() {
-		update += " REMOVE #exp"
+	if len(r.Data) > 0 {
+		set = append(set, "#d = :d")
+		values[":d"] = &types.AttributeValueMemberB{Value: append([]byte(nil), r.Data...)}
 	} else {
-		update += ", #exp = :exp"
+		remove = append(remove, "#d")
+	}
+	if r.ExpireAt.IsZero() {
+		remove = append(remove, "#exp")
+	} else {
+		set = append(set, "#exp = :exp")
 		values[":exp"] = &types.AttributeValueMemberN{Value: strconv.FormatInt(r.ExpireAt.Unix(), 10)}
 	}
-	names["#exp"] = attrExpireAt
+	update := "SET " + strings.Join(set, ", ")
+	if len(remove) > 0 {
+		update += " REMOVE " + strings.Join(remove, ", ")
+	}
 	var condition *string
 	switch cond {
 	case store.CondIfAbsent:
