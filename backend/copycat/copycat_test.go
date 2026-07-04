@@ -43,23 +43,32 @@ func newService(t *testing.T) (*copycat.Service, blob.Store, *fakeNotifier) {
 	return svc, svc.Blob, notifier
 }
 
-// TestSeedDefaultTarget proves a virgin store gets the LOC SRU target once
-// ever: re-seeding after an admin deletes everything stays at zero, and a
-// store that already has targets is never touched.
-func TestSeedDefaultTarget(t *testing.T) {
+// TestSeedDefaultTargets proves a virgin store gets every default SRU target
+// once ever: re-seeding after an admin deletes everything stays at zero, and
+// a store that already has targets is never touched.
+func TestSeedDefaultTargets(t *testing.T) {
 	svc, _, _ := newService(t)
 	ctx := t.Context()
-	if err := svc.SeedDefaultTarget(ctx); err != nil {
+	if err := svc.SeedDefaultTargets(ctx); err != nil {
 		t.Fatal(err)
 	}
 	targets, err := svc.Targets(ctx)
-	if err != nil || len(targets) != 1 || targets[0] != copycat.DefaultTarget {
+	if err != nil || len(targets) != len(copycat.DefaultTargets) {
 		t.Fatalf("seeded targets = %+v, %v", targets, err)
 	}
-	if err := svc.DeleteTarget(ctx, copycat.DefaultTarget.Name); err != nil {
-		t.Fatal(err)
+	for i, want := range copycat.DefaultTargets {
+		got := targets[i]
+		if got.Name != want.Name || got.URL != want.URL || got.Protocol != want.Protocol ||
+			got.Version != want.Version || got.Schema != want.Schema || len(got.Indexes) != len(want.Indexes) {
+			t.Fatalf("seeded target %d = %+v, want %+v", i, got, want)
+		}
 	}
-	if err := svc.SeedDefaultTarget(ctx); err != nil {
+	for _, want := range copycat.DefaultTargets {
+		if err := svc.DeleteTarget(ctx, want.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.SeedDefaultTargets(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if targets, _ = svc.Targets(ctx); len(targets) != 0 {
@@ -70,7 +79,7 @@ func TestSeedDefaultTarget(t *testing.T) {
 	if err := svc2.PutTarget(ctx, copycat.Target{Name: "mine", URL: "http://example.org/sru", Protocol: "sru"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc2.SeedDefaultTarget(ctx); err != nil {
+	if err := svc2.SeedDefaultTargets(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if targets, _ = svc2.Targets(ctx); len(targets) != 1 || targets[0].Name != "mine" {

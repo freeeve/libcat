@@ -21,6 +21,7 @@ import (
 	"time"
 
 	codex "github.com/freeeve/libcodex"
+	"github.com/freeeve/libcodex/marcxml"
 	"github.com/freeeve/libcodex/sru"
 	"github.com/freeeve/libcodex/z3950"
 
@@ -87,6 +88,16 @@ type Target struct {
 	// URL: an SRU base URL, or a Z39.50 "host:port/database" target.
 	URL      string `json:"url"`
 	Protocol string `json:"protocol"`
+	// SRU dialect knobs, all optional (Z39.50 targets ignore them).
+	// Version is the SRU protocol version ("" = the client default, 1.2);
+	// DNB, for one, only answers 1.1.
+	Version string `json:"version,omitempty"`
+	// Schema is the recordSchema requested ("" = marcxml); servers name
+	// their MARC21 XML schema differently (DNB: "MARC21-xml").
+	Schema string `json:"schema,omitempty"`
+	// Indexes overrides the CQL index an access point maps to, for servers
+	// off the Dublin Core / Bath mapping (K10plus: {"isbn": "pica.isb"}).
+	Indexes map[string]string `json:"indexes,omitempty"`
 }
 
 // Match is a staged record's dry-run identity resolution against the
@@ -193,16 +204,26 @@ func recordKey(batchID string, i int) store.Key {
 	return store.Key{PK: "CCREC#" + batchID, SK: fmt.Sprintf("R#%06d", i)}
 }
 
-// DefaultTarget is the search source seeded on a store that has never had
-// targets: the Library of Congress SRU endpoint -- open, anonymous, and
-// speaking the Bath-profile indexes the fielded search uses (tasks/074).
-var DefaultTarget = Target{Name: "loc-sru", URL: "http://lx2.loc.gov:210/LCDB", Protocol: ProtocolSRU}
+// DefaultTargets are the search sources seeded on a store that has never had
+// targets: open, anonymous SRU endpoints serving MARC21, each verified live
+// against the exact queries the fielded search emits (tasks/074, tasks/087).
+// LOC speaks the Bath-profile identifier indexes as-is; DNB only answers SRU
+// 1.1 and names its schema MARC21-xml, with dnb.num covering both standard
+// numbers; K10plus wants its PICA identifier indexes.
+var DefaultTargets = []Target{
+	{Name: "dnb-sru", URL: "https://services.dnb.de/sru/dnb", Protocol: ProtocolSRU,
+		Version: "1.1", Schema: "MARC21-xml",
+		Indexes: map[string]string{"isbn": "dnb.num", "issn": "dnb.num"}},
+	{Name: "k10plus-sru", URL: "https://sru.k10plus.de/opac-de-627", Protocol: ProtocolSRU,
+		Indexes: map[string]string{"isbn": "pica.isb", "issn": "pica.iss"}},
+	{Name: "loc-sru", URL: "http://lx2.loc.gov:210/LCDB", Protocol: ProtocolSRU},
+}
 
-// SeedDefaultTarget installs DefaultTarget so a fresh deployment's subject
+// SeedDefaultTargets installs DefaultTargets so a fresh deployment's subject
 // lookup and copy cataloging work without configuration. It runs once ever
 // per store (a marker record remembers the seeding), so an admin who
 // deletes every target stays at zero across restarts.
-func (s *Service) SeedDefaultTarget(ctx context.Context) error {
+func (s *Service) SeedDefaultTargets(ctx context.Context) error {
 	if _, err := s.DB.Get(ctx, seededKey()); err == nil {
 		return nil
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -218,7 +239,12 @@ func (s *Service) SeedDefaultTarget(ctx context.Context) error {
 	if len(targets) > 0 {
 		return nil
 	}
-	return s.PutTarget(ctx, DefaultTarget)
+	for _, t := range DefaultTargets {
+		if err := s.PutTarget(ctx, t); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PutTarget creates or replaces a search target.
@@ -355,8 +381,7 @@ func searchTerms(query string, fields []FieldTerm) ([]FieldTerm, error) {
 func protocolSearch(ctx context.Context, t Target, terms []FieldTerm, limit int) ([]*codex.Record, error) {
 	switch t.Protocol {
 	case ProtocolSRU:
-		rd := sru.NewClient(t.URL).NewReader(ctx, sruQuery(terms).String())
-		return readUpTo(rd.Read, limit)
+		return sruSearch(ctx, t, terms, limit)
 	case ProtocolZ3950:
 		rd := z3950.NewClient(t.URL).NewReader(ctx, z3950Query(terms))
 		defer rd.Close()
@@ -365,18 +390,52 @@ func protocolSearch(ctx context.Context, t Target, terms []FieldTerm, limit int)
 	return nil, fmt.Errorf("%w: unknown protocol %q", ErrValidation, t.Protocol)
 }
 
+// sruSearch runs one searchRetrieve page (the search cap fits in a page) and
+// decodes every returned payload as MARCXML directly, regardless of the
+// server's recordSchema label -- DNB stamps its MARC21 slim records
+// "MARC21-xml", which the libcodex Reader's schema gate would skip
+// (libcodex tasks/085). A payload that is not MARCXML fails the decode and
+// surfaces as this target's error; partial results beat none, so a bad
+// record after good ones just ends the list.
+func sruSearch(ctx context.Context, t Target, terms []FieldTerm, limit int) ([]*codex.Record, error) {
+	c := sru.NewClient(t.URL)
+	c.Version = t.Version
+	c.Schema = t.Schema
+	resp, err := c.SearchRetrieve(ctx, sru.Request{Query: sruQuery(t, terms).String(), MaxRecords: limit})
+	if err != nil {
+		return nil, err
+	}
+	var out []*codex.Record
+	for _, rec := range resp.Records {
+		dec, err := marcxml.Decode(rec.Data)
+		if err != nil {
+			if len(out) > 0 {
+				break
+			}
+			return nil, fmt.Errorf("copycat: target %s: decode record: %w", t.Name, err)
+		}
+		out = append(out, dec)
+	}
+	return out, nil
+}
+
 // sruQuery assembles the ANDed CQL query. Dublin Core defines no identifier
 // indexes, so isbn/issn/lccn go out as the Bath profile's bath.* access
 // points -- LOC's SRU server rejects dc.isbn/dc.issn with "Unsupported index".
-func sruQuery(terms []FieldTerm) sru.Query {
-	q := sru.Term(sruIndex(terms[0].Index), terms[0].Term)
+// A target's Indexes map overrides that per access point for servers with
+// their own context sets.
+func sruQuery(t Target, terms []FieldTerm) sru.Query {
+	q := sru.Term(sruIndex(t, terms[0].Index), terms[0].Term)
 	for _, ft := range terms[1:] {
-		q = sru.And(q, sru.Term(sruIndex(ft.Index), ft.Term))
+		q = sru.And(q, sru.Term(sruIndex(t, ft.Index), ft.Term))
 	}
 	return q
 }
 
-func sruIndex(index string) string {
+func sruIndex(t Target, index string) string {
+	if idx, ok := t.Indexes[index]; ok {
+		return idx
+	}
 	switch index {
 	case "isbn", "issn", "lccn":
 		return "bath." + index
