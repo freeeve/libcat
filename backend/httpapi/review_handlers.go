@@ -174,4 +174,18 @@ func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.Toke
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"month": month, "entries": entries})
 	})))
+
+	mux.Handle("GET /v1/stats", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		month := r.URL.Query().Get("month")
+		if !monthPattern.MatchString(month) {
+			writeError(w, http.StatusBadRequest, "month must be YYYY-MM")
+			return
+		}
+		stats, err := svc.Stats(r.Context(), month)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "stats read failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, stats)
+	})))
 }

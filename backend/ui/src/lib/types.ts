@@ -147,6 +147,36 @@ export interface AuditPage {
   entries: AuditEntry[];
 }
 
+/** suggest.Session -- one contiguous editing sitting in GET /v1/stats. */
+export interface Session {
+  start: string;
+  end: string;
+  actions: number;
+  works: number;
+}
+
+/** suggest.ActorStats -- one cataloger's monthly rollup. */
+export interface ActorStats {
+  actor: string;
+  total: number;
+  byAction: Record<string, number>;
+  works: number;
+  activeDays: number;
+  first: string;
+  last: string;
+  sessions: Session[];
+}
+
+/** suggest.MonthStats -- the GET /v1/stats editing-activity rollup. */
+export interface MonthStats {
+  month: string;
+  total: number;
+  actors: number;
+  works: number;
+  byAction: Record<string, number>;
+  perActor: ActorStats[];
+}
+
 /** vocab.TermRef -- a controlled term reference. */
 export interface TermRef {
   scheme: string;

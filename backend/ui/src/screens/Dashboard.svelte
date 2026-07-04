@@ -10,10 +10,12 @@
     fetchCopycatBatches,
     fetchDuplicates,
     fetchQueue,
+    fetchStats,
     fetchVocabSources,
     fetchWithdrawn,
     fetchWorks,
   } from "../lib/api";
+  import type { MonthStats } from "../lib/types";
   import { bindKeys, popScope, pushScope, type BindingSpec } from "../lib/keyboard";
   import { navigate } from "../lib/router";
 
@@ -50,6 +52,13 @@
   let pending = $state<number | null>(null);
   let queueError = $state("");
 
+  /** Editing-activity rollup (librarian only); the section stays hidden on
+   *  error or when the viewer can't see it. */
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  let activityMonth = $state(currentMonth);
+  let activity = $state<MonthStats | null>(null);
+  let activityError = $state("");
+
   onMount(() => {
     pushScope(SCOPE);
     const specs: Record<string, BindingSpec> = {};
@@ -65,11 +74,23 @@
     const unbind = bindKeys(SCOPE, specs);
     void loadPending();
     void loadStats();
+    void loadActivity();
     return () => {
       unbind();
       popScope(SCOPE);
     };
   });
+
+  async function loadActivity(): Promise<void> {
+    if (!canPublish(session)) return;
+    activityError = "";
+    try {
+      activity = await fetchStats(activityMonth);
+    } catch {
+      activity = null;
+      activityError = "activity unavailable";
+    }
+  }
 
   async function loadPending(): Promise<void> {
     if (!canModerate(session)) return;
@@ -141,6 +162,58 @@
         </li>
       {/each}
     </ul>
+  {/if}
+
+  {#if canPublish(session)}
+    <section class="activity" aria-label="Editing activity">
+      <div class="activity-head">
+        <h2>Editing activity</h2>
+        <label class="month">
+          <span class="muted">Month</span>
+          <input
+            type="month"
+            bind:value={activityMonth}
+            max={currentMonth}
+            onchange={() => void loadActivity()}
+          />
+        </label>
+      </div>
+      {#if activityError}
+        <p class="muted">{activityError}</p>
+      {:else if activity && activity.total > 0}
+        <p class="muted summary">
+          {activity.total.toLocaleString()} edit{activity.total === 1 ? "" : "s"}
+          by {activity.actors} catalog{activity.actors === 1 ? "er" : "ers"}
+          across {activity.works.toLocaleString()} work{activity.works === 1 ? "" : "s"}.
+        </p>
+        <table class="catalogers">
+          <thead>
+            <tr>
+              <th scope="col">Cataloger</th>
+              <th scope="col" class="num">Edits</th>
+              <th scope="col" class="num">Works</th>
+              <th scope="col" class="num">Sessions</th>
+              <th scope="col" class="num">Days</th>
+              <th scope="col">Last active</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each activity.perActor as a (a.actor)}
+              <tr>
+                <td>{a.actor}</td>
+                <td class="num">{a.total.toLocaleString()}</td>
+                <td class="num">{a.works.toLocaleString()}</td>
+                <td class="num">{a.sessions.length.toLocaleString()}</td>
+                <td class="num">{a.activeDays.toLocaleString()}</td>
+                <td class="muted">{new Date(a.last).toLocaleString()}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {:else}
+        <p class="muted">No recorded activity in {activityMonth}.</p>
+      {/if}
+    </section>
   {/if}
 
   <nav aria-label="Sections">
@@ -221,6 +294,59 @@
   }
   .stat-sub {
     font-size: 0.78rem;
+  }
+  .activity {
+    max-width: 72rem;
+    margin: 0 0 1.6rem;
+  }
+  .activity-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .activity-head h2 {
+    margin: 0.2rem 0;
+    color: var(--accent);
+  }
+  .activity .month {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+  }
+  .activity .month input {
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.3em 0.4em;
+  }
+  .summary {
+    margin: 0.2rem 0 0.6rem;
+  }
+  .catalogers {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .catalogers th,
+  .catalogers td {
+    text-align: left;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .catalogers th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-muted);
+  }
+  .catalogers .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .cards {
     list-style: none;

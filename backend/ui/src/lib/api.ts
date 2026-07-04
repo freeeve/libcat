@@ -35,6 +35,7 @@ import type {
   Macro,
   MarcRecordDoc,
   MarcResponse,
+  MonthStats,
   Op,
   OpsResult,
   Profile,
@@ -207,6 +208,11 @@ export function fetchAudit(month: string, workId?: string): Promise<AuditPage> {
   const params = new URLSearchParams({ month });
   if (workId) params.set("workId", workId);
   return call("GET", `/v1/audit?${params}`);
+}
+
+/** Editing-activity rollup for a month, YYYY-MM (librarian). */
+export function fetchStats(month: string): Promise<MonthStats> {
+  return call("GET", `/v1/stats?${new URLSearchParams({ month })}`);
 }
 
 /** The suggestion review queue, optionally filtered (moderator). */
