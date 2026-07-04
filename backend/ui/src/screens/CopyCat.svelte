@@ -20,6 +20,7 @@
     stageCopycatBatch,
   } from "../lib/api";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
+  import { normalizeIsbn } from "../lib/isbn";
   import { screenState } from "../lib/screenState.svelte";
   import { sessionStore } from "../lib/stores";
   import CopycatResults from "../components/CopycatResults.svelte";
@@ -85,6 +86,12 @@
   let busy = $state(false);
   let status = $state("");
   let error = $state("");
+
+  /** Quick-add: scan or paste one ISBN, search the isbn index, and either drop
+   *  the hits into the results list (default) or stage the best hit straight
+   *  into a batch (auto-stage). */
+  let quickIsbn = $state("");
+  let quickAutoStage = $state(false);
 
   /** The active staging profile: its targets scope the search, its policy
    *  pre-sets staged batches (tasks/068). */
@@ -248,6 +255,48 @@
     }
   }
 
+  async function quickAdd(): Promise<void> {
+    if (busy) return; // a scanner's trailing Enter must not re-enter mid-stage
+    const isbn = normalizeIsbn(quickIsbn);
+    if (!isbn) {
+      error = "enter a 10- or 13-digit ISBN";
+      return;
+    }
+    busy = true;
+    error = "";
+    status = "";
+    st.results = [];
+    st.picked = {};
+    st.resultsSelected = 0;
+    try {
+      const res = await copycatSearch("", [{ index: "isbn", term: isbn }], profile?.targets ?? undefined);
+      st.results = res.results ?? [];
+      st.failures = res.failures ?? {};
+      if (st.results.length === 0) {
+        status = `no match for ${isbn}`;
+        return;
+      }
+      if (!quickAutoStage) {
+        status = `${st.results.length} match${st.results.length === 1 ? "" : "es"} for ${isbn}`;
+        return;
+      }
+      const staged = await stageCopycatBatch({
+        label: `quick-add: ${isbn}`,
+        source: "search",
+        records: [$state.snapshot(st.results[0].record)],
+        ...(profile?.policy ? { policy: profile.policy } : {}),
+      });
+      st.results = [];
+      quickIsbn = "";
+      await loadBatches();
+      await open(staged.batch.id);
+    } catch (e) {
+      error = e instanceof ApiError ? e.message : "quick-add failed";
+    } finally {
+      busy = false;
+    }
+  }
+
   async function upload(ev: Event): Promise<void> {
     const input = ev.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
@@ -308,6 +357,25 @@
 
 <main class="wide">
   <h1>Copy cataloging</h1>
+
+  <section class="quickadd" aria-label="Quick-add by ISBN">
+    <label class="qa-field">
+      <span class="muted">Quick-add ISBN</span>
+      <!-- svelte-ignore a11y_autofocus -- a scan/paste bar earns focus on landing -->
+      <input
+        class="grow"
+        inputmode="numeric"
+        enterkeyhint="go"
+        autofocus
+        aria-label="Scan or paste an ISBN"
+        placeholder="scan or paste an ISBN…"
+        bind:value={quickIsbn}
+        onkeydown={(ev) => ev.key === "Enter" && void quickAdd()}
+      />
+    </label>
+    <label class="pick"><input type="checkbox" bind:checked={quickAutoStage} /> auto-stage best match</label>
+    <button class="button" onclick={() => void quickAdd()} disabled={busy || quickIsbn.trim() === ""}>Add</button>
+  </section>
 
   <details class="targets">
     <summary>Search targets ({targets.length})</summary>
@@ -490,6 +558,24 @@
     align-items: center;
     flex-wrap: wrap;
     margin: 0.4rem 0;
+  }
+  .quickadd {
+    display: flex;
+    gap: 0.8rem;
+    align-items: end;
+    flex-wrap: wrap;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    margin: 0.4rem 0 1rem;
+  }
+  .qa-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    flex: 1;
+    min-width: 16rem;
+    font-size: 0.85rem;
   }
   .grow {
     flex: 1;
