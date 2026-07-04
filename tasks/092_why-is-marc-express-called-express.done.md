@@ -97,3 +97,40 @@ work. No code change is required to answer the question -- it is a
 naming/product investigation whose output is documentation and a possibly-revised
 routing framing. Related: [[sibling-repos]], tasks/007 (MARC ramp), tasks/085
 (sizing), tasks/089/081 (entity decode).
+
+## Resolution (2026-07-04)
+
+**"Express" = delivery speed/automation, not record size.** Per OverDrive's own
+[MARC Express](https://resources.overdrive.com/library/apps-features/marc-express/)
+docs, the service auto-generates free "minimum MARC records" from publisher-supplied
+metadata and delivers them the day after a content order (Admin → MARC Express
+deliveries; backdated file = whole collection). The 2012 pitch was "fast-turnaround
+MARC records"
+([Library Journal](https://www.libraryjournal.com/story/overdrive-to-feature-fast-turnaround-marc-records-new-apis-for-opac-customization)).
+It is express *delivery*, not express (stripped-down) *content*.
+
+Answers to the four questions:
+
+1. **What "Express" denotes:** rapid, free, ready-to-load, same-cycle delivery to the
+   ILS. Confirmed by the OverDrive Resource Center page.
+2. **Fuller OverDrive MARC tier?** No -- OverDrive ships only MARC Express (minimum).
+   Full RDA/authority records come from paid *third parties* (OCLC, TLC eBiblioFile,
+   BDS), which OverDrive itself points libraries to. Express is the lightweight
+   sibling of third-party full records, not of a premium OverDrive feed -- so no new
+   comparison row is owed to the loss table.
+3. **Express vs a true full record:** Express omits LC/Dewey classification, the OCLC
+   control number, and authority-linked `6xx $0` subject URIs (already in the
+   uncontrolled-subjects note), i.e. no authority control / full RDA description.
+   Precise statement: **richer than the current Thunder-JSON crosswalk output,
+   lighter than a full OCLC/LC record.**
+4. **Routing recommendation:** **unchanged.** The direct Thunder→BIBFRAME path stays
+   preferred because it *models* the two framework-critical fields (037 Reserve ID,
+   084 BISAC); the fidelity gap the sizing table showed is a property of our lean
+   Thunder crosswalk (closable by enriching it), not of the JSON source. No
+   ARCHITECTURE / Phase-0 change -- only the "MARC is a lossy detour" framing in
+   docs/marc-fidelity.md was amended to also credit Express's richness.
+
+Corrections made: `docs/marc-fidelity.md` gained a "What 'Express' means" section and
+a richness caveat in "Why this validates the OverDrive architecture"; `[[sibling-repos]]`
+memory clarified ("full-collection" = coverage, not full-fidelity). No code comment
+implied "Express = lighter" (marc.go / cmd/lcat mentions are neutral), so no code change.

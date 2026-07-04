@@ -92,6 +92,41 @@ OverDrive ingests directly, and MARC is only the existing-ILS onboarding ramp
 subject classification. (With the tasks/049 sidecar, even the MARC ramp now carries
 them verbatim -- the direct provider remains preferable because it *models* them.)
 
+The direct provider being preferable is **not** a claim that MARC Express is a
+*poorer* record. Measured field-for-field (`tasks/085`, `tasks/092`), the Express
+grain is the **richer** of the two OverDrive routes: ~125 quads/work vs ~65 for the
+Thunder-JSON provider, and it carries a 520 summary, 5xx notes, LCGFT genre, a 490
+series statement, 7xx added entries, extent/duration, and 856 locators that the
+current Thunder crosswalk drops. That gap is a property of **our** Thunder crosswalk
+(the JSON API carries most of this too, so the gap is closable by enriching the
+direct provider), not evidence that MARC is the higher-fidelity *source*. The
+routing decision stands on how each route *models* the two framework-critical fields
+(037 Reserve ID, 084 BISAC), not on raw field count.
+
+## What "Express" means (delivery speed, not record size)
+
+"MARC Express" names the **delivery mechanism, not the record content** -- it is
+express *delivery*, not express (i.e. stripped-down) *records*. Per OverDrive's own
+[MARC Express](https://resources.overdrive.com/library/apps-features/marc-express/)
+documentation, the service auto-generates "minimum MARC records" for free from
+publisher-supplied metadata and delivers them "the day after you place a content
+order" (managed under Admin → MARC Express deliveries in Marketplace; a backdated
+file pulls the whole collection). The "Express" is the same-cycle, no-cost,
+ready-to-load turnaround -- the historical pitch was "fast-turnaround MARC records"
+([Library Journal, 2012](https://www.libraryjournal.com/story/overdrive-to-feature-fast-turnaround-marc-records-new-apis-for-opac-customization)).
+
+By cataloging-industry standards Express *is* the lightweight tier -- OverDrive
+positions it as a free "placeholder" and points libraries wanting full RDA/authority
+records at paid third parties (OCLC, TLC eBiblioFile, BDS). Express records omit LC
+and Dewey classification, the OCLC control number, and (as the loss table's
+[uncontrolled-subjects note](#uncontrolled-subjects--tags-empty-subject-facet-is-expected)
+records) authority-linked `6xx $0` subject URIs. So the precise statement is: MARC
+Express is **richer than the current Thunder-JSON crosswalk output, lighter than a
+full OCLC/LC catalog record** -- and "Express" refers to neither, only to how fast
+and how freely the file arrives. OverDrive ships no "fuller" MARC tier of its own;
+Express is the lightweight sibling of *third-party* full records, not of a premium
+OverDrive feed.
+
 ## Uncontrolled subjects → tags (empty subject facet is expected)
 
 OverDrive MARC-Express 6XX subject fields carry **no `$0` authority URI** -- only
