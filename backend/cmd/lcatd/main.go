@@ -23,6 +23,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/auth/local"
 	"github.com/freeeve/libcatalog/backend/auth/oidc"
 	"github.com/freeeve/libcatalog/backend/authoritiesvc"
+	"github.com/freeeve/libcatalog/backend/awsstore"
 	"github.com/freeeve/libcatalog/ingest/locsh"
 
 	"github.com/freeeve/libcatalog/backend/batch"
@@ -97,9 +98,10 @@ func main() {
 	}
 }
 
-// buildDeps assembles the handler dependencies from configuration. The
-// datastore is in-memory for now; the DynamoDB selection arrives with the
-// deployment task.
+// buildDeps assembles the handler dependencies from configuration. The document
+// store is DynamoDB when LCATD_DYNAMO_TABLE is set and the grain store is S3
+// when LCATD_S3_BUCKET is set; otherwise both fall back to the in-memory /
+// local-directory stores, so a laptop or the demo runs with no AWS at all.
 func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi.Deps, error) {
 	deps := httpapi.Deps{Logger: logger}
 	// A configured scheme filter always admits the local scheme, or a fresh
@@ -108,10 +110,31 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 	if len(vocabSchemes) > 0 && !slices.Contains(vocabSchemes, authoritiesvc.LocalScheme) {
 		vocabSchemes = append(vocabSchemes, authoritiesvc.LocalScheme)
 	}
-	db := store.NewMem()
+	var db store.Store = store.NewMem()
+	if cfg.DynamoTable != "" {
+		d, err := awsstore.Dynamo(ctx, cfg.DynamoTable, cfg.AWSEndpoint)
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		db = d
+		logger.Info("document store", "backend", "dynamodb", "table", cfg.DynamoTable)
+	} else {
+		logger.Info("document store", "backend", "memory (resets on restart)")
+	}
 	deps.DB = db
-	if cfg.BlobDir != "" {
+	switch {
+	case cfg.S3Bucket != "":
+		b, err := awsstore.S3(ctx, cfg.S3Bucket, cfg.AWSEndpoint)
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		deps.Blob = b
+		logger.Info("blob store", "backend", "s3", "bucket", cfg.S3Bucket)
+	case cfg.BlobDir != "":
 		deps.Blob = blob.NewDir(cfg.BlobDir)
+		logger.Info("blob store", "backend", "dir", "path", cfg.BlobDir)
+	}
+	if deps.Blob != nil {
 		// The authority-source service resolves the effective scheme filter
 		// (configured base + installed snapshots) before the index loads, so
 		// installed vocabularies survive restarts (tasks/067).

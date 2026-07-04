@@ -18,8 +18,20 @@ type Config struct {
 	// (ignored under Lambda). Default ":8080".
 	ListenAddr string
 	// BlobDir, when set, selects a local-directory grain store rooted there.
-	// Cloud blob stores are selected by their own variables in later tasks.
+	// Ignored when S3Bucket is set.
 	BlobDir string
+	// S3Bucket, when set, selects an S3-compatible grain store (takes
+	// precedence over BlobDir). Credentials and region come from the standard
+	// AWS environment; AWSEndpoint overrides the endpoint for MinIO/local.
+	S3Bucket string
+	// DynamoTable, when set, selects a DynamoDB document store for the KV
+	// surface (audit trail, queue, drafts, copycat, ...). Empty keeps the
+	// in-memory store -- the local/demo default, which resets on restart.
+	DynamoTable string
+	// AWSEndpoint overrides the AWS service endpoint for both stores, for
+	// DynamoDB Local / MinIO in dev and tests. Empty uses the real AWS
+	// endpoints resolved from the region.
+	AWSEndpoint string
 
 	// LocalAuth enables built-in user management.
 	LocalAuth bool
@@ -88,6 +100,9 @@ func FromEnv() (Config, error) {
 	cfg := Config{
 		ListenAddr:        envOr("LCATD_LISTEN_ADDR", ":8080"),
 		BlobDir:           os.Getenv("LCATD_BLOB_DIR"),
+		S3Bucket:          os.Getenv("LCATD_S3_BUCKET"),
+		DynamoTable:       os.Getenv("LCATD_DYNAMO_TABLE"),
+		AWSEndpoint:       os.Getenv("LCATD_AWS_ENDPOINT"),
 		LocalAuth:         os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
 		LocalIssuer:       envOr("LCATD_LOCAL_ISSUER", "lcatd-local"),
 		LocalSigningKey:   os.Getenv("LCATD_LOCAL_SIGNING_KEY"),

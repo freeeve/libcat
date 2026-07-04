@@ -48,6 +48,41 @@ new subsystems:
   Verify it is `CondIfAbsent` and race-safe across concurrent Lambda cold starts
   -- harmless re-seeding against mem must become a no-op against a shared table.
 
+## Progress (done)
+
+The `lcatd` store selection is wired and proven end-to-end, kept fully optional:
+
+- Config knobs `LCATD_DYNAMO_TABLE`, `LCATD_S3_BUCKET`, `LCATD_AWS_ENDPOINT`
+  (`config` stays SDK-free). New `backend/awsstore` builds the AWS clients
+  (added the `aws-sdk-go-v2/config` credential loader). `buildDeps` selects
+  DynamoDB / S3 when configured, else `store.NewMem()` / `blob.NewDir` -- so a
+  laptop and the demo run with no AWS at all (verified: playground still boots
+  on memory + dir, logging the backend choice).
+- **Bug found and fixed via the e2e run:** `dynamo.Put` marshalled `Data` as a
+  Binary attribute, which DynamoDB rejects when empty, so a data-less
+  index/existence marker (e.g. `auth/local/users.go` user index) failed -- boot
+  died at "bootstrap admin". `dynamo.Put` now REMOVEs `#d` for empty data
+  (round-trips as nil), and the conformance suite gained an `EmptyData` case
+  the mem and dynamo stores both pass. This was invisible because the dynamo
+  conformance test `t.Skip`s without `DYNAMO_ENDPOINT`.
+- Verified against DynamoDB Local: full server boots on dynamo, bootstrap admin
+  succeeds, and a written KV record (copycat target) **survives a restart** --
+  the reset problem this task exists to fix.
+
+## Remaining
+
+- **Shared `buildDeps` + Lambda entrypoint.** `cmd/lcatd-lambda` still passes
+  empty deps. Factoring `buildDeps` out of `package main` is complicated by its
+  container-worker goroutines (vocab/export ticker drains), which don't fit
+  Lambda's freeze-between-invocations model -- so this needs a worker-model
+  decision, not a straight extraction.
+- **Deploy glue.** Flow the terraform table name + S3 bucket into the Lambda
+  env; confirm execution-role IAM.
+- **CI.** Run the `store/dynamo` conformance test against DynamoDB Local in CI
+  (locally confirmed green: `DYNAMO_ENDPOINT=... go test ./store/dynamo/...`).
+- **Seed idempotency under a shared table** across concurrent cold starts.
+- **TTL parity** (below) still to confirm.
+
 ## Non-goals
 
 - No new store or blob backend code (dynamo + s3 already exist).
