@@ -67,6 +67,40 @@ func readNQuads(t *testing.T, dir string) string {
 	return b.String()
 }
 
+// TestCleanFreeText pins the free-text normalization: HTML character
+// references decode and markup strips from 520/505/5xx prose, while text
+// without markup (including "<" as prose) passes through byte-identical.
+func TestCleanFreeText(t *testing.T) {
+	rec := bookRecord("c1", "9780000000001", "Shakespeare, William", "Hamlet")
+	rec.AddField(codex.NewDataField("520", ' ', ' ',
+		codex.NewSubfield('a', "at the hand of his uncle Claudius &#8212; but <b>Hamlet&#39;s</b> spiral<br/> into grief")))
+	rec.AddField(codex.NewDataField("505", '0', ' ',
+		codex.NewSubfield('a', "Act I &amp; II -- Act III")))
+	rec.AddField(codex.NewDataField("500", ' ', ' ',
+		codex.NewSubfield('a', "Includes &quot;annotations&quot;")))
+	out := FromCodexRecords([]*codex.Record{rec})
+	if len(out) != 1 {
+		t.Fatalf("records = %d", len(out))
+	}
+	work, inst := out[0].Work(), out[0].Instance()
+	if got, want := work.Summary[0], "at the hand of his uncle Claudius — but Hamlet's spiral into grief"; got != want {
+		t.Errorf("summary = %q, want %q", got, want)
+	}
+	if got, want := work.TableOfContents[0], "Act I & II -- Act III"; got != want {
+		t.Errorf("toc = %q, want %q", got, want)
+	}
+	if got, want := inst.Notes[0].Label, `Includes "annotations"`; got != want {
+		t.Errorf("note = %q, want %q", got, want)
+	}
+	if got, want := cleanText("plain prose, 2 < 3, no markup"), "plain prose, 2 < 3, no markup"; got != want {
+		t.Errorf("prose = %q, want %q", got, want)
+	}
+	// Double-escaped vendor text decodes to a fixpoint.
+	if got, want := cleanText("friendship&amp;#8212;a Newbery Honor Book!"), "friendship—a Newbery Honor Book!"; got != want {
+		t.Errorf("double-escaped = %q, want %q", got, want)
+	}
+}
+
 // TestMARCProviderClustersAndRoutes runs a MARC file through the shared pipeline:
 // two records sharing an author+title cluster into one Work (distinct ISBNs, so
 // only the cluster key merges them), a third stays separate, and every grain lands

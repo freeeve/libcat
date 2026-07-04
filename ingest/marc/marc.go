@@ -10,7 +10,10 @@ package marc
 import (
 	"context"
 	"fmt"
+	"html"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/identity"
@@ -73,6 +76,7 @@ func FromCodexRecords(recs []*codex.Record) []ingest.Record {
 	out := make([]ingest.Record, 0, len(recs))
 	for _, rec := range recs {
 		bib := codexbf.FromRecord(rec)
+		cleanFreeText(bib)
 		out = append(out, record{
 			bib:      bib,
 			id:       recordIdentity(bib, rec.ControlField("001")),
@@ -80,6 +84,51 @@ func FromCodexRecords(recs []*codex.Record) []ingest.Record {
 		})
 	}
 	return out
+}
+
+// cleanFreeText normalizes the crosswalk's free-text carriers before grains
+// are built: vendor MARC (OverDrive Marc Express among them) embeds HTML
+// character references and markup in 520/505/5xx prose (&#8212;, <b>...),
+// which would otherwise bake into bf:summary literals verbatim. Identifier
+// and heading fields stay untouched; the verbatim sidecar preserves the
+// original field bytes for fidelity.
+func cleanFreeText(bib *codexbf.BIBFRAME) {
+	for i, s := range bib.Work.Summary {
+		bib.Work.Summary[i] = cleanText(s)
+	}
+	for i, s := range bib.Work.TableOfContents {
+		bib.Work.TableOfContents[i] = cleanText(s)
+	}
+	for i := range bib.Work.Notes {
+		bib.Work.Notes[i].Label = cleanText(bib.Work.Notes[i].Label)
+	}
+	for i := range bib.Instance.Notes {
+		bib.Instance.Notes[i].Label = cleanText(bib.Instance.Notes[i].Label)
+	}
+}
+
+// htmlTag matches an opening or closing markup tag; a bare "<" followed by a
+// non-letter (prose like "a < b") never matches.
+var htmlTag = regexp.MustCompile(`</?[a-zA-Z][^>]*>`)
+
+// cleanText resolves HTML character references, drops markup tags, and
+// collapses the whitespace runs stripping leaves. Text carrying neither "&"
+// nor "<" passes through untouched. References decode to a fixpoint
+// (bounded): vendor feeds double-escape (&amp;#8212;), and one pass would
+// just peel a layer.
+func cleanText(s string) string {
+	if !strings.ContainsAny(s, "&<") {
+		return s
+	}
+	for range 3 {
+		u := html.UnescapeString(s)
+		if u == s {
+			break
+		}
+		s = u
+	}
+	s = htmlTag.ReplaceAllString(s, " ")
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // Identity derives the resolution keys for one parsed MARC record -- what
