@@ -32,6 +32,11 @@ type Config struct {
 	// DynamoDB Local / MinIO in dev and tests. Empty uses the real AWS
 	// endpoints resolved from the region.
 	AWSEndpoint string
+	// ReadOnly puts the instance in demo mode: the blob store is wrapped
+	// read-only and editorial/config writes are rejected, so a public
+	// playground can be explored without persisting. Auth, reads, search, and
+	// dry-run previews still work.
+	ReadOnly bool
 
 	// LocalAuth enables built-in user management.
 	LocalAuth bool
@@ -103,6 +108,7 @@ func FromEnv() (Config, error) {
 		S3Bucket:          os.Getenv("LCATD_S3_BUCKET"),
 		DynamoTable:       os.Getenv("LCATD_DYNAMO_TABLE"),
 		AWSEndpoint:       os.Getenv("LCATD_AWS_ENDPOINT"),
+		ReadOnly:          os.Getenv("LCATD_READ_ONLY") == "1" || os.Getenv("LCATD_READ_ONLY") == "true",
 		LocalAuth:         os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
 		LocalIssuer:       envOr("LCATD_LOCAL_ISSUER", "lcatd-local"),
 		LocalSigningKey:   os.Getenv("LCATD_LOCAL_SIGNING_KEY"),

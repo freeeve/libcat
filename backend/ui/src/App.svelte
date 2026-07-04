@@ -168,6 +168,11 @@
       <button class="button button--quiet" onclick={signOut}>Sign out</button>
     </span>
   </header>
+  {#if $configStore.readOnly}
+    <div class="readonly-banner" role="status">
+      Read-only demo — explore freely; edits and publishes are previewed but not saved.
+    </div>
+  {/if}
   {#if route.name === "work"}
     <!-- Keyed so a direct hash jump between works remounts a fresh editor
          session (staged ops and drafts are per-work). -->
@@ -231,6 +236,15 @@
     gap: 1.25rem;
     padding: 0.8rem 1.5rem;
     border-bottom: 1px solid var(--rule);
+  }
+  .readonly-banner {
+    padding: 0.45rem 1.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-bottom: 1px solid var(--accent);
+    text-align: center;
   }
   .brand {
     font-weight: 800;

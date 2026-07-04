@@ -13,6 +13,9 @@
     putProfile,
   } from "../lib/api";
   import type { ProfileSummary } from "../lib/types";
+  import { isReadOnly } from "../lib/config";
+
+  const readOnly = isReadOnly();
 
   let list = $state<ProfileSummary[]>([]);
   let selected = $state("");
@@ -134,15 +137,18 @@
           <strong>{selected}</strong>
           <span class="muted">{isDefault ? "shipped default" : "overridden"}</span>
           <span class="spacer"></span>
-          {#if !isDefault}
+          {#if !isDefault && !readOnly}
             <button class="button button--quiet" onclick={() => void revert()} disabled={busy}>Revert to default</button>
           {/if}
-          <button class="button" onclick={() => void save()} disabled={busy || !dirty}>Save override</button>
+          {#if !readOnly}
+            <button class="button" onclick={() => void save()} disabled={busy || !dirty}>Save override</button>
+          {/if}
         </div>
         <textarea
           class="json"
           spellcheck="false"
           aria-label="Profile JSON"
+          readonly={readOnly}
           bind:value={text}
           oninput={() => {
             dirty = true;

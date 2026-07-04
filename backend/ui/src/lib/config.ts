@@ -36,3 +36,8 @@ export function setConfig(cfg: ClientConfig | null): void {
 export function apiBase(): string {
   return getConfig().apiBase;
 }
+
+/** Demo mode: the backend rejects edits; the UI hides write affordances. */
+export function isReadOnly(): boolean {
+  return !!getConfig().readOnly;
+}

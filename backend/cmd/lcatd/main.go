@@ -134,6 +134,18 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		deps.Blob = blob.NewDir(cfg.BlobDir)
 		logger.Info("blob store", "backend", "dir", "path", cfg.BlobDir)
 	}
+	// Read-only demo mode: wrap the grain store so no grain (or blob-backed
+	// config -- profiles, vocab snapshots) ever persists, and let the HTTP guard
+	// reject editorial/config writes. Wrapping here means every service built
+	// below (which captures deps.Blob) inherits the read-only view. The document
+	// store stays writable, so boot seeding, the bootstrap admin, and login
+	// (refresh tokens) keep working; the HTTP guard blocks editorial store
+	// writes at request time.
+	if cfg.ReadOnly && deps.Blob != nil {
+		deps.Blob = blob.ReadOnly(deps.Blob)
+		deps.ReadOnly = true
+		logger.Info("read-only mode", "enabled", true)
+	}
 	if deps.Blob != nil {
 		// The authority-source service resolves the effective scheme filter
 		// (configured base + installed snapshots) before the index loads, so
@@ -273,6 +285,7 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		"apiBase":   "", // same-origin
 		"localAuth": cfg.LocalAuth,
 		"provider":  cfg.Provider,
+		"readOnly":  cfg.ReadOnly,
 	}
 	if cfg.OIDCIssuer != "" {
 		clientCfg["oidc"] = map[string]string{"issuer": cfg.OIDCIssuer, "clientId": cfg.OIDCClientID}

@@ -1,6 +1,7 @@
 <script lang="ts">
   // Sticky action bar over the staged decision list: counts, clear, and the
   // batch apply -- with the publish-in-the-same-call variant for librarians.
+  import { isReadOnly } from "../lib/config";
   let {
     approveCount,
     rejectCount,
@@ -18,6 +19,7 @@
   } = $props();
 
   const total = $derived(approveCount + rejectCount);
+  const readOnly = isReadOnly();
 </script>
 
 {#if total > 0}
@@ -27,9 +29,11 @@
     </span>
     <span class="spacer"></span>
     <button class="button button--quiet" onclick={onclear} disabled={busy}>Clear</button>
-    <button class="button" onclick={() => onapply(false)} disabled={busy}>Apply</button>
-    {#if canPublishNow}
-      <button class="button" onclick={() => onapply(true)} disabled={busy}>Apply &amp; publish</button>
+    {#if !readOnly}
+      <button class="button" onclick={() => onapply(false)} disabled={busy}>Apply</button>
+      {#if canPublishNow}
+        <button class="button" onclick={() => onapply(true)} disabled={busy}>Apply &amp; publish</button>
+      {/if}
     {/if}
   </div>
 {/if}

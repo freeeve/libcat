@@ -9,6 +9,9 @@ export interface ClientConfig {
   oidc?: { issuer: string; clientId: string };
   schemes?: string[];
   provider: string;
+  /** Demo mode: the backend rejects edits, so the UI hides write affordances
+   *  and shows a banner. */
+  readOnly?: boolean;
 }
 
 /** One row from GET /v1/works (ingest.WorkSummary, untagged Go fields). */

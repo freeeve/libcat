@@ -88,6 +88,10 @@ type Deps struct {
 	// modes, issuers, vocab schemes, provider -- deployment facts, never
 	// secrets.
 	ClientConfig map[string]any
+	// ReadOnly puts the instance in demo mode: editorial and config writes are
+	// rejected (paired with a read-only blob store), while authentication,
+	// reads, search, and dry-run previews still work.
+	ReadOnly bool
 }
 
 // GraphPublisher is the publish pipeline seam (publish.Publisher in
@@ -170,7 +174,11 @@ func New(deps Deps) http.Handler {
 	if deps.UI != nil {
 		mux.Handle("/", deps.UI)
 	}
-	return wrap(mux, deps.Logger)
+	var handler http.Handler = mux
+	if deps.ReadOnly {
+		handler = readOnlyGuard(handler)
+	}
+	return wrap(handler, deps.Logger)
 }
 
 func handleHealthz(w http.ResponseWriter, r *http.Request) {
