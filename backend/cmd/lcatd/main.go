@@ -132,6 +132,7 @@ func buildDeps(ctx context.Context, cfg config.Config, logger *slog.Logger) (htt
 		deps.Vocab = ix
 		vsrc.Index = ix
 		deps.VocabSources = vsrc
+		deps.VocabUploadCapMB = cfg.VocabUploadCapMB
 		if schemes := ix.Schemes(); len(schemes) > 0 {
 			logger.Info("vocabularies loaded", "schemes", schemes)
 		}

@@ -72,6 +72,23 @@ the implemented suggest dialects can also set `suggestFlavor`
 (`suggest2` | `wikidata` | `viaf`) with `suggestUrl`/`suggestDataset` for
 live typeahead.
 
+## Uploading a dump by hand
+
+When a publisher's download URL is unreachable (or a source has none -- name
+and scheme alone are a valid registration), an admin can install a local dump
+from the Vocabularies screen, or:
+
+```
+PUT /v1/vocabsources/{name}/snapshot   (admin; body = the raw dump bytes)
+```
+
+Same format rules as `snapshotUrl` (SKOS N-Triples/N-Quads, optionally
+gzipped; zip archives and XML exports are rejected by name). The install is
+synchronous and in-memory, so uploads are size-capped: **512MB by default**,
+raised per deployment with `LCATD_VOCAB_UPLOAD_CAP_MB`. Gzip compresses
+N-Triples roughly 10x, so prefer `.nt.gz`/`.nq.gz` for anything large. The
+sidecar records `upload` as the snapshot provenance.
+
 ## Enrichment
 
 Every suggest-capable source registers as a moderated enrichment target at

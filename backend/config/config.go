@@ -8,6 +8,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -50,6 +51,10 @@ type Config struct {
 	// VocabSchemes lists the controlled vocabularies to load from the blob
 	// store's authorities tree (comma-separated; empty = all found).
 	VocabSchemes []string
+	// VocabUploadCapMB bounds hand-uploaded vocabulary dumps (0 = the 512MB
+	// default). Synchronous in-memory installs need some ceiling; size it
+	// to the deployment's RAM.
+	VocabUploadCapMB int
 	// AuthoritiesPrefix is the blob path prefix holding authority grains.
 	// Default "data/authorities/".
 	AuthoritiesPrefix string
@@ -103,6 +108,13 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.EnrichLocsh != "" && cfg.EnrichLocsh != "queue" && cfg.EnrichLocsh != "direct" {
 		return Config{}, fmt.Errorf("config: LCATD_ENRICH_LOCSH must be queue or direct")
+	}
+	if raw := os.Getenv("LCATD_VOCAB_UPLOAD_CAP_MB"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("config: LCATD_VOCAB_UPLOAD_CAP_MB must be a positive integer of megabytes")
+		}
+		cfg.VocabUploadCapMB = n
 	}
 	if raw := os.Getenv("LCATD_VOCAB_SCHEMES"); raw != "" {
 		for s := range strings.SplitSeq(raw, ",") {

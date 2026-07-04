@@ -72,6 +72,10 @@ type Deps struct {
 	// VocabSources, when set, mounts the authority-source registry, the
 	// vocabulary download list, and the live suggest proxy (tasks/067).
 	VocabSources *vocabsrc.Service
+	// VocabUploadCapMB bounds hand-uploaded vocabulary dumps (0 = the
+	// 512MB default). The install is synchronous and in-memory, so a
+	// deployment sizes this to its own RAM appetite.
+	VocabUploadCapMB int
 	// UI, when set, serves the embedded cataloging SPA at "/" (API routes
 	// keep priority under /v1/).
 	UI http.Handler
@@ -141,7 +145,7 @@ func New(deps Deps) http.Handler {
 		registerEnrich(mux, deps.Enrich, deps.Verifier)
 	}
 	if deps.VocabSources != nil && deps.Verifier != nil {
-		registerVocabSources(mux, deps.VocabSources, deps.Verifier)
+		registerVocabSources(mux, deps.VocabSources, deps.Verifier, deps.VocabUploadCapMB)
 	}
 	if deps.ClientConfig != nil {
 		mux.HandleFunc("GET /config", func(w http.ResponseWriter, r *http.Request) {

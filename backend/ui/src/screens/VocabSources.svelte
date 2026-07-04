@@ -262,7 +262,8 @@
                 </button>
               {/if}
               {#if isAdmin}
-                <label class="button button--quiet upload-btn" title="Install a local SKOS dump (.nt/.nq, optionally gzipped)">
+                <label class="button button--quiet upload-btn"
+                  title="Install a local SKOS dump: .nt/.nq, optionally gzipped. Uploads are size-capped (512MB unless LCATD_VOCAB_UPLOAD_CAP_MB raises it) -- gzip large dumps.">
                   Upload… <input type="file" accept=".nt,.nq,.gz,.nt.gz,.nq.gz" onchange={(ev) => void upload(s, ev)} hidden disabled={busy === s.name || working(s)} />
                 </label>
               {/if}

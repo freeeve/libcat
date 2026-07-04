@@ -11,18 +11,24 @@ import (
 	"github.com/freeeve/libcatalog/backend/vocabsrc"
 )
 
-// uploadCap bounds a hand-uploaded dump. Gzipped N-Triples run ~10x smaller,
-// so even the multi-GB national files fit compressed.
-const uploadCap = 512 << 20
+// defaultUploadCapMB bounds a hand-uploaded dump unless the deployment says
+// otherwise (LCATD_VOCAB_UPLOAD_CAP_MB). The install is synchronous and
+// in-memory, so some ceiling must exist; gzipped N-Triples run ~10x smaller,
+// and even the multi-GB national files fit compressed.
+const defaultUploadCapMB = 512
 
 // registerVocabSources mounts the authority-source surface (tasks/067): the
 // click-to-download vocabulary list (librarian), registry edits and download/
 // remove actions (admin), and the live typeahead proxy the picker uses
 // (librarian -- the backend proxies so browser CORS and third-party endpoints
 // stay out of the SPA).
-func registerVocabSources(mux *http.ServeMux, svc *vocabsrc.Service, verifier auth.TokenVerifier) {
+func registerVocabSources(mux *http.ServeMux, svc *vocabsrc.Service, verifier auth.TokenVerifier, uploadCapMB int) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 	admin := auth.Require(verifier, auth.RoleAdmin)
+	if uploadCapMB <= 0 {
+		uploadCapMB = defaultUploadCapMB
+	}
+	uploadCap := int64(uploadCapMB) << 20
 
 	mux.Handle("GET /v1/vocabsources", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		views, err := svc.Views(r.Context())
@@ -80,7 +86,7 @@ func registerVocabSources(mux *http.ServeMux, svc *vocabsrc.Service, verifier au
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
 			writeError(w, http.StatusRequestEntityTooLarge,
-				fmt.Sprintf("the dump exceeds the %dMB upload cap -- gzip it (.nt.gz/.nq.gz install fine, ~10x smaller)", uploadCap>>20))
+				fmt.Sprintf("the dump exceeds the %dMB upload cap -- gzip it (.nt.gz/.nq.gz install fine, ~10x smaller), or raise LCATD_VOCAB_UPLOAD_CAP_MB", uploadCapMB))
 			return
 		}
 		if err != nil {
