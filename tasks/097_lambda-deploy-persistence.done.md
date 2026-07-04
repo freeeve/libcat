@@ -5,6 +5,21 @@ store selection (config-gated DynamoDB/S3 with mem/local fallback) and fixed the
 `dynamo.Put` empty-data bug. This task carries the rest: making the Lambda
 entrypoint actually use those stores, plus the deployment plumbing.
 
+## Resolved -- the entrypoint (commit `5259680`)
+
+The core blocker is done. `buildDeps` was factored into `backend/appdeps.Build`,
+shared by `cmd/lcatd` and `cmd/lcatd-lambda`; the Lambda entrypoint now builds
+real deps and serves the same handler (SPA + API) through the adapter. The
+container-worker goroutines (vocab/export drains) are skipped in read-only mode,
+which resolves the freeze-between-invocations concern **for the read-only demo
+shape** -- verified end-to-end through the Lambda adapter, and documented as a
+Function-URL (~$0) deploy in `backend/deploy/README.md`.
+
+**The writable-production remainder is split to `099`:** the full terraform
+stack (Dynamo/S3/API-GW), a Lambda-appropriate worker model for a *writable*
+deploy (the read-only gate does not cover it), seed idempotency under a shared
+table, TTL parity, and CI for the dynamo conformance test.
+
 ## Context
 
 `cmd/lcatd-lambda/main.go` still constructs an empty `httpapi.Deps{Logger:...}`,
