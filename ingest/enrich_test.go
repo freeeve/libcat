@@ -187,3 +187,89 @@ func TestRunEnrichDirect(t *testing.T) {
 		t.Fatal("withdrawal touched other graphs")
 	}
 }
+
+// mapEnricher enriches only the Works it has a subject for; others are
+// absent from its results (the "left untouched" contract).
+type mapEnricher struct {
+	name   string
+	byWork map[string]bibframe.AuthoritySubject
+}
+
+func (m *mapEnricher) Name() string { return m.name }
+func (m *mapEnricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]ingest.Enrichment, error) {
+	var out []ingest.Enrichment
+	for _, w := range works {
+		if subj, ok := m.byWork[w.WorkID]; ok {
+			out = append(out, ingest.Enrichment{WorkID: w.WorkID, Subjects: []bibframe.AuthoritySubject{subj}, Confidence: 1})
+		}
+	}
+	return out, nil
+}
+
+// TestRunEnrichSharedGrain covers post-merge grains holding two Works
+// (tasks/102): enriching both writes both, and a later run that returns only
+// one Work must not wipe the other's statements from the shared graph.
+func TestRunEnrichSharedGrain(t *testing.T) {
+	const bfNS = "http://id.loc.gov/ontologies/bibframe/"
+	const workA, workB = "wshare0000a1", "wshare0000b2"
+	ds := &rdf.Dataset{}
+	feed := bibframe.FeedGraph("overdrive")
+	for i, id := range []string{workA, workB} {
+		work := rdf.NewIRI(bibframe.WorkIRI(id))
+		ds.Add(work, rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), rdf.NewIRI(bfNS+"Work"), feed)
+		title := rdf.NewBlank("t" + string(rune('0'+i)))
+		ds.Add(work, rdf.NewIRI(bfNS+"title"), title, feed)
+		ds.Add(title, rdf.NewIRI(bfNS+"mainTitle"), rdf.NewLiteral("Title "+id, "", ""), feed)
+	}
+	nq, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := blob.NewMem()
+	path := bibframe.GrainPath(workA)
+	if _, err := st.Put(t.Context(), path, nq, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	subjX := bibframe.AuthoritySubject{URI: "http://example.org/term/X", Labels: map[string]string{"en": "Term X"}}
+	subjY := bibframe.AuthoritySubject{URI: "http://example.org/term/Y", Labels: map[string]string{"en": "Term Y"}}
+	subjZ := bibframe.AuthoritySubject{URI: "http://example.org/term/Z", Labels: map[string]string{"en": "Term Z"}}
+
+	// Both Works enriched in one run: both must land in the shared graph.
+	both := &mapEnricher{name: "shared", byWork: map[string]bibframe.AuthoritySubject{workA: subjX, workB: subjY}}
+	if n, err := ingest.RunEnrich(t.Context(), st, "data/works/", both); err != nil || n != 2 {
+		t.Fatalf("RunEnrich = %d, %v", n, err)
+	}
+	grain, _, _ := st.Get(t.Context(), path)
+	for _, want := range []string{"term/X", "Term X", "term/Y", "Term Y"} {
+		if !strings.Contains(string(grain), want) {
+			t.Fatalf("shared grain missing %q after enriching both Works:\n%s", want, grain)
+		}
+	}
+
+	// A run returning only workA (fresh subject Z) must replace A's statements
+	// and leave workB's untouched.
+	onlyA := &mapEnricher{name: "shared", byWork: map[string]bibframe.AuthoritySubject{workA: subjZ}}
+	if n, err := ingest.RunEnrich(t.Context(), st, "data/works/", onlyA); err != nil || n != 1 {
+		t.Fatalf("RunEnrich = %d, %v", n, err)
+	}
+	grain, _, _ = st.Get(t.Context(), path)
+	text := string(grain)
+	for _, want := range []string{"term/Z", "Term Z", "term/Y", "Term Y"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("selective re-run lost %q (sibling Work wiped, tasks/102):\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "term/X") {
+		t.Fatalf("workA's stale term X should have been replaced:\n%s", text)
+	}
+
+	// Idempotent: repeating the selective run changes nothing.
+	if _, err := ingest.RunEnrich(t.Context(), st, "data/works/", onlyA); err != nil {
+		t.Fatal(err)
+	}
+	again, _, _ := st.Get(t.Context(), path)
+	if !bytes.Equal(grain, again) {
+		t.Fatal("selective re-enrichment changed the grain")
+	}
+}

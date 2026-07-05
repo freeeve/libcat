@@ -101,24 +101,36 @@ func RunEnrich(ctx context.Context, st blob.Store, prefix string, e Enricher) (i
 	if err != nil {
 		return 0, err
 	}
-	enriched := 0
+	// Collect every batch's results before writing: post-merge grains hold
+	// several Works sharing one path, and replacing the graph once per Work
+	// would wipe the sibling Work's statements (tasks/102) -- so group by
+	// grain and write each grain exactly once.
+	byGrain := map[string][]Enrichment{}
 	for start := 0; start < len(summaries); start += enrichBatchSize {
 		end := min(start+enrichBatchSize, len(summaries))
 		results, err := e.Enrich(ctx, summaries[start:end])
 		if err != nil {
-			return enriched, fmt.Errorf("enrich %s: %w", e.Name(), err)
+			return 0, fmt.Errorf("enrich %s: %w", e.Name(), err)
 		}
 		for _, res := range results {
 			grainPath, ok := paths[res.WorkID]
 			if !ok {
 				continue
 			}
-			quads := enrichmentQuads(res)
-			if err := replaceGrainGraph(ctx, st, grainPath, graph, quads); err != nil {
-				return enriched, fmt.Errorf("%s: %w", grainPath, err)
-			}
-			enriched++
+			byGrain[grainPath] = append(byGrain[grainPath], res)
 		}
+	}
+	grainPaths := make([]string, 0, len(byGrain))
+	for p := range byGrain {
+		grainPaths = append(grainPaths, p)
+	}
+	sort.Strings(grainPaths)
+	enriched := 0
+	for _, grainPath := range grainPaths {
+		if err := replaceGrainEnrichment(ctx, st, grainPath, graph, byGrain[grainPath]); err != nil {
+			return enriched, fmt.Errorf("%s: %w", grainPath, err)
+		}
+		enriched += len(byGrain[grainPath])
 	}
 	return enriched, nil
 }
@@ -154,11 +166,24 @@ func enrichmentQuads(res Enrichment) []rdf.Quad {
 	return quads
 }
 
-// replaceGrainGraph swaps one grain's named graph under a conditional write,
-// retrying from fresh on conflict.
-func replaceGrainGraph(ctx context.Context, st blob.Store, grainPath string, graph rdf.Term, quads []rdf.Quad) error {
+// replaceGrainEnrichment rewrites one grain's enrichment graph under a
+// conditional write, retrying from fresh on conflict. The graph's new
+// contents are the fresh statements for the Works in results, plus the
+// preserved statements of any co-grained Work the enricher did not return --
+// those must stay untouched per RunEnrich's contract (tasks/102).
+func replaceGrainEnrichment(ctx context.Context, st blob.Store, grainPath string, graph rdf.Term, results []Enrichment) error {
+	resolved := map[string]bool{}
+	var fresh []rdf.Quad
+	for _, res := range results {
+		resolved[res.WorkID] = true
+		fresh = append(fresh, enrichmentQuads(res)...)
+	}
 	for range 6 {
 		grain, etag, err := st.Get(ctx, grainPath)
+		if err != nil {
+			return err
+		}
+		quads, err := withPreservedEnrichment(grain, graph, resolved, fresh)
 		if err != nil {
 			return err
 		}
@@ -175,6 +200,56 @@ func replaceGrainGraph(ctx context.Context, st blob.Store, grainPath string, gra
 		}
 	}
 	return fmt.Errorf("ingest: enrichment write kept conflicting")
+}
+
+// withPreservedEnrichment extends fresh with the grain's existing
+// enrichment-graph statements that belong to Works absent from resolved: their
+// subject links, and the term descriptions those links still reference --
+// except terms the fresh statements re-describe, where fresh wins.
+func withPreservedEnrichment(grain []byte, graph rdf.Term, resolved map[string]bool, fresh []rdf.Quad) ([]rdf.Quad, error) {
+	ds, err := rdf.ParseNQuads(grain)
+	if err != nil {
+		return nil, err
+	}
+	freshTerms := map[string]bool{}
+	for _, q := range fresh {
+		if grainWorkID(q.S) == "" {
+			freshTerms[q.S.Value] = true
+		}
+	}
+	out := fresh
+	referenced := map[string]bool{}
+	termQuads := map[string][]rdf.Quad{}
+	for _, q := range ds.Quads {
+		if q.G != graph {
+			continue
+		}
+		if wid := grainWorkID(q.S); wid != "" {
+			if !resolved[wid] {
+				out = append(out, q)
+				if q.O.IsIRI() {
+					referenced[q.O.Value] = true
+				}
+			}
+			continue
+		}
+		termQuads[q.S.Value] = append(termQuads[q.S.Value], q)
+	}
+	for term, quads := range termQuads {
+		if referenced[term] && !freshTerms[term] {
+			out = append(out, quads...)
+		}
+	}
+	return out, nil
+}
+
+// grainWorkID extracts the Work id from a grain-local Work IRI ("#<id>Work"),
+// or "" when the term is not one.
+func grainWorkID(t rdf.Term) string {
+	if !t.IsIRI() || !strings.HasPrefix(t.Value, "#") || !strings.HasSuffix(t.Value, "Work") {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(t.Value, "#"), "Work")
 }
 
 // availabilitySources are the bf:source schemes a runtime availability
