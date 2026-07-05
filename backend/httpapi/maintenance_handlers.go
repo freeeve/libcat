@@ -23,14 +23,8 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 	registerItemsBulk(mux, bs, ix, queue, librarian)
 
 	mux.Handle("GET /v1/works/{id}/visibility", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		workID := r.PathValue("id")
-		if !workIDPattern.MatchString(workID) {
-			writeError(w, http.StatusBadRequest, "bad work id")
-			return
-		}
-		grain, _, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
-		if err != nil {
-			writeError(w, http.StatusNotFound, "no such work")
+		grain, _, workID, ok := readWorkGrain(w, r, bs)
+		if !ok {
 			return
 		}
 		v, err := bibframe.Visibility(grain, workID)
@@ -90,14 +84,8 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 	// Holdings: the minimal bf:Item model (tasks/051), read per work and
 	// replaced per instance.
 	mux.Handle("GET /v1/works/{id}/items", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		workID := r.PathValue("id")
-		if !workIDPattern.MatchString(workID) {
-			writeError(w, http.StatusBadRequest, "bad work id")
-			return
-		}
-		grain, etag, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
-		if err != nil {
-			writeError(w, http.StatusNotFound, "no such work")
+		grain, etag, workID, ok := readWorkGrain(w, r, bs)
+		if !ok {
 			return
 		}
 		gi, err := identity.ScanGrain(grain)

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
-	"sort"
 	"time"
 
 	"github.com/freeeve/libcatalog/backend/editor"
@@ -28,15 +27,17 @@ type Param struct {
 // which is the MARC-modification-template shape. Keys optionally names a
 // single-character editor shortcut.
 type Macro struct {
-	ID        string      `json:"id"`
-	Label     string      `json:"label"`
-	Keys      string      `json:"keys,omitempty"`
-	Ops       []editor.Op `json:"ops"`
-	Params    []Param     `json:"params,omitempty"`
-	Shared    bool        `json:"shared"`
-	Owner     string      `json:"owner"`
-	CreatedAt time.Time   `json:"createdAt"`
-	UpdatedAt time.Time   `json:"updatedAt"`
+	OwnedMeta
+	Keys   string      `json:"keys,omitempty"`
+	Ops    []editor.Op `json:"ops"`
+	Params []Param     `json:"params,omitempty"`
+}
+
+// macroKind wires Macro into the generic owned/shared CRUD engine.
+var macroKind = ownedKind[Macro]{
+	pk: "MACRO#", sk: "M#",
+	validate: validateMacro,
+	meta:     func(m *Macro) *OwnedMeta { return &m.OwnedMeta },
 }
 
 // SavedQuery is a named works search, the reusable half of a Selection.
@@ -58,10 +59,6 @@ var ErrForbidden = errors.New("batch: not the owner")
 // the owner's partition. One record per macro either way.
 const sharedPartition = "shared"
 
-func macroKey(scope, id string) store.Key {
-	return store.Key{PK: "MACRO#" + scope, SK: "M#" + id}
-}
-
 func queryKey(owner, id string) store.Key {
 	return store.Key{PK: "SQUERY#" + owner, SK: "Q#" + id}
 }
@@ -78,118 +75,29 @@ var paramRef = regexp.MustCompile(`\$\{([A-Za-z0-9_-]+)\}`)
 // CreateMacro validates and stores a macro for owner (in the shared
 // partition when m.Shared). The id is minted server-side.
 func (s *Service) CreateMacro(ctx context.Context, m Macro, owner string) (Macro, error) {
-	if err := validateMacro(m); err != nil {
-		return Macro{}, err
-	}
-	m.ID = mintID()
-	m.Owner = owner
-	now := time.Now().UTC()
-	m.CreatedAt, m.UpdatedAt = now, now
-	if err := s.putMacro(ctx, m, store.CondIfAbsent); err != nil {
-		return Macro{}, err
-	}
-	return m, nil
+	return createOwned(ctx, s.DB, macroKind, m, owner)
 }
 
 // UpdateMacro replaces a macro's definition. Only the owner may update, and
 // flipping Shared moves the record between partitions.
 func (s *Service) UpdateMacro(ctx context.Context, id string, m Macro, owner string) (Macro, error) {
-	if err := validateMacro(m); err != nil {
-		return Macro{}, err
-	}
-	current, err := s.GetMacro(ctx, owner, id)
-	if err != nil {
-		return Macro{}, err
-	}
-	if current.Owner != owner {
-		return Macro{}, ErrForbidden
-	}
-	m.ID = current.ID
-	m.Owner = current.Owner
-	m.CreatedAt = current.CreatedAt
-	m.UpdatedAt = time.Now().UTC()
-	// Write the new partition before deleting the old one: a fault between
-	// the two leaves a harmless duplicate instead of losing the macro
-	// (tasks/115).
-	if err := s.putMacro(ctx, m, store.CondNone); err != nil {
-		return Macro{}, err
-	}
-	if current.Shared != m.Shared {
-		if err := s.DB.Delete(ctx, store.Record{Key: macroKey(scopeOf(current), current.ID)}, store.CondNone); err != nil && !errors.Is(err, store.ErrNotFound) {
-			return Macro{}, err
-		}
-	}
-	return m, nil
+	return updateOwned(ctx, s.DB, macroKind, id, m, owner)
 }
 
 // DeleteMacro removes an owned macro (shared or personal).
 func (s *Service) DeleteMacro(ctx context.Context, owner, id string) error {
-	m, err := s.GetMacro(ctx, owner, id)
-	if err != nil {
-		return err
-	}
-	if m.Owner != owner {
-		return ErrForbidden
-	}
-	err = s.DB.Delete(ctx, store.Record{Key: macroKey(scopeOf(m), m.ID)}, store.CondNone)
-	if errors.Is(err, store.ErrNotFound) {
-		return ErrNotFound
-	}
-	return err
+	return deleteOwned(ctx, s.DB, macroKind, owner, id)
 }
 
 // GetMacro resolves a macro the caller can run: their own, or a shared one.
 func (s *Service) GetMacro(ctx context.Context, owner, id string) (Macro, error) {
-	for _, scope := range []string{owner, sharedPartition} {
-		rec, err := s.DB.Get(ctx, macroKey(scope, id))
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return Macro{}, err
-		}
-		var m Macro
-		if err := json.Unmarshal(rec.Data, &m); err != nil {
-			return Macro{}, err
-		}
-		return m, nil
-	}
-	return Macro{}, ErrNotFound
+	return getOwned(ctx, s.DB, macroKind, owner, id)
 }
 
 // ListMacros returns the caller's macros plus every shared macro, sorted by
 // label.
 func (s *Service) ListMacros(ctx context.Context, owner string) ([]Macro, error) {
-	var out []Macro
-	for _, scope := range []string{owner, sharedPartition} {
-		for rec, err := range s.DB.Query(ctx, "MACRO#"+scope, "M#", store.QueryOpt{}) {
-			if err != nil {
-				return nil, err
-			}
-			var m Macro
-			if json.Unmarshal(rec.Data, &m) == nil {
-				out = append(out, m)
-			}
-		}
-	}
-	sortMacros(out)
-	return out, nil
-}
-
-func (s *Service) putMacro(ctx context.Context, m Macro, cond store.Cond) error {
-	data, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
-	_, err = s.DB.Put(ctx, store.Record{Key: macroKey(scopeOf(m), m.ID), Data: data}, cond)
-	return err
-}
-
-func scopeOf(m Macro) string {
-	if m.Shared {
-		return sharedPartition
-	}
-	return m.Owner
+	return listOwned(ctx, s.DB, macroKind, owner)
 }
 
 // ApplyParams substitutes ${name} references in the macro's op values from
@@ -264,15 +172,6 @@ func validateMacro(m Macro) error {
 		seen[p.Name] = true
 	}
 	return nil
-}
-
-func sortMacros(list []Macro) {
-	sort.Slice(list, func(i, j int) bool {
-		if list[i].Label != list[j].Label {
-			return list[i].Label < list[j].Label
-		}
-		return list[i].ID < list[j].ID
-	})
 }
 
 // CreateQuery stores a named search for owner.

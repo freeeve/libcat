@@ -61,9 +61,8 @@ func registerItemsBulk(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, q
 			writeError(w, http.StatusBadRequest, "barcode width must be at most 12")
 			return
 		}
-		grain, _, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
-		if err != nil {
-			writeError(w, http.StatusNotFound, "no such work")
+		grain, _, _, ok := readWorkGrain(w, r, bs)
+		if !ok {
 			return
 		}
 		existing, err := bibframe.ItemsOf(grain, req.InstanceID)

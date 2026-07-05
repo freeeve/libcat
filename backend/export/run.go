@@ -21,6 +21,7 @@ import (
 	"github.com/freeeve/libcatalog/storage/blob"
 
 	"github.com/freeeve/libcatalog/backend/store"
+	"github.com/freeeve/libcatalog/backend/vocab"
 )
 
 // Run executes a QUEUED job (claiming it RUNNING first, so concurrent
@@ -296,11 +297,8 @@ func (s *Service) emitCSV(ctx context.Context, w io.Writer, paths []string) (int
 			subjects := make([]string, 0, len(work.Subjects))
 			for _, subj := range work.Subjects {
 				label := subj.ID
-				for _, l := range []string{"en", ""} {
-					if v, ok := subj.Labels[l]; ok {
-						label = v
-						break
-					}
+				if l := vocab.PickLabel(subj.Labels); l != "" {
+					label = l
 				}
 				subjects = append(subjects, label)
 			}

@@ -10,6 +10,7 @@ package vocab
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -55,17 +56,32 @@ type Term struct {
 }
 
 // Label returns the term's best label for lang: exact match, then English,
-// then untagged, then any.
+// then untagged, then any; the term URI when no label exists.
 func (t *Term) Label(lang string) string {
-	for _, k := range []string{lang, "en", ""} {
-		if l, ok := t.Labels[k]; ok {
-			return l
-		}
-	}
-	for _, l := range t.Labels {
+	if l := PickLabel(t.Labels, lang); l != "" {
 		return l
 	}
 	return t.ID
+}
+
+// PickLabel returns the best display label from a language-tagged label map
+// (the convention every label-bearing shape shares, tasks/116): each
+// preferred tag in order, then English, then untagged, then the
+// lexicographically first remaining tag -- deterministic where map order is
+// not. Empty-string labels never win; "" means no usable label, and the
+// caller supplies its own fallback (term URI, raw ID).
+func PickLabel(labels map[string]string, prefer ...string) string {
+	for _, k := range append(prefer, "en", "") {
+		if l := labels[k]; l != "" {
+			return l
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(labels)) {
+		if l := labels[k]; l != "" {
+			return l
+		}
+	}
+	return ""
 }
 
 // Index is the loaded term index. Reads are lock-free over an immutable

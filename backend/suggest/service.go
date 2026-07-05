@@ -171,29 +171,14 @@ func (s *Service) bumpFolkUse(ctx context.Context, ref vocab.TermRef) {
 // mutateFolk applies mutate to a folk term record under optimistic
 // concurrency.
 func (s *Service) mutateFolk(ctx context.Context, norm string, mutate func(*FolkTerm)) error {
-	for attempt := range casRetries {
-		casBackoff(attempt)
-		rec, err := s.db.Get(ctx, folkKey(norm))
-		if err != nil {
-			return err
-		}
+	return s.casUpdate(ctx, folkKey(norm), "suggest: folk update conflict", false, func(data []byte, _ bool) ([]byte, error) {
 		var ft FolkTerm
-		if err := json.Unmarshal(rec.Data, &ft); err != nil {
-			return err
+		if err := json.Unmarshal(data, &ft); err != nil {
+			return nil, err
 		}
 		mutate(&ft)
-		data, err := json.Marshal(ft)
-		if err != nil {
-			return err
-		}
-		rec.Data = data
-		if _, err := s.db.Put(ctx, rec, store.CondIfVersion); err == nil {
-			return nil
-		} else if !errors.Is(err, store.ErrConditionFailed) {
-			return err
-		}
-	}
-	return errors.New("suggest: folk update conflict")
+		return json.Marshal(ft)
+	})
 }
 
 // casRetries bounds optimistic-concurrency retry loops; contention on a hot
@@ -206,32 +191,61 @@ func casBackoff(attempt int) {
 	}
 }
 
+// casUpdate is the shared optimistic-concurrency loop behind every suggest
+// mutator: read the record at key, hand its bytes to apply, write the result
+// back under the record's version, and retry from fresh on a lost race.
+// apply decodes, mutates, and re-encodes (an error from it aborts the loop
+// verbatim, so domain short-circuits like errAlreadyResolved ride through);
+// found is false only when allowCreate is set and the key does not exist
+// yet, making the write a create. conflict is the give-up error after
+// casRetries lost races. Post-write side effects (status-index upkeep) stay
+// with the caller: apply captures what they need, and casUpdate returning
+// nil means the capturing attempt won.
+func (s *Service) casUpdate(ctx context.Context, key store.Key, conflict string, allowCreate bool, apply func(data []byte, found bool) ([]byte, error)) error {
+	for attempt := range casRetries {
+		casBackoff(attempt)
+		rec, err := s.db.Get(ctx, key)
+		found := err == nil
+		switch {
+		case errors.Is(err, store.ErrNotFound) && allowCreate:
+			rec = store.Record{Key: key}
+		case err != nil:
+			return err
+		}
+		data, err := apply(rec.Data, found)
+		if err != nil {
+			return err
+		}
+		rec.Data = data
+		if _, err := s.db.Put(ctx, rec, store.CondIfVersion); err == nil {
+			return nil
+		} else if !errors.Is(err, store.ErrConditionFailed) {
+			return err
+		}
+	}
+	return errors.New(conflict)
+}
+
 // bumpAggregate creates or updates the (work, term, type) aggregate and its
 // status index item.
 func (s *Service) bumpAggregate(ctx context.Context, in SubmitInput, now time.Time) error {
 	key := store.Key{PK: workPK(in.WorkID), SK: suggSK(in.Term, in.Type)}
-	for attempt := range casRetries {
-		casBackoff(attempt)
-		rec, err := s.db.Get(ctx, key)
-		var sg Suggestion
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			sg = Suggestion{
-				WorkID:     in.WorkID,
-				Term:       in.Term,
-				Type:       in.Type,
-				Status:     StatusPending,
-				Provenance: ProvenancePatron,
-				WorkTitle:  in.WorkTitle,
-				SourceRef:  in.SourceRef,
-				CreatedAt:  now,
-			}
-			rec = store.Record{Key: key}
-		case err != nil:
-			return err
-		default:
-			if sg, err = unmarshalSuggestion(rec.Data); err != nil {
-				return err
+	var status Status
+	err := s.casUpdate(ctx, key, "suggest: aggregate update conflict", true, func(data []byte, found bool) ([]byte, error) {
+		sg := Suggestion{
+			WorkID:     in.WorkID,
+			Term:       in.Term,
+			Type:       in.Type,
+			Status:     StatusPending,
+			Provenance: ProvenancePatron,
+			WorkTitle:  in.WorkTitle,
+			SourceRef:  in.SourceRef,
+			CreatedAt:  now,
+		}
+		if found {
+			var err error
+			if sg, err = unmarshalSuggestion(data); err != nil {
+				return nil, err
 			}
 		}
 		sg.SupporterCount++
@@ -242,21 +256,14 @@ func (s *Service) bumpAggregate(ctx context.Context, in SubmitInput, now time.Ti
 			}
 			sg.ReasonCounts[in.Reason]++
 		}
-		data, err := marshalSuggestion(sg)
-		if err != nil {
-			return err
-		}
-		rec.Data = data
-		if _, err := s.db.Put(ctx, rec, store.CondIfVersion); err != nil {
-			if errors.Is(err, store.ErrConditionFailed) {
-				continue // concurrent vote; re-read and retry
-			}
-			return err
-		}
-		s.writeStatusIndex(ctx, sg.Status, key)
-		return nil
+		status = sg.Status
+		return marshalSuggestion(sg)
+	})
+	if err != nil {
+		return err
 	}
-	return errors.New("suggest: aggregate update conflict")
+	s.writeStatusIndex(ctx, status, key)
+	return nil
 }
 
 // writeStatusIndex mirrors an aggregate into its status partition
@@ -311,37 +318,25 @@ func (s *Service) reconcileDispute(ctx context.Context, workID string, term voca
 // concurrency, keeping the status index in step. Resolved items are left
 // alone (concurrent-reviewer safe).
 func (s *Service) transition(ctx context.Context, key store.Key, to Status, stamp func(*Suggestion)) error {
-	for attempt := range casRetries {
-		casBackoff(attempt)
-		rec, err := s.db.Get(ctx, key)
+	var from Status
+	err := s.casUpdate(ctx, key, "suggest: transition conflict", false, func(data []byte, _ bool) ([]byte, error) {
+		sg, err := unmarshalSuggestion(data)
 		if err != nil {
-			return err
-		}
-		sg, err := unmarshalSuggestion(rec.Data)
-		if err != nil {
-			return err
+			return nil, err
 		}
 		if sg.Status != StatusPending && sg.Status != StatusDisputed {
-			return errAlreadyResolved
+			return nil, errAlreadyResolved
 		}
-		from := sg.Status
+		from = sg.Status
 		sg.Status = to
 		stamp(&sg)
-		data, err := marshalSuggestion(sg)
-		if err != nil {
-			return err
-		}
-		rec.Data = data
-		if _, err := s.db.Put(ctx, rec, store.CondIfVersion); err != nil {
-			if errors.Is(err, store.ErrConditionFailed) {
-				continue
-			}
-			return err
-		}
-		s.moveStatusIndex(ctx, from, to, key)
-		return nil
+		return marshalSuggestion(sg)
+	})
+	if err != nil {
+		return err
 	}
-	return errors.New("suggest: transition conflict")
+	s.moveStatusIndex(ctx, from, to, key)
+	return nil
 }
 
 var errAlreadyResolved = errors.New("suggest: already resolved")

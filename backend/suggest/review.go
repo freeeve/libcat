@@ -316,29 +316,14 @@ func (s *Service) MarkPublished(ctx context.Context, items []Suggestion, etag st
 // mutateSuggestion applies mutate to an aggregate under optimistic
 // concurrency without status-transition rules.
 func (s *Service) mutateSuggestion(ctx context.Context, key store.Key, mutate func(*Suggestion)) error {
-	for attempt := range casRetries {
-		casBackoff(attempt)
-		rec, err := s.db.Get(ctx, key)
+	return s.casUpdate(ctx, key, "suggest: update conflict", false, func(data []byte, _ bool) ([]byte, error) {
+		sg, err := unmarshalSuggestion(data)
 		if err != nil {
-			return err
-		}
-		sg, err := unmarshalSuggestion(rec.Data)
-		if err != nil {
-			return err
+			return nil, err
 		}
 		mutate(&sg)
-		data, err := marshalSuggestion(sg)
-		if err != nil {
-			return err
-		}
-		rec.Data = data
-		if _, err := s.db.Put(ctx, rec, store.CondIfVersion); err == nil {
-			return nil
-		} else if !errors.Is(err, store.ErrConditionFailed) {
-			return err
-		}
-	}
-	return errors.New("suggest: update conflict")
+		return marshalSuggestion(sg)
+	})
 }
 
 // WriteAudit records a publish-lifecycle event not tied to one decision.

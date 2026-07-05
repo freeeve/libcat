@@ -3,9 +3,8 @@ package bibframe
 import (
 	"context"
 	"fmt"
-	"strings"
+	"path"
 
-	"github.com/freeeve/libcatalog/identity"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -25,7 +24,7 @@ func LoadPriorStore(ctx context.Context, st blob.Store, prefix, provider string)
 		if err != nil {
 			return Prior{}, nil, fmt.Errorf("list grains: %w", err)
 		}
-		if !strings.HasSuffix(entry.Path, ".nq") || strings.HasSuffix(entry.Path, "/catalog.nq") || entry.Path == "catalog.nq" {
+		if !isWorkGrainName(path.Base(entry.Path)) {
 			continue
 		}
 		b, etag, err := st.Get(ctx, entry.Path)
@@ -33,30 +32,9 @@ func LoadPriorStore(ctx context.Context, st blob.Store, prefix, provider string)
 			return Prior{}, nil, fmt.Errorf("%s: %w", entry.Path, err)
 		}
 		etags[entry.Path] = etag
-		gi, err := identity.ScanGrain(b)
-		if err != nil {
+		if err := prior.accumulateGrain(b, feed); err != nil {
 			return Prior{}, nil, fmt.Errorf("%s: %w", entry.Path, err)
 		}
-		prior.Grains = append(prior.Grains, gi)
-		ed, err := preservedQuads(b, feed)
-		if err != nil {
-			return Prior{}, nil, fmt.Errorf("%s: %w", entry.Path, err)
-		}
-		for _, wk := range gi.Works {
-			if len(ed) > 0 {
-				prior.Editorial[wk.WorkID] = append(prior.Editorial[wk.WorkID], ed...)
-			}
-		}
-		merges, err := ScanMerges(b)
-		if err != nil {
-			return Prior{}, nil, fmt.Errorf("%s: %w", entry.Path, err)
-		}
-		prior.Merges = append(prior.Merges, merges...)
-		pins, err := ScanPins(b)
-		if err != nil {
-			return Prior{}, nil, fmt.Errorf("%s: %w", entry.Path, err)
-		}
-		prior.Pins = append(prior.Pins, pins...)
 	}
 	return prior, etags, nil
 }

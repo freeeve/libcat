@@ -37,50 +37,54 @@ func LoadPrior(dir, provider string) (Prior, error) {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".nq") || d.Name() == "catalog.nq" {
+		if d.IsDir() || !isWorkGrainName(d.Name()) {
 			return nil
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		gi, err := identity.ScanGrain(b)
-		if err != nil {
+		if err := prior.accumulateGrain(b, feed); err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		prior.Grains = append(prior.Grains, gi)
-		ed, err := preservedQuads(b, feed)
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		for _, wk := range gi.Works {
-			if len(ed) > 0 {
-				prior.Editorial[wk.WorkID] = append(prior.Editorial[wk.WorkID], ed...)
-			}
-		}
-		merges, err := ScanMerges(b)
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		prior.Merges = append(prior.Merges, merges...)
-		pins, err := ScanPins(b)
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		prior.Pins = append(prior.Pins, pins...)
 		return nil
 	})
 	return prior, err
 }
 
+// isWorkGrainName reports whether a file basename is a per-Work grain: *.nq,
+// excluding the bulk catalog.nq -- the one skip rule both prior loaders
+// share (tasks/116).
+func isWorkGrainName(base string) bool {
+	return strings.HasSuffix(base, ".nq") && base != "catalog.nq"
+}
+
+// accumulateGrain scans one grain into the prior off a single parse: its
+// committed identity, its preserved non-feed statements per Work, and its
+// editorial merge/pin decisions -- the shared per-grain core of LoadPrior
+// (filesystem) and LoadPriorStore (blob store).
+func (p *Prior) accumulateGrain(grain []byte, feed rdf.Term) error {
+	ds, err := rdf.ParseNQuads(grain)
+	if err != nil {
+		return err
+	}
+	gi := identity.ScanDataset(ds)
+	p.Grains = append(p.Grains, gi)
+	ed := preservedQuads(ds, feed)
+	for _, wk := range gi.Works {
+		if len(ed) > 0 {
+			p.Editorial[wk.WorkID] = append(p.Editorial[wk.WorkID], ed...)
+		}
+	}
+	p.Merges = append(p.Merges, ScanMergesDataset(ds)...)
+	p.Pins = append(p.Pins, scanPinsDataset(ds)...)
+	return nil
+}
+
 // preservedQuads returns the raw N-Quads of every provenance graph in the grain
 // other than feed -- the editorial (and any future non-feed) statements to carry
 // across re-ingest (ARCHITECTURE §5).
-func preservedQuads(grain []byte, feed rdf.Term) ([]byte, error) {
-	ds, err := rdf.ParseNQuads(grain)
-	if err != nil {
-		return nil, err
-	}
+func preservedQuads(ds *rdf.Dataset, feed rdf.Term) []byte {
 	var out []byte
 	for _, gt := range ds.Graphs() {
 		if gt == feed {
@@ -88,5 +92,5 @@ func preservedQuads(grain []byte, feed rdf.Term) ([]byte, error) {
 		}
 		out = append(out, ds.Graph(gt).NQuads(gt)...)
 	}
-	return out, nil
+	return out
 }

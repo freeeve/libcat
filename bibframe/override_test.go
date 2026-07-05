@@ -32,11 +32,11 @@ func TestOverrideLifecycle(t *testing.T) {
 	}
 
 	// The marker lives in editorial:, so re-ingest preserves it.
-	preserved, err := preservedQuads(claimed, FeedGraph("overdrive"))
+	claimedDS, err := rdf.ParseNQuads(claimed)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(preserved), PredOverrides) {
+	if !strings.Contains(string(preservedQuads(claimedDS, FeedGraph("overdrive"))), PredOverrides) {
 		t.Fatal("marker not preserved across reingest")
 	}
 

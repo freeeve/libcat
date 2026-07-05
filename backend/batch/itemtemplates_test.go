@@ -13,7 +13,7 @@ func TestItemTemplatesCRUDAndSharing(t *testing.T) {
 	ctx := t.Context()
 
 	mine, err := svc.CreateItemTemplate(ctx, batch.ItemTemplate{
-		Label: "Paperback", CallNumber: "FIC", Location: "Main", BarcodePrefix: "B-",
+		OwnedMeta: batch.OwnedMeta{Label: "Paperback"}, CallNumber: "FIC", Location: "Main", BarcodePrefix: "B-",
 	}, "eve@example.org")
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,8 @@ func TestItemTemplatesCRUDAndSharing(t *testing.T) {
 		t.Fatalf("created = %+v", mine)
 	}
 	shared, err := svc.CreateItemTemplate(ctx, batch.ItemTemplate{
-		Label: "Branch copy", Location: "Branch", Shared: true, BarcodePrefix: "BR-", BarcodeWidth: 6,
+		OwnedMeta: batch.OwnedMeta{Label: "Branch copy", Shared: true},
+		Location:  "Branch", BarcodePrefix: "BR-", BarcodeWidth: 6,
 	}, "amy@example.org")
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +65,7 @@ func TestItemTemplatesCRUDAndSharing(t *testing.T) {
 	if _, err := svc.CreateItemTemplate(ctx, batch.ItemTemplate{}, "eve@example.org"); !errors.Is(err, batch.ErrValidation) {
 		t.Fatalf("unlabeled template err = %v", err)
 	}
-	if _, err := svc.CreateItemTemplate(ctx, batch.ItemTemplate{Label: "x", BarcodeWidth: 44}, "eve@example.org"); !errors.Is(err, batch.ErrValidation) {
+	if _, err := svc.CreateItemTemplate(ctx, batch.ItemTemplate{OwnedMeta: batch.OwnedMeta{Label: "x"}, BarcodeWidth: 44}, "eve@example.org"); !errors.Is(err, batch.ErrValidation) {
 		t.Fatalf("wide barcode err = %v", err)
 	}
 }

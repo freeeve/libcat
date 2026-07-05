@@ -170,11 +170,11 @@ func TestReingestPreservesNonFeedGraphs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preserved, err := preservedQuads(grain, FeedGraph("overdrive"))
+	ds, err := rdf.ParseNQuads(grain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(preserved)
+	text := string(preservedQuads(ds, FeedGraph("overdrive")))
 	for _, want := range []string{"<editorial:>", "<enrichment:locsh>", "<authority:homosaurus>"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("preserved missing %s:\n%s", want, text)

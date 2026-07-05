@@ -42,21 +42,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	readGrain := func(w http.ResponseWriter, r *http.Request) ([]byte, string, string, bool) {
-		workID := r.PathValue("id")
-		if !workIDPattern.MatchString(workID) {
-			writeError(w, http.StatusBadRequest, "bad work id")
-			return nil, "", "", false
-		}
-		grain, etag, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
-		if errors.Is(err, blob.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "no such work")
-			return nil, "", "", false
-		}
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "grain read failed")
-			return nil, "", "", false
-		}
-		return grain, etag, workID, true
+		return readWorkGrain(w, r, bs)
 	}
 
 	mux.Handle("GET /v1/works/{id}", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

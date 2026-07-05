@@ -99,11 +99,8 @@ func (s *Service) runQueued(ctx context.Context, src Source) (int, error) {
 		landed := false
 		for _, subj := range res.Subjects {
 			label := subj.URI
-			for _, lang := range []string{"en", ""} {
-				if v, ok := subj.Labels[lang]; ok {
-					label = v
-					break
-				}
+			if l := vocab.PickLabel(subj.Labels); l != "" {
+				label = l
 			}
 			term := vocab.TermRef{Scheme: src.Scheme, ID: subj.URI, Label: label}
 			err := s.Queue.PipelineSuggest(ctx, res.WorkID, term, res.Confidence)

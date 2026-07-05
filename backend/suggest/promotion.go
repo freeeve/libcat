@@ -153,29 +153,14 @@ func (s *Service) MarkPromotionExecuted(ctx context.Context, tag string, works i
 }
 
 func (s *Service) mutatePromotion(ctx context.Context, tag string, mutate func(*Promotion) error) error {
-	for attempt := range casRetries {
-		casBackoff(attempt)
-		rec, err := s.db.Get(ctx, promotionKey(tag))
-		if err != nil {
-			return err
-		}
+	return s.casUpdate(ctx, promotionKey(tag), "suggest: promotion update conflict", false, func(data []byte, _ bool) ([]byte, error) {
 		var p Promotion
-		if err := json.Unmarshal(rec.Data, &p); err != nil {
-			return err
+		if err := json.Unmarshal(data, &p); err != nil {
+			return nil, err
 		}
 		if err := mutate(&p); err != nil {
-			return err
+			return nil, err
 		}
-		data, err := json.Marshal(p)
-		if err != nil {
-			return err
-		}
-		rec.Data = data
-		if _, err := s.db.Put(ctx, rec, store.CondIfVersion); err == nil {
-			return nil
-		} else if !errors.Is(err, store.ErrConditionFailed) {
-			return err
-		}
-	}
-	return errors.New("suggest: promotion update conflict")
+		return json.Marshal(p)
+	})
 }

@@ -162,7 +162,7 @@ func emitAuthorityMARC(ix *vocab.Index, terms []*vocab.Term) ([]byte, int, error
 		for _, uri := range t.ExactMatch {
 			rec.AddField(codex.NewDataField("750", ' ', '7', codex.NewSubfield('0', uri)))
 		}
-		if def := bestLang(t.Definition); def != "" {
+		if def := vocab.PickLabel(t.Definition); def != "" {
 			rec.AddField(codex.NewDataField("680", ' ', ' ', codex.NewSubfield('i', def)))
 		}
 		if err := w.Write(rec); err != nil {
@@ -242,18 +242,6 @@ func localName(uri string) string {
 		return uri[i+1:]
 	}
 	return uri
-}
-
-func bestLang(byLang map[string]string) string {
-	for _, k := range []string{"en", ""} {
-		if v := byLang[k]; v != "" {
-			return v
-		}
-	}
-	for _, v := range byLang {
-		return v
-	}
-	return ""
 }
 
 func sortedLangs[V any](m map[string]V) []string {

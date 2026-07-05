@@ -323,15 +323,5 @@ func validateTerm(term bibframe.AuthorityTerm) error {
 }
 
 func bestLabel(term bibframe.AuthorityTerm) string {
-	for _, k := range []string{"en", ""} {
-		if l := term.PrefLabel[k]; l != "" {
-			return l
-		}
-	}
-	for _, l := range term.PrefLabel {
-		if l != "" {
-			return l
-		}
-	}
-	return ""
+	return vocab.PickLabel(term.PrefLabel)
 }

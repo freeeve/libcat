@@ -204,8 +204,8 @@ func TestMacroCRUDAndParams(t *testing.T) {
 	ctx := t.Context()
 
 	m, err := svc.CreateMacro(ctx, batch.Macro{
-		Label: "Stamp summary",
-		Keys:  "1",
+		OwnedMeta: batch.OwnedMeta{Label: "Stamp summary"},
+		Keys:      "1",
 		Ops: []editor.Op{{
 			Resource: "work", Path: "summary", Action: "set",
 			Values: []editor.OpValue{{V: "${text} (stamped)", Lang: "en"}},
@@ -276,10 +276,10 @@ func TestMacroCRUDAndParams(t *testing.T) {
 	}
 
 	// Validation floor.
-	if _, err := svc.CreateMacro(ctx, batch.Macro{Label: "", Ops: summarySetOps("x")}, "x"); !errors.Is(err, batch.ErrValidation) {
+	if _, err := svc.CreateMacro(ctx, batch.Macro{Ops: summarySetOps("x")}, "x"); !errors.Is(err, batch.ErrValidation) {
 		t.Fatalf("no label err = %v", err)
 	}
-	if _, err := svc.CreateMacro(ctx, batch.Macro{Label: "empty"}, "x"); !errors.Is(err, batch.ErrValidation) {
+	if _, err := svc.CreateMacro(ctx, batch.Macro{OwnedMeta: batch.OwnedMeta{Label: "empty"}}, "x"); !errors.Is(err, batch.ErrValidation) {
 		t.Fatalf("no ops err = %v", err)
 	}
 }
@@ -290,8 +290,7 @@ func TestSharedMacroOverSelection(t *testing.T) {
 	svc, st, _, _ := newService(t)
 	ctx := t.Context()
 	m, err := svc.CreateMacro(ctx, batch.Macro{
-		Label:  "Series summary",
-		Shared: true,
+		OwnedMeta: batch.OwnedMeta{Label: "Series summary", Shared: true},
 		Ops: []editor.Op{{
 			Resource: "work", Path: "summary", Action: "set",
 			Values: []editor.OpValue{{V: "${series} book.", Lang: "en"}},

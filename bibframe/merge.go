@@ -90,6 +90,12 @@ func ScanPins(nq []byte) ([]identity.Pin, error) {
 	if err != nil {
 		return nil, err
 	}
+	return scanPinsDataset(ds), nil
+}
+
+// scanPinsDataset extracts the editorial-graph lcat:workAssignment pairs from
+// a parsed dataset.
+func scanPinsDataset(ds *rdf.Dataset) []identity.Pin {
 	ed := EditorialGraph()
 	var out []identity.Pin
 	for _, q := range ds.Quads {
@@ -97,7 +103,7 @@ func ScanPins(nq []byte) ([]identity.Pin, error) {
 			out = append(out, identity.Pin{Instance: fragInstance(q.S.Value), Work: fragWork(q.O.Value)})
 		}
 	}
-	return out, nil
+	return out
 }
 
 // AddSplitMarkers records an editorial split in a grain's N-Quads: a

@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/identity"
 	"github.com/freeeve/libcatalog/ingest"
 	"github.com/freeeve/libcatalog/storage/blob"
@@ -56,9 +55,8 @@ func registerSubjectLookup(mux *http.ServeMux, cc *copycat.Service, bs blob.Stor
 				return
 			}
 		}
-		grain, _, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
-		if err != nil {
-			writeError(w, http.StatusNotFound, "no such work")
+		grain, _, _, ok := readWorkGrain(w, r, bs)
+		if !ok {
 			return
 		}
 		summaries, err := ingest.SummarizeGrain(grain)
@@ -134,14 +132,8 @@ func registerSubjectLookup(mux *http.ServeMux, cc *copycat.Service, bs blob.Stor
 	// Identifier kinds (tasks/073): each bf:identifiedBy value mapped to its
 	// BIBFRAME type so the editor can badge ISBN vs ISSN vs provider id.
 	mux.Handle("GET /v1/works/{id}/identifiers", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		workID := r.PathValue("id")
-		if !workIDPattern.MatchString(workID) {
-			writeError(w, http.StatusBadRequest, "bad work id")
-			return
-		}
-		grain, _, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
-		if err != nil {
-			writeError(w, http.StatusNotFound, "no such work")
+		grain, _, workID, ok := readWorkGrain(w, r, bs)
+		if !ok {
 			return
 		}
 		gi, err := identity.ScanGrain(grain)
