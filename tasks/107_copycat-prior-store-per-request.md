@@ -31,3 +31,9 @@ bytes. Scope preCommitSnapshot's listing to the works the batch touches.
 - A stage-then-commit of one record against a large seeded store does not read
   every grain twice; measured blob reads drop from O(2N+) to O(N) or better
   (O(1) with the shared index).
+
+## Status (2026-07-05 session)
+
+Not started. Depends on the identity-index design in
+[[106_httpapi-per-request-corpus-scans]] for the O(1) end state; the
+reuse-between-Stage-and-Commit half can land independently.

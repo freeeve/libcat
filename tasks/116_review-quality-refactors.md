@@ -39,3 +39,12 @@ item; each should land with tests proving equivalence.
   fan-out + protocol/query assembly (SearchAll/protocolSearch/sruSearch/
   sruQuery/z3950Query/readUpTo), and the staging/commit lifecycle -- siblings
   already live in their own files (profiles.go, revert.go, templates.go).
+
+## Status (2026-07-05 session)
+
+Not started; no item begun. Context from the fixes that landed meanwhile:
+tasks/115 added `writeMutateError` in httpapi/records_handlers.go -- the
+shared readGrain helper here should fold into that same error-mapping
+convention (404/500/409). The suggest CAS loops, label-fallback copies,
+LoadPrior duplication, macros/itemtemplates parallel CRUD, and copycat.go
+split are all untouched.

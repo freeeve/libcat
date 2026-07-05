@@ -33,3 +33,9 @@ max snapshot size plus a max line length on the fetch path.
   the dump size.
 - An over-limit or newline-less response fails cleanly with a size error rather
   than growing without bound.
+
+## Status (2026-07-05 session)
+
+Not started. Pair the streaming write with the `blob.Store` streaming Put that
+[[108_export-streaming-memory]] needs; the fetch size/line caps are
+independent and can land first as a small change.

@@ -43,3 +43,10 @@ already been paid.
 - A grain scan reads each file at most once (verified by I/O counting against
   DirStore).
 - Listing under a deep prefix does not walk unrelated subtrees.
+
+## Status (2026-07-05 session)
+
+Not started. Note `batch.Run` changed nearby in tasks/111 (audit now rides on
+`result.Applied > 0`) -- the MaxWorks-after-scan ordering this task fixes is
+unchanged. Coordinate the shared summaries source with the index design in
+[[106_httpapi-per-request-corpus-scans]].

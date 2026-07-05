@@ -32,3 +32,9 @@ of via one whole-corpus `Project` call.
   output-sized), demonstrated against a large seeded store.
 - CSV export no longer builds the merged corpus buffer and the full Catalog
   simultaneously.
+
+## Status (2026-07-05 session)
+
+Not started. The streaming `Put(io.Reader)` (or temp-file spool) this needs is
+also what tasks/110's snapshot conversion wants -- add it to `blob.Store`
+once, use it in both.

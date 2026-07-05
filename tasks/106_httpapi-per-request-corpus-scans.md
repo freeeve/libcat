@@ -39,3 +39,12 @@ The duplicates/withdrawn handlers should reuse one scan and cache it.
 - Bulk item dry runs do no corpus scan.
 - Repeated `GET /v1/duplicates` / `/v1/withdrawn` within the cache window do not
   re-walk the store.
+
+## Status (2026-07-05 session)
+
+Not started -- the scans are unchanged. Related context from the same review
+round: tasks/101 (done) made `WorkKey` return `""` for title-less records, so
+`findDuplicate` and the duplicates handler no longer see the shared
+`"\x1f\x1f"` pseudo-key as a match; the O(corpus) cost itself remains. The
+shared index proposed here is also the intended fix vehicle for tasks/107 and
+part of tasks/109 -- design them together.
