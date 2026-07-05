@@ -68,6 +68,30 @@ func TestRequestMapping(t *testing.T) {
 	}
 }
 
+// TestEscapedPathParity covers tasks/104: a percent-escaped path segment must
+// reach the mux decoded exactly once, as it does on the standalone server --
+// not double-encoded by a url.URL round trip.
+func TestEscapedPathParity(t *testing.T) {
+	mux := http.NewServeMux()
+	var gotEmail string
+	mux.HandleFunc("PUT /v1/users/{email}/roles", func(w http.ResponseWriter, r *http.Request) {
+		gotEmail = r.PathValue("email")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	ev := event(http.MethodPut, "/v1/users/eve%40example.org/roles", "", "")
+
+	resp, err := Handler(mux)(context.Background(), ev)
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d (escaped path failed to route)", resp.StatusCode)
+	}
+	if gotEmail != "eve@example.org" {
+		t.Fatalf("email path value = %q, want %q", gotEmail, "eve@example.org")
+	}
+}
+
 func TestBase64RequestBody(t *testing.T) {
 	raw := []byte{0x00, 0x01, 0xFF}
 	ev := event(http.MethodPost, "/v1/x", "", base64.StdEncoding.EncodeToString(raw))

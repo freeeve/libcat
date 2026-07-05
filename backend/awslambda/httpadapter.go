@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"unicode/utf8"
 
@@ -41,8 +40,18 @@ func httpRequest(ctx context.Context, ev events.APIGatewayV2HTTPRequest) (*http.
 		}
 		body = decoded
 	}
-	u := url.URL{Path: ev.RawPath, RawQuery: ev.RawQueryString}
-	req, err := http.NewRequestWithContext(ctx, ev.RequestContext.HTTP.Method, u.String(), bytes.NewReader(body))
+	// Keep the raw request target as-is: routing RawPath through url.URL.Path
+	// re-escapes literal '%', so an escaped segment ("/users/eve%40x") would
+	// reach PathValue double-encoded under Lambda but decoded on the
+	// standalone server (tasks/104).
+	target := ev.RawPath
+	if target == "" {
+		target = "/"
+	}
+	if ev.RawQueryString != "" {
+		target += "?" + ev.RawQueryString
+	}
+	req, err := http.NewRequestWithContext(ctx, ev.RequestContext.HTTP.Method, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
