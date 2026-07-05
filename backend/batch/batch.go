@@ -215,7 +215,12 @@ func (s *Service) Run(ctx context.Context, sel Selection, ops []editor.Op, dryRu
 		}
 		result.Results = append(result.Results, item)
 	}
-	if !dryRun {
+	// Audit only executions that applied a change: like the single-record
+	// ops path, whose audit rides on a successful grain write. In read-only
+	// demo mode every grain write fails while the document store stays
+	// writable, so an unconditional audit here would durably record demo
+	// clicks despite the "nothing is saved" contract (tasks/111).
+	if !dryRun && result.Applied > 0 {
 		if s.Queue != nil {
 			s.Queue.WriteAudit(ctx, suggest.AuditEntry{
 				Action: "BATCH_OPS", Actor: actor,

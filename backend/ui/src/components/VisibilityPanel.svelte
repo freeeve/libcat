@@ -4,9 +4,12 @@
   // successor redirect. Never row-deletion.
   import { onMount } from "svelte";
   import { fetchVisibility, setVisibility, ApiError } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import type { WorkVisibility } from "../lib/types";
 
   let { workId }: { workId: string } = $props();
+
+  const readOnly = isReadOnly();
 
   let vis = $state<WorkVisibility | null>(null);
   let redirectTo = $state("");
@@ -39,11 +42,15 @@
   <div class="vis" role="group" aria-label="Visibility">
     {#if vis.tombstoned}
       <span class="badge warn">tombstoned{vis.redirectTo ? ` → ${vis.redirectTo}` : " (gone)"}</span>
-      <button class="button button--quiet mini" onclick={() => void act("untombstone")}>Restore</button>
+      {#if !readOnly}
+        <button class="button button--quiet mini" onclick={() => void act("untombstone")}>Restore</button>
+      {/if}
     {:else if vis.suppressed}
       <span class="badge">suppressed</span>
-      <button class="button button--quiet mini" onclick={() => void act("unsuppress")}>Unsuppress</button>
-    {:else}
+      {#if !readOnly}
+        <button class="button button--quiet mini" onclick={() => void act("unsuppress")}>Unsuppress</button>
+      {/if}
+    {:else if !readOnly}
       <button class="button button--quiet mini" onclick={() => void act("suppress")}>Suppress</button>
       {#if tombstoning}
         <input class="mono target" aria-label="Redirect to work id (optional)" bind:value={redirectTo} placeholder="redirect to w… (optional)" />

@@ -16,10 +16,13 @@
     runBatch,
   } from "../lib/api";
   import Modal from "../components/Modal.svelte";
+  import { isReadOnly } from "../lib/config";
   import type { BatchRunResult, BatchTarget, Macro, Op, Profile, SavedQuery, Selection } from "../lib/types";
 
   // initialMacro preselects a macro (deep link #/batch?macro=<id>).
   let { initialMacro = "" }: { initialMacro?: string } = $props();
+
+  const readOnly = isReadOnly();
 
   interface OpRow {
     path: string;
@@ -200,7 +203,9 @@
       </select>
       {#if kind === "search"}
         <input class="grow" aria-label="Search query" bind:value={query} placeholder="title, contributor, tag, ISBN…" />
-        <button class="button button--quiet" onclick={() => void saveQuery()} disabled={!query.trim()}>Save query…</button>
+        {#if !readOnly}
+          <button class="button button--quiet" onclick={() => void saveQuery()} disabled={!query.trim()}>Save query…</button>
+        {/if}
       {:else if kind === "savedQuery"}
         <select aria-label="Saved query" bind:value={savedQueryId}>
           <option value="">Pick a saved query…</option>
@@ -208,7 +213,7 @@
             <option value={sq.id}>{sq.label} ({sq.query})</option>
           {/each}
         </select>
-        {#if savedQueryId}
+        {#if savedQueryId && !readOnly}
           <button class="button button--quiet" onclick={() => void removeQuery(savedQueryId)}>Delete saved query</button>
         {/if}
       {/if}
@@ -292,9 +297,11 @@
     <h2>3 · Run</h2>
     <p class="actions">
       <button class="button" onclick={() => void run(true)} disabled={busy}>Dry run</button>
-      <button class="button button--danger" onclick={() => void run(false)} disabled={busy || !dryRunDone} title={dryRunDone ? "" : "dry-run first"}>
-        Execute
-      </button>
+      {#if !readOnly}
+        <button class="button button--danger" onclick={() => void run(false)} disabled={busy || !dryRunDone} title={dryRunDone ? "" : "dry-run first"}>
+          Execute
+        </button>
+      {/if}
     </p>
     <p aria-live="polite">
       {#if busy}<span class="muted">Running…</span>{/if}

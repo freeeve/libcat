@@ -19,6 +19,7 @@
     putCopycatTarget,
     stageCopycatBatch,
   } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import { normalizeIsbn } from "../lib/isbn";
   import { screenState } from "../lib/screenState.svelte";
@@ -98,6 +99,7 @@
   const profile = $derived(profiles.find((p) => p.name === st.profileName) ?? null);
 
   const isAdmin = $derived(($sessionStore?.roles ?? []).includes("admin"));
+  const readOnly = isReadOnly();
 
   // The scope pushes at init (not onMount) so a review pane restored from
   // screenState -- whose child onMount runs first -- stacks on top of it.
@@ -276,7 +278,7 @@
         status = `no match for ${isbn}`;
         return;
       }
-      if (!quickAutoStage) {
+      if (!quickAutoStage || readOnly) {
         status = `${st.results.length} match${st.results.length === 1 ? "" : "es"} for ${isbn}`;
         return;
       }
@@ -373,7 +375,9 @@
         onkeydown={(ev) => ev.key === "Enter" && void quickAdd()}
       />
     </label>
-    <label class="pick"><input type="checkbox" bind:checked={quickAutoStage} /> auto-stage best match</label>
+    {#if !readOnly}
+      <label class="pick"><input type="checkbox" bind:checked={quickAutoStage} /> auto-stage best match</label>
+    {/if}
     <button class="button" onclick={() => void quickAdd()} disabled={busy || quickIsbn.trim() === ""}>Add</button>
   </section>
 
@@ -383,7 +387,7 @@
       {#each targets as t (t.name)}
         <li>
           <span class="mono">{t.name}</span> · {t.protocol} · <span class="muted">{t.url}</span>
-          {#if isAdmin}
+          {#if isAdmin && !readOnly}
             <button class="button button--quiet mini" onclick={() => void removeTarget(t.name)}>Remove</button>
           {/if}
         </li>
@@ -391,7 +395,7 @@
         <li class="muted">No targets configured{isAdmin ? "" : " -- ask an admin"}.</li>
       {/each}
     </ul>
-    {#if isAdmin}
+    {#if isAdmin && !readOnly}
       <div class="row">
         <input aria-label="Target name" bind:value={newTarget.name} placeholder="name (e.g. loc)" />
         <input class="grow" aria-label="Target URL" bind:value={newTarget.url} placeholder="SRU base URL or z3950 host:port/DB" />
@@ -421,12 +425,15 @@
         <li>
           <span class="mono">{p.name}</span> ·
           <span class="muted">{p.targets?.length ? p.targets.join(", ") : "all targets"} · {p.policy || "replace-feed"}</span>
-          <button class="button button--quiet mini" onclick={() => void removeProfile(p.name)}>Remove</button>
+          {#if !readOnly}
+            <button class="button button--quiet mini" onclick={() => void removeProfile(p.name)}>Remove</button>
+          {/if}
         </li>
       {:else}
         <li class="muted">No profiles saved. A profile remembers target choices and overlay policy for recurring imports.</li>
       {/each}
     </ul>
+    {#if !readOnly}
     <div class="row">
       <input aria-label="Profile name" bind:value={newProfile.name} placeholder="name (e.g. weekly-loc)" />
       <select aria-label="Overlay policy" bind:value={newProfile.policy}>
@@ -439,6 +446,7 @@
       {/each}
       <button class="button" onclick={() => void saveProfile()} disabled={!newProfile.name.trim()}>Save profile</button>
     </div>
+    {/if}
   </details>
 
   <section aria-label="External search">
@@ -462,10 +470,12 @@
       <button class="button button--quiet" aria-expanded={st.advanced} onclick={() => (st.advanced = !st.advanced)}>
         Advanced {st.advanced ? "▴" : "▾"}
       </button>
-      <label class="button button--quiet upload-btn">
-        Stage a .mrc file… <input type="file" accept=".mrc,.marc" onchange={(ev) => void upload(ev)} hidden />
-      </label>
-      <a class="button button--quiet" href="#/copycat/new">New record…</a>
+      {#if !readOnly}
+        <label class="button button--quiet upload-btn">
+          Stage a .mrc file… <input type="file" accept=".mrc,.marc" onchange={(ev) => void upload(ev)} hidden />
+        </label>
+        <a class="button button--quiet" href="#/copycat/new">New record…</a>
+      {/if}
     </div>
     {#if st.advanced}
       <div class="fielded" role="group" aria-label="Fielded search">
@@ -511,7 +521,9 @@
               {b.label} <span class="muted">· {b.records} records · {b.source}</span>
               <span class="badge" data-status={b.status}>{b.status}</span>
             </button>
-            <button class="button button--quiet mini" onclick={() => void removeBatch(b.id)}>Delete</button>
+            {#if !readOnly}
+              <button class="button button--quiet mini" onclick={() => void removeBatch(b.id)}>Delete</button>
+            {/if}
           </li>
         {:else}
           <li class="muted">Nothing staged yet. Search a target or stage a .mrc file to review records here.</li>

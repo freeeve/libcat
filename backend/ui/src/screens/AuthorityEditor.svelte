@@ -15,11 +15,14 @@
     ApiError,
     ConflictError,
   } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import { bestLabel } from "../lib/vocab";
   import VocabPicker from "../components/VocabPicker.svelte";
   import type { AuthorityTerm, Profile, Term } from "../lib/types";
 
   let { authorityId }: { authorityId: string } = $props();
+
+  const readOnly = isReadOnly();
 
   interface LangRow {
     lang: string;
@@ -269,12 +272,14 @@
       </section>
     {/each}
 
-    <p class="actions">
-      <button class="button" onclick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
-      {#if !mergedInto}
-        <button class="button button--quiet" onclick={() => (pickerFor = "merge")}>Merge into another term…</button>
-      {/if}
-    </p>
+    {#if !readOnly}
+      <p class="actions">
+        <button class="button" onclick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+        {#if !mergedInto}
+          <button class="button button--quiet" onclick={() => (pickerFor = "merge")}>Merge into another term…</button>
+        {/if}
+      </p>
+    {/if}
 
     {#if mergeWinner}
       <div class="merge-confirm" role="alertdialog" aria-label="Confirm merge">

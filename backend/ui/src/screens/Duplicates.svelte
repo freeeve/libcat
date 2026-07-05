@@ -12,11 +12,13 @@
   import { screenState } from "../lib/screenState.svelte";
   import Modal from "../components/Modal.svelte";
   import RowList from "../components/RowList.svelte";
+  import { isReadOnly } from "../lib/config";
   import type { DuplicateGroup, WorkDoc } from "../lib/types";
 
   const SCOPE = "duplicates";
   const COMPARE_SCOPE = "duplicates-compare";
   const FRESH_MS = 60_000;
+  const readOnly = isReadOnly();
 
   const st = screenState("duplicates", () => ({
     groups: [] as DuplicateGroup[],
@@ -42,7 +44,7 @@
       o: { description: "expand the selected group", hidden: true, handler: () => void toggleSelected() },
     });
     const unbindCompare = bindKeys(COMPARE_SCOPE, {
-      m: { description: "merge the group into the survivor", legend: "merge", handler: () => openGroup && (confirming = true) },
+      m: { description: "merge the group into the survivor", legend: "merge", handler: () => !readOnly && openGroup && (confirming = true) },
       Escape: { description: "collapse the group", legend: "close", handler: collapse },
     });
     // The compare scope survives drill-in: re-push when returning with a
@@ -218,12 +220,14 @@
                 {/each}
               </tbody>
             </table>
-            <p class="acts">
-              <button class="button" onclick={() => (confirming = true)} disabled={busy || !st.survivor}>
-                Merge into {st.survivor || "…"}
-              </button>
-              <span class="muted">then tidy fields in the survivor's editor</span>
-            </p>
+            {#if !readOnly}
+              <p class="acts">
+                <button class="button" onclick={() => (confirming = true)} disabled={busy || !st.survivor}>
+                  Merge into {st.survivor || "…"}
+                </button>
+                <span class="muted">then tidy fields in the survivor's editor</span>
+              </p>
+            {/if}
           </div>
         {/if}
       </div>

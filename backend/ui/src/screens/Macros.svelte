@@ -6,9 +6,12 @@
   // this screen is where recordings get parameterized and shared.
   import { onMount } from "svelte";
   import { ApiError, createMacro, deleteMacro, fetchMacros, updateMacro } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import { sessionStore } from "../lib/stores";
   import type { Macro, MacroParam, Op } from "../lib/types";
+
+  const readOnly = isReadOnly();
 
   const SCOPE = "macros";
 
@@ -159,7 +162,9 @@
 
   <div class="cols">
     <section aria-label="Macro list">
-      <p><button class="button" onclick={startNew}>New macro</button></p>
+      {#if !readOnly}
+        <p><button class="button" onclick={startNew}>New macro</button></p>
+      {/if}
       <ul class="list">
         {#each macros as m, i (m.id)}
           <li class:selected={i === selected} onfocusin={() => (selected = i)}>
@@ -171,7 +176,7 @@
             <span class="meta muted">{m.ops.length} op{m.ops.length === 1 ? "" : "s"} · {m.owner}</span>
             <span class="acts">
               <a class="button button--quiet" href={"#/batch?macro=" + encodeURIComponent(m.id)}>Run over selection…</a>
-              {#if m.owner === me}
+              {#if m.owner === me && !readOnly}
                 <button class="button button--quiet" onclick={() => startEdit(m)}>Edit</button>
                 <button class="button button--quiet" onclick={() => void remove(m)}>Delete</button>
               {/if}

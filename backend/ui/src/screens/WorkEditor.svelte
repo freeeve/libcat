@@ -19,10 +19,13 @@
   import VisibilityPanel from "../components/VisibilityPanel.svelte";
   import { fetchIdentifierKinds, fetchItems, splitWork, ApiError } from "../lib/api";
   import type { SubjectCandidate } from "../lib/types";
+  import { isReadOnly } from "../lib/config";
   import { createEditorSession } from "../lib/editor";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
 
   let { workId }: { workId: string } = $props();
+
+  const readOnly = isReadOnly();
 
   const SCOPE = "editor";
   // The mount is keyed on workId in App.svelte, so one session per work.
@@ -224,7 +227,7 @@
                 <ItemsPanel {workId} instanceId={inst.id} />
               </details>
             {/each}
-            {#if doc.instances.length > 1}
+            {#if doc.instances.length > 1 && !readOnly}
               <p class="split-bar">
                 <button class="button button--quiet" onclick={() => void doSplit()} disabled={splitCount === 0}>
                   Split {splitCount || ""} selected instance{splitCount === 1 ? "" : "s"} into a new work

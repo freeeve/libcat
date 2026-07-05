@@ -4,6 +4,7 @@
   // selected result's full MARC (tasks/074), Enter stages the picked
   // records for review. Checkboxes stay for pointer users.
   import { onMount } from "svelte";
+  import { isReadOnly } from "../lib/config";
   import { bindKeys } from "../lib/keyboard";
   import MarcRecordView from "./MarcRecordView.svelte";
   import RowList from "./RowList.svelte";
@@ -24,6 +25,7 @@
   } = $props();
 
   const SCOPE = "copycat";
+  const readOnly = isReadOnly();
 
   const pickedCount = $derived(Object.values(picked).filter(Boolean).length);
 
@@ -35,7 +37,7 @@
       " ": { description: "pick or unpick the selected result", hidden: true, handler: toggle },
       a: { description: "pick all results (or none)", legend: "all/none", handler: toggleAll },
       v: { description: "show or hide the selected result's MARC", legend: "view marc", handler: () => (viewing = !viewing) },
-      Enter: { description: "stage the picked records for review", legend: "stage", handler: () => pickedCount > 0 && onstage() },
+      Enter: { description: "stage the picked records for review", legend: "stage", handler: () => !readOnly && pickedCount > 0 && onstage() },
     }),
   );
 
@@ -86,11 +88,13 @@
     <MarcRecordView record={results[selected].record} />
   </div>
 {/if}
-<p>
-  <button class="button" onclick={onstage} disabled={busy || pickedCount === 0}>
-    Stage {pickedCount || ""} selected for review
-  </button>
-</p>
+{#if !readOnly}
+  <p>
+    <button class="button" onclick={onstage} disabled={busy || pickedCount === 0}>
+      Stage {pickedCount || ""} selected for review
+    </button>
+  </p>
+{/if}
 
 <style>
   .rrow {

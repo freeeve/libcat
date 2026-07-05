@@ -17,6 +17,7 @@
     removeVocabSnapshot,
     uploadVocabSnapshot,
   } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import { sessionStore } from "../lib/stores";
   import type { VocabSource, VocabSourceView } from "../lib/types";
@@ -47,6 +48,7 @@
 
   const SCOPE = "vocabsources";
   const POLL_MS = 4000;
+  const readOnly = isReadOnly();
 
   let sources = $state<VocabSourceView[]>([]);
   let selected = $state(0);
@@ -129,11 +131,13 @@
   }
 
   function downloadSelected(): void {
+    if (readOnly) return;
     const s = sources[selected];
     if (s?.snapshotUrl) void download(s);
   }
 
   function removeSelected(): void {
+    if (readOnly) return;
     const s = sources[selected];
     if (s?.installed) void remove(s);
   }
@@ -251,23 +255,23 @@
               {/if}
             </td>
             <td class="actions">
-              {#if s.snapshotUrl}
+              {#if s.snapshotUrl && !readOnly}
                 <button class="button" onclick={() => void download(s)} disabled={busy === s.name || working(s)}>
                   {working(s) ? "Working…" : s.installed ? "Refresh" : "Download"}
                 </button>
               {/if}
-              {#if s.installed}
+              {#if s.installed && !readOnly}
                 <button class="button button--quiet" onclick={() => void remove(s)} disabled={busy === s.name || working(s)}>
                   Remove
                 </button>
               {/if}
-              {#if isAdmin}
+              {#if isAdmin && !readOnly}
                 <label class="button button--quiet upload-btn"
                   title="Install a local SKOS dump: .nt/.nq, optionally gzipped. Uploads are size-capped (512MB unless LCATD_VOCAB_UPLOAD_CAP_MB raises it) -- gzip large dumps.">
                   Upload… <input type="file" accept=".nt,.nq,.gz,.nt.gz,.nq.gz" onchange={(ev) => void upload(s, ev)} hidden disabled={busy === s.name || working(s)} />
                 </label>
               {/if}
-              {#if isAdmin && !s.builtin}
+              {#if isAdmin && !s.builtin && !readOnly}
                 <button class="button button--quiet" onclick={() => void unregister(s)} disabled={busy === s.name || working(s)}
                   title="Delete this registered source definition (an installed snapshot must be removed first)">
                   Delete source
@@ -278,7 +282,7 @@
         {/each}
       </tbody>
     </table>
-    {#if isAdmin}
+    {#if isAdmin && !readOnly}
       <details class="register">
         <summary>Register a drop-in source…</summary>
         <p class="note">

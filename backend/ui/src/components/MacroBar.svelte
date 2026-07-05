@@ -5,6 +5,7 @@
   // scope while this bar is mounted.
   import { onMount } from "svelte";
   import { ApiError, createMacro, fetchMacros } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import { bindKeys } from "../lib/keyboard";
   import { applyParams, hasParams } from "../lib/macros";
   import type { Macro, Op } from "../lib/types";
@@ -113,12 +114,12 @@
     <button class="button" onclick={() => selected && replay(selected)}>Apply</button>
   {/if}
 
-  {#if recording}
+  {#if recording && !isReadOnly()}
     <input class="rec-label" bind:value={recordLabel} placeholder="Macro name" aria-label="Macro name" />
     <label class="param"><input type="checkbox" bind:checked={recordShared} /> shared</label>
     <button class="button" onclick={() => void record()} disabled={!recordLabel.trim()}>Save macro</button>
     <button class="button button--quiet" onclick={() => (recording = false)}>Cancel</button>
-  {:else}
+  {:else if !isReadOnly()}
     <button
       class="button button--quiet"
       onclick={() => (recording = true)}

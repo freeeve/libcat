@@ -5,9 +5,12 @@
   // bulk add generates N copies with sequential barcodes (tasks/069).
   import { onMount } from "svelte";
   import { ApiError, bulkAddItems, createItemTemplate, fetchItems, fetchItemTemplates, putItems } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import type { ItemTemplate, WorkItem } from "../lib/types";
 
   let { workId, instanceId }: { workId: string; instanceId: string } = $props();
+
+  const readOnly = isReadOnly();
 
   let items = $state<WorkItem[]>([]);
   let dirty = $state(false);
@@ -155,44 +158,48 @@
         oninput={(ev) => edit(i, { barcode: (ev.currentTarget as HTMLInputElement).value })} />
       <input class="note" aria-label="Note" value={it.note ?? ""} placeholder="note"
         oninput={(ev) => edit(i, { note: (ev.currentTarget as HTMLInputElement).value })} />
-      <button class="button button--quiet mini" onclick={() => remove(i)}>Remove</button>
+      {#if !readOnly}
+        <button class="button button--quiet mini" onclick={() => remove(i)}>Remove</button>
+      {/if}
     </div>
   {/each}
-  <p class="acts">
-    <button class="button button--quiet mini" onclick={add}>Add item</button>
-    {#if templates.length > 0}
-      <select class="mini-select" aria-label="Item template" bind:value={templateId}>
-        <option value="">template…</option>
-        {#each templates as t (t.id)}
-          <option value={t.id}>{t.label}{t.shared ? " (shared)" : ""}</option>
-        {/each}
-      </select>
-      <button class="button button--quiet mini" onclick={applyTemplate} disabled={!template}>Apply</button>
-    {/if}
-    {#if items.length > 0}
-      <button class="button button--quiet mini" onclick={() => void saveAsTemplate(false)}>Save row as template</button>
-      <button class="button button--quiet mini" onclick={() => void saveAsTemplate(true)}>…shared</button>
-    {/if}
-    <button class="button mini" onclick={() => void save()} disabled={busy || !dirty}>Save items</button>
-    <span aria-live="polite">
-      {#if status}<span class="ok">{status}</span>{/if}
-      {#if error}<span class="error">{error}</span>{/if}
-    </span>
-  </p>
-  <p class="acts bulk">
-    <span class="muted">Bulk add</span>
-    <input class="count" type="number" min="1" max="100" aria-label="Copy count" bind:value={bulkCount} />
-    <input class="bc mono" aria-label="Barcode prefix" bind:value={bulkPrefix} placeholder="barcode prefix (B-)" />
-    <button class="button button--quiet mini" onclick={() => void bulk(true)} disabled={busy || !bulkPrefix || bulkCount < 1}>
-      Preview barcodes
-    </button>
-    {#if bulkPreview.length > 0}
-      <span class="mono preview">{bulkPreview.map((it) => it.barcode).join(" ")}</span>
-      <button class="button mini" onclick={() => void bulk(false)} disabled={busy}>
-        Add {bulkPreview.length} copies
+  {#if !readOnly}
+    <p class="acts">
+      <button class="button button--quiet mini" onclick={add}>Add item</button>
+      {#if templates.length > 0}
+        <select class="mini-select" aria-label="Item template" bind:value={templateId}>
+          <option value="">template…</option>
+          {#each templates as t (t.id)}
+            <option value={t.id}>{t.label}{t.shared ? " (shared)" : ""}</option>
+          {/each}
+        </select>
+        <button class="button button--quiet mini" onclick={applyTemplate} disabled={!template}>Apply</button>
+      {/if}
+      {#if items.length > 0}
+        <button class="button button--quiet mini" onclick={() => void saveAsTemplate(false)}>Save row as template</button>
+        <button class="button button--quiet mini" onclick={() => void saveAsTemplate(true)}>…shared</button>
+      {/if}
+      <button class="button mini" onclick={() => void save()} disabled={busy || !dirty}>Save items</button>
+      <span aria-live="polite">
+        {#if status}<span class="ok">{status}</span>{/if}
+        {#if error}<span class="error">{error}</span>{/if}
+      </span>
+    </p>
+    <p class="acts bulk">
+      <span class="muted">Bulk add</span>
+      <input class="count" type="number" min="1" max="100" aria-label="Copy count" bind:value={bulkCount} />
+      <input class="bc mono" aria-label="Barcode prefix" bind:value={bulkPrefix} placeholder="barcode prefix (B-)" />
+      <button class="button button--quiet mini" onclick={() => void bulk(true)} disabled={busy || !bulkPrefix || bulkCount < 1}>
+        Preview barcodes
       </button>
-    {/if}
-  </p>
+      {#if bulkPreview.length > 0}
+        <span class="mono preview">{bulkPreview.map((it) => it.barcode).join(" ")}</span>
+        <button class="button mini" onclick={() => void bulk(false)} disabled={busy}>
+          Add {bulkPreview.length} copies
+        </button>
+      {/if}
+    </p>
+  {/if}
 </details>
 
 <style>

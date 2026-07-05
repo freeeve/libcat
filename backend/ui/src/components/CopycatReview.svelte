@@ -7,6 +7,7 @@
   // Decisions render as tinted chips; bulk keys ship one review call.
   import { onMount } from "svelte";
   import { ApiError, commitCopycatBatch, revertCopycatBatch, reviewCopycatBatch } from "../lib/api";
+  import { isReadOnly } from "../lib/config";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import { navigate } from "../lib/router";
   import MarcRecordView from "./MarcRecordView.svelte";
@@ -43,6 +44,7 @@
   let revertNote = $state("");
   let revertSkips = $state<{ path: string; reason: string }[]>([]);
 
+  const readOnly = isReadOnly();
   const staged = $derived(batch.status === "STAGED");
   const committed = $derived(batch.status === "COMMITTED");
   const importCount = $derived(records.filter((r) => r.decision === "import").length);
@@ -56,7 +58,7 @@
       N: { description: "skip everything already in the catalog", legend: "skip already-held", handler: () => void decideWhere((r) => !!r.match.matchedInstance, "skip") },
       o: { description: "open the selected record's matched work", legend: "open match", handler: openMatch },
       v: { description: "show or hide the selected record's MARC", legend: "view marc", handler: () => (viewing = !viewing) },
-      c: { description: "commit the batch", legend: "commit", handler: () => staged && (confirming = true) },
+      c: { description: "commit the batch", legend: "commit", handler: () => !readOnly && staged && (confirming = true) },
       Escape: { description: "close this batch", legend: "close", handler: onclose },
     });
     return () => {
@@ -191,10 +193,12 @@
   {/if}
 
   <p class="actions">
-    <button class="button" onclick={() => (confirming = true)} disabled={busy || !staged}>
-      {staged ? `Commit batch (${importCount} import · ${records.length - importCount} skip)` : `Committed ${batch.committed} / skipped ${batch.skipped}`}
-    </button>
-    {#if committed}
+    {#if !readOnly}
+      <button class="button" onclick={() => (confirming = true)} disabled={busy || !staged}>
+        {staged ? `Commit batch (${importCount} import · ${records.length - importCount} skip)` : `Committed ${batch.committed} / skipped ${batch.skipped}`}
+      </button>
+    {/if}
+    {#if committed && !readOnly}
       <button class="button button--quiet" onclick={() => (confirmingRevert = true)} disabled={busy}>Revert commit…</button>
     {/if}
     {#if batch.status === "REVERTED"}
