@@ -35,7 +35,7 @@ func (p *Publisher) PromoteTag(ctx context.Context, promo suggest.Promotion, act
 			return 0, ErrIngestActive
 		}
 	}
-	summaries, paths, err := ingest.ScanSummaries(ctx, p.Blob, p.Prefix+"data/works/")
+	summaries, paths, err := ingest.SummariesOf(ctx, p.Summaries, p.Blob, p.Prefix+"data/works/")
 	if err != nil {
 		return 0, err
 	}

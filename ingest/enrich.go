@@ -257,6 +257,24 @@ func grainWorkID(t rdf.Term) string {
 // projector's list.
 var availabilitySources = map[string]bool{"overdrive-reserve": true}
 
+// SummarySource yields the corpus's WorkSummaries plus each Work's grain
+// path without a fresh corpus walk -- the seam a maintained index (the
+// backend's workindex, tasks/106/109) plugs into where workers would
+// otherwise each run their own ScanSummaries. Both return values are shared,
+// read-only views.
+type SummarySource interface {
+	SummariesWithPaths(ctx context.Context) ([]WorkSummary, map[string]string, error)
+}
+
+// SummariesOf reads summaries from src when one is wired, falling back to a
+// fresh ScanSummaries walk of prefix.
+func SummariesOf(ctx context.Context, src SummarySource, st blob.Store, prefix string) ([]WorkSummary, map[string]string, error) {
+	if src != nil {
+		return src.SummariesWithPaths(ctx)
+	}
+	return ScanSummaries(ctx, st, prefix)
+}
+
 // ScanSummaries walks the grain tree and extracts a WorkSummary per Work,
 // plus each Work's grain path.
 func ScanSummaries(ctx context.Context, st blob.Store, prefix string) ([]WorkSummary, map[string]string, error) {

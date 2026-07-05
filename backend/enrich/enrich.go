@@ -41,6 +41,10 @@ type Service struct {
 	GrainPrefix string
 	Queue       *suggest.Service
 	Sources     map[string]Source
+	// Summaries, when set, is the shared maintained summary source
+	// (workindex, tasks/109) queue-mode runs read instead of a per-run
+	// corpus walk; nil falls back to ScanSummaries.
+	Summaries ingest.SummarySource
 }
 
 // Result summarizes one run.
@@ -82,7 +86,7 @@ func (s *Service) runQueued(ctx context.Context, src Source) (int, error) {
 	if s.Queue == nil {
 		return 0, fmt.Errorf("enrich: queue mode needs the suggestion service")
 	}
-	summaries, _, err := ingest.ScanSummaries(ctx, s.Blob, s.GrainPrefix)
+	summaries, _, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.GrainPrefix)
 	if err != nil {
 		return 0, err
 	}

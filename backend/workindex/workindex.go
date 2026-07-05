@@ -66,6 +66,7 @@ type Index struct {
 	byCluster  map[string][]Ref
 	barcodes   map[string]bool
 	summaries  []ingest.WorkSummary
+	paths      map[string]string
 }
 
 // New returns an index over the grains under prefix (normally "data/works/").
@@ -101,12 +102,20 @@ func (ix *Index) Apply(grainPath, etag string, grain []byte) {
 // Summaries returns every work's summary, sorted by work id (the same shape
 // and order as ingest.ScanSummaries). The slice is shared: read-only.
 func (ix *Index) Summaries(ctx context.Context) ([]ingest.WorkSummary, error) {
+	summaries, _, err := ix.SummariesWithPaths(ctx)
+	return summaries, err
+}
+
+// SummariesWithPaths returns every work's summary plus each work's grain
+// path -- the ingest.SummarySource contract the worker paths consume
+// (tasks/109). Both return values are shared: read-only.
+func (ix *Index) SummariesWithPaths(ctx context.Context) ([]ingest.WorkSummary, map[string]string, error) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
 	if err := ix.freshenLocked(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return ix.summaries, nil
+	return ix.summaries, ix.paths, nil
 }
 
 // ProviderOwners returns the works whose instances carry the provider key
@@ -245,6 +254,7 @@ func (ix *Index) rebuildLocked() {
 	byCluster := map[string][]Ref{}
 	barcodes := map[string]bool{}
 	summaries := make([]ingest.WorkSummary, 0, len(paths))
+	workPaths := make(map[string]string, len(paths))
 	for _, p := range paths {
 		entry := ix.grains[p]
 		for _, inst := range entry.identity.Instances {
@@ -264,10 +274,13 @@ func (ix *Index) rebuildLocked() {
 		for _, bc := range entry.barcodes {
 			barcodes[bc] = true
 		}
+		for _, s := range entry.summaries {
+			workPaths[s.WorkID] = p
+		}
 		summaries = append(summaries, entry.summaries...)
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].WorkID < summaries[j].WorkID })
-	ix.byProvider, ix.byCluster, ix.barcodes, ix.summaries = byProvider, byCluster, barcodes, summaries
+	ix.byProvider, ix.byCluster, ix.barcodes, ix.summaries, ix.paths = byProvider, byCluster, barcodes, summaries, workPaths
 	ix.dirty = false
 }
 

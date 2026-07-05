@@ -105,6 +105,10 @@ type Service struct {
 	Prefix string
 	// MaxWorks bounds a run's selection (0 = defaultMaxWorks).
 	MaxWorks int
+	// Summaries, when set, is the shared maintained summary source
+	// (workindex, tasks/109) search selections resolve against instead of a
+	// per-run corpus walk; nil falls back to ScanSummaries.
+	Summaries ingest.SummarySource
 }
 
 // Resolve expands a selection to its targets, owner-scoped for saved
@@ -151,10 +155,11 @@ func (s *Service) Resolve(ctx context.Context, sel Selection, owner string) ([]T
 	return nil, fmt.Errorf("%w: unknown selection kind %q", ErrValidation, sel.Kind)
 }
 
-// scan lists the corpus and filters by the shared summary matcher, so a
-// batch search selects exactly what the works search shows.
+// scan resolves the corpus summaries (shared index when wired, fresh walk
+// otherwise) and filters by the shared summary matcher, so a batch search
+// selects exactly what the works search shows.
 func (s *Service) scan(ctx context.Context, query string) ([]Target, error) {
-	summaries, paths, err := ingest.ScanSummaries(ctx, s.Blob, s.Prefix+"data/works/")
+	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")
 	if err != nil {
 		return nil, err
 	}

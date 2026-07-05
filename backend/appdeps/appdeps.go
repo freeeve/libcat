@@ -173,7 +173,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		deps.Publisher = &publish.Publisher{
 			Blob: deps.Blob, Queue: deps.Suggest, Vocab: deps.Vocab,
 			Trigger: notifier, Lease: publish.NewLease(db, "ingest", 15*time.Minute),
-			Logger: logger,
+			Summaries: deps.WorkIndex, Logger: logger,
 		}
 	}
 	if deps.Blob != nil {
@@ -187,14 +187,14 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		deps.Authorities = &authoritiesvc.Service{
 			Blob: deps.Blob, Vocab: deps.Vocab, Queue: deps.Suggest,
 			Trigger: notifier, AuthoritiesPrefix: cfg.AuthoritiesPrefix,
-			Schemes: vocabSchemes, Logger: logger,
+			Schemes: vocabSchemes, Summaries: deps.WorkIndex, Logger: logger,
 		}
 		if deps.VocabSources != nil {
 			deps.Authorities.SchemesFn = deps.VocabSources.Schemes
 		}
 		deps.Batch = &batch.Service{
 			Blob: deps.Blob, DB: db, MapperFn: profSvc.Mapper,
-			Queue: deps.Suggest, Trigger: notifier,
+			Queue: deps.Suggest, Trigger: notifier, Summaries: deps.WorkIndex,
 		}
 		deps.Copycat = &copycat.Service{
 			Blob: deps.Blob, DB: db, Queue: deps.Suggest, Trigger: notifier,
@@ -304,7 +304,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		}
 	}
 	if len(enrichSources) > 0 && deps.Blob != nil {
-		deps.Enrich = &enrich.Service{Blob: deps.Blob, Queue: deps.Suggest, Sources: enrichSources}
+		deps.Enrich = &enrich.Service{Blob: deps.Blob, Queue: deps.Suggest, Sources: enrichSources, Summaries: deps.WorkIndex}
 	}
 	if deps.Blob != nil && cfg.AbuseSecret != "" {
 		exports, err := export.New(db, deps.Blob, cfg.Provider, []byte(cfg.AbuseSecret))

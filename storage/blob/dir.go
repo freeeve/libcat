@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 )
 
 // DirStore is a Store backed by a local directory tree -- the dev/test and
@@ -17,14 +19,57 @@ import (
 // within one process and best-effort against concurrent external writers;
 // production multi-writer deployments use an object store with native
 // conditional PUTs.
+//
+// Computed ETags are cached against each file's (mtime, size), so List stats
+// rather than reads files whose cache entry is current (tasks/109) -- the same
+// best-effort stance as the CAS: an external writer that preserves both mtime
+// and size can serve a stale tag until the next content read.
 type DirStore struct {
 	root string
 	mu   sync.Mutex
+
+	emu   sync.Mutex
+	etags map[string]dirETag
+}
+
+// dirETag is one cached content ETag with the stat signature it was
+// computed under.
+type dirETag struct {
+	mtime time.Time
+	size  int64
+	etag  string
 }
 
 // NewDir returns a DirStore rooted at dir.
 func NewDir(dir string) *DirStore {
-	return &DirStore{root: dir}
+	return &DirStore{root: dir, etags: map[string]dirETag{}}
+}
+
+// cachedETag returns the cached ETag for path if the stat signature still
+// matches.
+func (d *DirStore) cachedETag(path string, info fs.FileInfo) (string, bool) {
+	d.emu.Lock()
+	defer d.emu.Unlock()
+	cur, ok := d.etags[path]
+	if !ok || !cur.mtime.Equal(info.ModTime()) || cur.size != info.Size() {
+		return "", false
+	}
+	return cur.etag, true
+}
+
+// rememberETag caches a freshly computed ETag under the file's current stat
+// signature. Callers pass the stat taken around the content read; a racing
+// replacement changes mtime, which invalidates the entry on the next check.
+func (d *DirStore) rememberETag(path string, info fs.FileInfo, etag string) {
+	d.emu.Lock()
+	defer d.emu.Unlock()
+	d.etags[path] = dirETag{mtime: info.ModTime(), size: info.Size(), etag: etag}
+}
+
+func (d *DirStore) forgetETag(path string) {
+	d.emu.Lock()
+	defer d.emu.Unlock()
+	delete(d.etags, path)
 }
 
 func (d *DirStore) full(path string) string {
@@ -36,14 +81,20 @@ func (d *DirStore) Get(ctx context.Context, path string) ([]byte, string, error)
 	if err := ValidatePath(path); err != nil {
 		return nil, "", err
 	}
-	data, err := os.ReadFile(d.full(path))
+	full := d.full(path)
+	info, statErr := os.Stat(full)
+	data, err := os.ReadFile(full)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, "", ErrNotFound
 	}
 	if err != nil {
 		return nil, "", err
 	}
-	return data, contentETag(data), nil
+	etag := contentETag(data)
+	if statErr == nil {
+		d.rememberETag(path, info, etag)
+	}
+	return data, etag, nil
 }
 
 // Put writes the object subject to opts' preconditions, creating parent
@@ -90,17 +141,33 @@ func (d *DirStore) Put(ctx context.Context, path string, data []byte, opts PutOp
 		os.Remove(tmp.Name())
 		return "", err
 	}
-	return contentETag(data), nil
+	etag := contentETag(data)
+	if info, err := os.Stat(full); err == nil {
+		d.rememberETag(path, info, etag)
+	}
+	return etag, nil
 }
 
 // List yields entries under prefix in lexicographic path order. Prefixes are
 // plain string prefixes over slash-separated paths (as in object stores), not
-// directory boundaries.
+// directory boundaries. The walk is scoped to the deepest directory the
+// prefix names, files whose cached ETag is current are stat'd rather than
+// read, and a file deleted mid-walk is skipped instead of truncating the
+// listing (tasks/109).
 func (d *DirStore) List(ctx context.Context, prefix string) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
+		walkRoot := d.root
+		if i := strings.LastIndex(prefix, "/"); i >= 0 {
+			walkRoot = filepath.Join(d.root, filepath.FromSlash(prefix[:i]))
+		}
 		var entries []Entry
-		err := filepath.WalkDir(d.root, func(p string, ent fs.DirEntry, err error) error {
+		err := filepath.WalkDir(walkRoot, func(p string, ent fs.DirEntry, err error) error {
 			if err != nil {
+				// A directory (or the walk root) removed mid-walk yields
+				// nothing further beneath it; everything else surfaces.
+				if errors.Is(err, fs.ErrNotExist) {
+					return nil
+				}
 				return err
 			}
 			if ent.IsDir() {
@@ -114,14 +181,17 @@ func (d *DirStore) List(ctx context.Context, prefix string) iter.Seq2[Entry, err
 			if len(path) < len(prefix) || path[:len(prefix)] != prefix {
 				return nil
 			}
-			data, err := os.ReadFile(p)
+			entry, err := d.statEntry(path, p, ent)
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			if err != nil {
 				return err
 			}
-			entries = append(entries, Entry{Path: path, ETag: contentETag(data), Size: int64(len(data))})
+			entries = append(entries, entry)
 			return nil
 		})
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err != nil {
 			yield(Entry{}, err)
 			return
 		}
@@ -134,11 +204,31 @@ func (d *DirStore) List(ctx context.Context, prefix string) iter.Seq2[Entry, err
 	}
 }
 
+// statEntry builds one List entry, reusing the cached ETag when the file's
+// stat signature is unchanged and reading the content only on a cache miss.
+func (d *DirStore) statEntry(path, full string, ent fs.DirEntry) (Entry, error) {
+	info, err := ent.Info()
+	if err != nil {
+		return Entry{}, err
+	}
+	if etag, ok := d.cachedETag(path, info); ok {
+		return Entry{Path: path, ETag: etag, Size: info.Size()}, nil
+	}
+	data, err := os.ReadFile(full)
+	if err != nil {
+		return Entry{}, err
+	}
+	etag := contentETag(data)
+	d.rememberETag(path, info, etag)
+	return Entry{Path: path, ETag: etag, Size: int64(len(data))}, nil
+}
+
 // Delete removes the object, or returns ErrNotFound.
 func (d *DirStore) Delete(ctx context.Context, path string) error {
 	if err := ValidatePath(path); err != nil {
 		return err
 	}
+	d.forgetETag(path)
 	err := os.Remove(d.full(path))
 	if errors.Is(err, fs.ErrNotExist) {
 		return ErrNotFound

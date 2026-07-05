@@ -67,6 +67,10 @@ type Service struct {
 	// vocabulary snapshots widen the effective filter at reload time, so an
 	// authority edit's reload never drops an installed scheme.
 	SchemesFn func(context.Context) ([]string, error)
+	// Summaries, when set, is the shared maintained summary source
+	// (workindex, tasks/109) merge rewrites scan instead of a per-run
+	// corpus walk; nil falls back to ScanSummaries.
+	Summaries ingest.SummarySource
 	Logger    *slog.Logger
 }
 
@@ -179,7 +183,7 @@ func (s *Service) Merge(ctx context.Context, loserID string, winner vocab.TermRe
 	}); err != nil {
 		return MergeResult{}, err
 	}
-	summaries, paths, err := ingest.ScanSummaries(ctx, s.Blob, s.Prefix+"data/works/")
+	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")
 	if err != nil {
 		return MergeResult{}, err
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/freeeve/libcodex/rdf"
 
 	"github.com/freeeve/libcatalog/bibframe"
+	"github.com/freeeve/libcatalog/ingest"
 	"github.com/freeeve/libcatalog/storage/blob"
 
 	"github.com/freeeve/libcatalog/backend/suggest"
@@ -43,7 +44,11 @@ type Publisher struct {
 	// Prefix is the grain tree root in the blob store ("" = repo-layout
 	// paths straight from bibframe.GrainPath).
 	Prefix string
-	Logger *slog.Logger
+	// Summaries, when set, is the shared maintained summary source
+	// (workindex, tasks/109) tag promotion scans instead of a per-run
+	// corpus walk; nil falls back to ScanSummaries.
+	Summaries ingest.SummarySource
+	Logger    *slog.Logger
 }
 
 // Result summarizes one publish run.

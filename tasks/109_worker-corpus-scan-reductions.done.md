@@ -46,13 +46,34 @@ already been paid.
 
 ## Status (2026-07-05 session)
 
-Not started. Note `batch.Run` changed nearby in tasks/111 (audit now rides on
-`result.Applied > 0`) -- the MaxWorks-after-scan ordering this task fixes is
-unchanged. The shared summaries source now exists: `backend/workindex.Index`
-(tasks/106, done) exposes `Summaries(ctx)` (same shape and order as
-`ingest.ScanSummaries`), refreshes by ETag diff, and is injectable via
-`httpapi.Deps.WorkIndex` / constructed in appdeps -- batch, publish,
-authoritiesvc, and enrich can take it instead of five independent scanners
-(and should `Apply` their writes). The DirStore.List fixes here also directly
-cut the index's refresh cost: it Lists once per 30s window, and each List
-currently reads every file's content just to compute the ETag.
+Done.
+
+- **Shared summaries source.** `ingest.SummarySource` (implemented by
+  `workindex.Index.SummariesWithPaths`) plus the `ingest.SummariesOf` helper;
+  batch.scan, publish.PromoteTag, authoritiesvc.Merge, and enrich.runQueued
+  all take an optional `Summaries` field (appdeps wires `deps.WorkIndex` into
+  each) and fall back to their old `ScanSummaries` walk when nil (tests,
+  index-less callers). With the index wired, a `KindAll` batch request
+  resolves from memory -- no per-request corpus load to reject; the
+  `MaxWorks` check in `Run` stays where it was but is now O(matched) over
+  in-memory summaries (it also guards explicit id-list selections, which
+  never scanned).
+- **DirStore.** ETags stay content-sha256, but computed tags are cached
+  against each file's (mtime, size): List stats and reuses the cached tag,
+  reading only files whose signature changed (Get/Put/List all maintain the
+  cache), so scan+load flows read each file at most once. The walk is scoped
+  to the deepest directory the prefix names, and a file deleted mid-walk is
+  skipped instead of silently truncating the listing (other errors now
+  surface instead of being swallowed with the old blanket ErrNotExist check).
+  Pinned by dir_test.go: cache use (same-signature rewrite serves the cached
+  tag), invalidation (external rewrite lists the new tag), scoping (an
+  unreadable sibling subtree no longer breaks a scoped List), missing-subtree
+  lists empty.
+
+Not done here: these workers' grain writes reach the index via its 30s
+ETag-diff TTL rather than a synchronous `Apply` (their rewrites don't feed
+the editor's barcode/duplicate hot checks); `ingest.RunEnrich` (direct-mode
+enrichment, root module) still does its own ScanSummaries walk; the
+no-index fallback path still materializes summaries before the MaxWorks
+rejection (a streaming ScanSummaries iterator wasn't worth it once the
+deployed shape resolves from memory).
