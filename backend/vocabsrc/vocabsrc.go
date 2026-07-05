@@ -128,7 +128,11 @@ type Service struct {
 	Suggest *SuggestClient
 	// HTTPClient fetches snapshot dumps. nil = a 15-minute-timeout client.
 	HTTPClient *http.Client
-	Logger     *slog.Logger
+	// MaxSnapshotMB caps a snapshot dump's decompressed size (0 = the 4GB
+	// default) -- the tasks/110 defensive ceiling against a hostile or
+	// misconfigured endpoint.
+	MaxSnapshotMB int
+	Logger        *slog.Logger
 	// Now overrides the clock (tests).
 	Now func() time.Time
 }

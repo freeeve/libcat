@@ -30,6 +30,7 @@ func TestStoreConformance(t *testing.T) {
 			t.Run("ListEmpty", func(t *testing.T) { testListEmpty(t, mk(t)) })
 			t.Run("InvalidPaths", func(t *testing.T) { testInvalidPaths(t, mk(t)) })
 			t.Run("SinkOf", func(t *testing.T) { testSinkOf(t, mk(t)) })
+			t.Run("PutStream", func(t *testing.T) { testPutStream(t, mk(t)) })
 		})
 	}
 }
@@ -256,4 +257,31 @@ func FuzzValidatePath(f *testing.F) {
 			}
 		}
 	})
+}
+
+// testPutStream pins the streaming-write helper against every store: content
+// and ETag must match what a buffered Put of the same bytes yields, and
+// preconditions must carry through (natively or via the buffered fallback).
+func testPutStream(t *testing.T, s Store) {
+	want := []byte("streamed grain content\n")
+	etag, err := PutStream(t.Context(), s, "data/exports/out.nq", strings.NewReader(string(want)), PutOptions{})
+	if err != nil {
+		t.Fatalf("PutStream: %v", err)
+	}
+	got, getTag, err := s.Get(t.Context(), "data/exports/out.nq")
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("Get after PutStream = %q, %v", got, err)
+	}
+	if etag == "" || etag != getTag {
+		t.Fatalf("PutStream etag %q != Get etag %q", etag, getTag)
+	}
+	if _, err := PutStream(t.Context(), s, "data/exports/out.nq", strings.NewReader("x"), PutOptions{IfNoneMatch: true}); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("IfNoneMatch over existing: err = %v, want ErrPreconditionFailed", err)
+	}
+	if _, err := PutStream(t.Context(), s, "data/exports/out.nq", strings.NewReader("v2"), PutOptions{IfMatch: "stale"}); !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("stale IfMatch: err = %v, want ErrPreconditionFailed", err)
+	}
+	if _, err := PutStream(t.Context(), s, "data/exports/out.nq", strings.NewReader("v2\n"), PutOptions{IfMatch: etag}); err != nil {
+		t.Fatalf("matching IfMatch: %v", err)
+	}
 }

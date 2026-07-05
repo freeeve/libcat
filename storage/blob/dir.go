@@ -2,7 +2,10 @@ package blob
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
 	"io/fs"
 	"iter"
 	"os"
@@ -142,6 +145,58 @@ func (d *DirStore) Put(ctx context.Context, path string, data []byte, opts PutOp
 		return "", err
 	}
 	etag := contentETag(data)
+	if info, err := os.Stat(full); err == nil {
+		d.rememberETag(path, info, etag)
+	}
+	return etag, nil
+}
+
+// PutStream implements blob.StreamPutter: the payload streams straight into
+// the temp file (hashed as it copies), so only the copy buffer is held in
+// memory. The copy runs outside the store lock; preconditions are checked
+// and the rename performed under it, same as Put.
+func (d *DirStore) PutStream(ctx context.Context, path string, r io.Reader, opts PutOptions) (string, error) {
+	if err := ValidatePath(path); err != nil {
+		return "", err
+	}
+	if err := checkOptions(opts); err != nil {
+		return "", err
+	}
+	full := d.full(path)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(full), ".blob-*")
+	if err != nil {
+		return "", err
+	}
+	discard := func() { tmp.Close(); os.Remove(tmp.Name()) }
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, h), r); err != nil {
+		discard()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	current, err := os.ReadFile(full)
+	exists := err == nil
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	if (opts.IfNoneMatch && exists) || (opts.IfMatch != "" && (!exists || contentETag(current) != opts.IfMatch)) {
+		os.Remove(tmp.Name())
+		return "", ErrPreconditionFailed
+	}
+	if err := os.Rename(tmp.Name(), full); err != nil {
+		os.Remove(tmp.Name())
+		return "", err
+	}
+	etag := hex.EncodeToString(h.Sum(nil))
 	if info, err := os.Stat(full); err == nil {
 		d.rememberETag(path, info, etag)
 	}

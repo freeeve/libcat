@@ -71,6 +71,31 @@ type Signer interface {
 	SignedGetURL(ctx context.Context, path string, ttl time.Duration) (string, error)
 }
 
+// StreamPutter is an optional Store capability: write an object from a
+// reader without holding the whole payload in memory (tasks/108/110 --
+// full-corpus exports and vocabulary snapshot installs are output-sized).
+// DirStore streams into its temp file; the S3 store spools to a local temp
+// file for a seekable upload body. Use the PutStream helper rather than
+// type-asserting directly.
+type StreamPutter interface {
+	PutStream(ctx context.Context, path string, r io.Reader, opts PutOptions) (etag string, err error)
+}
+
+// PutStream writes r to path through the store's streaming capability when
+// present, and falls back to buffering the reader into a plain Put (memory
+// stores hold the payload either way; wrappers without the capability keep
+// their Put semantics, e.g. read-only rejection).
+func PutStream(ctx context.Context, s Store, path string, r io.Reader, opts PutOptions) (string, error) {
+	if sp, ok := s.(StreamPutter); ok {
+		return sp.PutStream(ctx, path, r, opts)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	return s.Put(ctx, path, data, opts)
+}
+
 // ValidatePath rejects paths that are empty, absolute, or contain empty, ".",
 // or ".." segments, so no Store implementation can be walked outside its root.
 func ValidatePath(path string) error {

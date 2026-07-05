@@ -16,6 +16,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"os"
 	"strings"
 	"time"
 
@@ -104,6 +105,58 @@ func (s *Store) Put(ctx context.Context, path string, data []byte, opts blob.Put
 		}
 		// If-Match against a missing key surfaces as NoSuchKey on S3;
 		// the contract calls that a failed precondition too.
+		if opts.IfMatch != "" && isNoSuchKey(err) {
+			return "", blob.ErrPreconditionFailed
+		}
+		return "", err
+	}
+	return unquote(aws.ToString(out.ETag)), nil
+}
+
+// PutStream implements blob.StreamPutter by spooling the payload to a local
+// temp file for a seekable, length-known upload body -- RAM stays at the
+// copy buffer while the object rides through disk (tasks/108). Preconditions
+// carry through to the PutObject exactly as in Put.
+func (s *Store) PutStream(ctx context.Context, path string, r io.Reader, opts blob.PutOptions) (string, error) {
+	if err := blob.ValidatePath(path); err != nil {
+		return "", err
+	}
+	if opts.IfMatch != "" && opts.IfNoneMatch {
+		return "", errors.New("blobs3: IfMatch and IfNoneMatch are mutually exclusive")
+	}
+	tmp, err := os.CreateTemp("", "blobs3-put-*")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		tmp.Close()
+		os.Remove(tmp.Name())
+	}()
+	if _, err := io.Copy(tmp, r); err != nil {
+		return "", err
+	}
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	in := &s3.PutObjectInput{
+		Bucket: &s.bucket,
+		Key:    &path,
+		Body:   tmp,
+	}
+	if opts.ContentType != "" {
+		in.ContentType = &opts.ContentType
+	}
+	if opts.IfMatch != "" {
+		in.IfMatch = aws.String(quote(opts.IfMatch))
+	}
+	if opts.IfNoneMatch {
+		in.IfNoneMatch = aws.String("*")
+	}
+	out, err := s.client.PutObject(ctx, in)
+	if err != nil {
+		if isPreconditionFailure(err) {
+			return "", blob.ErrPreconditionFailed
+		}
 		if opts.IfMatch != "" && isNoSuchKey(err) {
 			return "", blob.ErrPreconditionFailed
 		}

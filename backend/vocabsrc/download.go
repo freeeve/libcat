@@ -231,21 +231,50 @@ func (s *Service) InstallUpload(ctx context.Context, sourceName string, r io.Rea
 	return s.installFrom(ctx, src, r, "upload")
 }
 
-// installFrom converts a dump stream, writes the snapshot and its sidecar,
-// and swaps the index -- the shared back half of download and upload.
-// Conversion failures are the dump's fault, so they surface as validation
-// errors with the underlying reason rather than a generic 500.
+// errNoConcepts fails a conversion that parsed but yielded nothing usable,
+// inside the pipe so the snapshot write never lands.
+var errNoConcepts = errors.New("dump yielded no concepts -- not a SKOS N-Triples/N-Quads dump?")
+
+// convertError marks an error as originating on the conversion side of the
+// install pipe, so installFrom can tell a bad dump (validation) from a store
+// write failure (500) after both travel through the same PutStream call.
+type convertError struct{ err error }
+
+func (e convertError) Error() string { return e.err.Error() }
+func (e convertError) Unwrap() error { return e.err }
+
+// installFrom converts a dump stream directly into the snapshot blob --
+// peak memory is the converter's chunk, not the dump (tasks/110) -- then
+// writes the sidecar and swaps the index; the shared back half of download
+// and upload. A conversion failure (bad bytes, over-cap, zero concepts)
+// aborts the pipe before the store commits anything, so a previously
+// installed snapshot survives a failed refresh. Conversion failures are the
+// dump's fault, so they surface as validation errors with the underlying
+// reason rather than a generic 500.
 func (s *Service) installFrom(ctx context.Context, src Source, r io.Reader, provenance string) (int, error) {
-	converted, terms, err := Convert(r, src.Scheme)
-	if err != nil {
-		// Double-wrap: validation for the status code, the original error
-		// kept typed so callers can tell an oversized body from bad bytes.
-		return 0, fmt.Errorf("%w: %s: %w", ErrValidation, provenance, err)
-	}
-	if terms == 0 {
-		return 0, fmt.Errorf("%w: %s yielded no concepts -- not a SKOS N-Triples/N-Quads dump?", ErrValidation, provenance)
-	}
-	if _, err := s.Blob.Put(ctx, s.snapshotPath(src.Name), converted, blob.PutOptions{ContentType: "application/n-quads"}); err != nil {
+	pr, pw := io.Pipe()
+	var terms int
+	go func() {
+		t, err := ConvertTo(pw, r, src.Scheme, int64(s.MaxSnapshotMB)<<20)
+		if err == nil && t == 0 {
+			err = errNoConcepts
+		}
+		if err != nil {
+			err = convertError{err}
+		}
+		terms = t
+		pw.CloseWithError(err)
+	}()
+	if _, err := blob.PutStream(ctx, s.Blob, s.snapshotPath(src.Name), pr, blob.PutOptions{ContentType: "application/n-quads"}); err != nil {
+		// A store-side failure must also unblock the converter goroutine.
+		pr.CloseWithError(err)
+		var ce convertError
+		if errors.As(err, &ce) {
+			// Double-wrap: validation for the status code, the original
+			// error kept typed so callers can tell an oversized body from
+			// bad bytes.
+			return 0, fmt.Errorf("%w: %s: %w", ErrValidation, provenance, ce.err)
+		}
 		return 0, err
 	}
 	info := InstallInfo{
@@ -301,19 +330,53 @@ var keepPredicates = map[string]bool{
 
 const skosPrefLabel = "http://www.w3.org/2004/02/skos/core#prefLabel"
 
-// Convert streams a SKOS N-Triples/N-Quads dump (gzipped or plain) into
+// Defensive ceilings on snapshot conversion (tasks/110). SnapshotURL is
+// admin-set, so these bound mistakes and hostile endpoints rather than
+// gatekeep: the size cap counts decompressed bytes (a gzip bomb hits it as
+// it expands, and download and upload paths pass through here alike), the
+// line cap catches a response that is not line-delimited RDF before its
+// "line" grows without bound.
+const (
+	defaultMaxSnapshotMB = 4096
+	maxDumpLine          = 4 << 20
+)
+
+// errDumpTooLarge and errLineTooLong classify the cap failures so callers
+// can tell an oversized dump from bad bytes.
+var (
+	errDumpTooLarge = errors.New("dump exceeds the snapshot size cap")
+	errLineTooLong  = errors.New("no newline within the line cap -- not line-delimited N-Triples/N-Quads?")
+)
+
+// Convert buffers ConvertTo -- for callers that want the converted bytes in
+// hand; the install paths stream through ConvertTo into the blob store.
+func Convert(r io.Reader, scheme string) ([]byte, int, error) {
+	var out bytes.Buffer
+	terms, err := ConvertTo(&out, r, scheme, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	return out.Bytes(), terms, nil
+}
+
+// ConvertTo streams a SKOS N-Triples/N-Quads dump (gzipped or plain) into
 // authority-tree N-Quads under the authority:<scheme> graph, keeping only the
 // predicates the index reads. Lines are independent in N-Quads, so the input
-// parses in bounded chunks; malformed lines are skipped by the lenient
-// parser. Common wrong-format uploads (zip archives, XML exports) are named
-// outright -- publishers like OCLC FAST distribute both. Returns the
-// converted bytes and the distinct prefLabel-bearing concept count.
-func Convert(r io.Reader, scheme string) ([]byte, int, error) {
+// parses and emits in bounded chunks -- peak memory is the chunk plus the
+// concept-count set, not the dump (tasks/110); malformed lines are skipped by
+// the lenient parser. Common wrong-format uploads (zip archives, XML exports)
+// are named outright -- publishers like OCLC FAST distribute both. maxBytes
+// caps the decompressed input (0 = the 4GB default). Returns the distinct
+// prefLabel-bearing concept count.
+func ConvertTo(w io.Writer, r io.Reader, scheme string, maxBytes int64) (int, error) {
+	if maxBytes <= 0 {
+		maxBytes = defaultMaxSnapshotMB << 20
+	}
 	br := bufio.NewReaderSize(r, 1<<20)
 	if magic, err := br.Peek(2); err == nil && magic[0] == 0x1f && magic[1] == 0x8b {
 		gz, err := gzip.NewReader(br)
 		if err != nil {
-			return nil, 0, fmt.Errorf("gunzip: %w", err)
+			return 0, fmt.Errorf("gunzip: %w", err)
 		}
 		defer gz.Close()
 		br = bufio.NewReaderSize(gz, 1<<20)
@@ -322,16 +385,17 @@ func Convert(r io.Reader, scheme string) ([]byte, int, error) {
 		head := bytes.TrimLeft(magic, " \t\r\n")
 		switch {
 		case bytes.HasPrefix(magic, []byte("PK\x03\x04")):
-			return nil, 0, fmt.Errorf("this is a zip archive -- extract the .nt/.nq file and upload it (plain or gzipped)")
+			return 0, fmt.Errorf("this is a zip archive -- extract the .nt/.nq file and upload it (plain or gzipped)")
 		// N-Triples subjects start "<http…", so only unmistakable XML
 		// openings count.
 		case bytes.HasPrefix(head, []byte("<?xml")), bytes.HasPrefix(head, []byte("<!DOCTYPE")), bytes.HasPrefix(head, []byte("<rdf")):
-			return nil, 0, fmt.Errorf("this looks like XML (MARCXML/RDF-XML?) -- the converter reads N-Triples/N-Quads only")
+			return 0, fmt.Errorf("this looks like XML (MARCXML/RDF-XML?) -- the converter reads N-Triples/N-Quads only")
 		}
 	}
 	graph := bibframe.AuthorityGraph(scheme)
 	var enc rdf.Encoder
 	var out []byte
+	var consumed int64
 	concepts := map[string]bool{}
 	chunk := make([]byte, 0, 1<<20)
 	flush := func() error {
@@ -342,6 +406,7 @@ func Convert(r io.Reader, scheme string) ([]byte, int, error) {
 		if err != nil {
 			return err
 		}
+		out = out[:0]
 		for _, q := range ds.Quads {
 			if !q.S.IsIRI() || !keepPredicates[q.P.Value] {
 				continue
@@ -352,26 +417,42 @@ func Convert(r io.Reader, scheme string) ([]byte, int, error) {
 			out = enc.AppendQuad(out, rdf.Quad{S: q.S, P: q.P, O: q.O, G: graph})
 		}
 		chunk = chunk[:0]
-		return nil
+		if len(out) == 0 {
+			return nil
+		}
+		_, err = w.Write(out)
+		return err
 	}
 	for {
-		line, err := br.ReadBytes('\n')
+		// ReadSlice (not ReadBytes) so a delimiter-less body accumulates in
+		// buffer-sized pieces under our caps instead of growing one
+		// unbounded line inside bufio.
+		line, err := br.ReadSlice('\n')
 		chunk = append(chunk, line...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			err = nil
+		}
+		if consumed += int64(len(line)); consumed > maxBytes {
+			return 0, fmt.Errorf("%w (%d MB)", errDumpTooLarge, maxBytes>>20)
+		}
 		if len(chunk) >= 1<<20 || (err != nil && len(chunk) > 0) {
 			if !bytes.HasSuffix(chunk, []byte("\n")) && err == nil {
+				if len(chunk) > maxDumpLine {
+					return 0, errLineTooLong
+				}
 				// A line longer than the chunk: keep appending until its end.
 				continue
 			}
 			if ferr := flush(); ferr != nil {
-				return nil, 0, ferr
+				return 0, ferr
 			}
 		}
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return nil, 0, err
+			return 0, err
 		}
 	}
-	return out, len(concepts), nil
+	return len(concepts), nil
 }

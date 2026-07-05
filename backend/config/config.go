@@ -76,6 +76,10 @@ type Config struct {
 	// default). Synchronous in-memory installs need some ceiling; size it
 	// to the deployment's RAM.
 	VocabUploadCapMB int
+	// VocabSnapshotCapMB bounds a downloaded snapshot dump's decompressed
+	// size (0 = the 4GB default) -- the defensive ceiling against a hostile
+	// or misconfigured snapshot endpoint (tasks/110).
+	VocabSnapshotCapMB int
 	// AuthoritiesPrefix is the blob path prefix holding authority grains.
 	// Default "data/authorities/".
 	AuthoritiesPrefix string
@@ -144,6 +148,13 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("config: LCATD_VOCAB_UPLOAD_CAP_MB must be a positive integer of megabytes")
 		}
 		cfg.VocabUploadCapMB = n
+	}
+	if raw := os.Getenv("LCATD_VOCAB_SNAPSHOT_CAP_MB"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("config: LCATD_VOCAB_SNAPSHOT_CAP_MB must be a positive integer of megabytes")
+		}
+		cfg.VocabSnapshotCapMB = n
 	}
 	if raw := os.Getenv("LCATD_VOCAB_SCHEMES"); raw != "" {
 		for s := range strings.SplitSeq(raw, ",") {

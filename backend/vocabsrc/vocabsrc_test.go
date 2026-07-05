@@ -5,8 +5,11 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -418,5 +421,114 @@ func TestEnricherReconciles(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Errorf("cache miss: %d calls, want 3 (zines, necromancy, unknown thing)", calls)
+	}
+}
+
+// syntheticDump yields n distinct SKOS prefLabel lines without materializing
+// them -- the memory-bound test's input.
+type syntheticDump struct {
+	n, emitted int
+	rest       []byte
+}
+
+func (s *syntheticDump) Read(p []byte) (int, error) {
+	total := 0
+	for {
+		if len(s.rest) == 0 {
+			if s.emitted >= s.n {
+				if total == 0 {
+					return 0, io.EOF
+				}
+				return total, nil
+			}
+			s.rest = fmt.Appendf(nil,
+				`<http://example.org/concept/%d> <http://www.w3.org/2004/02/skos/core#prefLabel> "Concept number %d with a reasonably long label to bulk the dump up"@en .`+"\n",
+				s.emitted, s.emitted)
+			s.emitted++
+		}
+		k := copy(p[total:], s.rest)
+		s.rest = s.rest[k:]
+		total += k
+		if total == len(p) {
+			return total, nil
+		}
+	}
+}
+
+// TestConvertToStreamsWithBoundedMemory pins the tasks/110 acceptance: a
+// dump far larger than the converter's chunk converts with heap growth near
+// the chunk size (plus the concept set), not the dump or output size.
+func TestConvertToStreamsWithBoundedMemory(t *testing.T) {
+	const n = 400_000 // ~60MB of input, ~60MB of output
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	var written int64
+	terms, err := ConvertTo(countWriter{&written}, &syntheticDump{n: n}, "lcsh", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	if terms != n {
+		t.Fatalf("terms = %d, want %d", terms, n)
+	}
+	if written < 50<<20 {
+		t.Fatalf("output only %d bytes -- synthetic dump too small to prove anything", written)
+	}
+	// The concepts set legitimately holds n URIs (~30MB here); everything
+	// else must stay chunk-sized. Half the output size is a generous line
+	// well under the old whole-dump buffer.
+	if grew := int64(after.HeapAlloc) - int64(before.HeapAlloc); grew > written/2 {
+		t.Fatalf("heap grew %d bytes for %d bytes of output -- converter is buffering the dump", grew, written)
+	}
+}
+
+type countWriter struct{ n *int64 }
+
+func (w countWriter) Write(p []byte) (int, error) {
+	*w.n += int64(len(p))
+	return len(p), nil
+}
+
+// TestConvertToCaps pins the defensive ceilings: an over-cap dump and a
+// newline-less body both fail cleanly instead of growing without bound.
+func TestConvertToCaps(t *testing.T) {
+	if _, err := ConvertTo(io.Discard, &syntheticDump{n: 100_000}, "lcsh", 1<<20); !errors.Is(err, errDumpTooLarge) {
+		t.Fatalf("over-cap dump: err = %v, want errDumpTooLarge", err)
+	}
+	noNewline := strings.NewReader(strings.Repeat("x", maxDumpLine+2<<20))
+	if _, err := ConvertTo(io.Discard, noNewline, "lcsh", 0); !errors.Is(err, errLineTooLong) {
+		t.Fatalf("newline-less dump: err = %v, want errLineTooLong", err)
+	}
+}
+
+// TestInstallUploadKeepsOldSnapshotOnBadDump pins the pipe abort: a failed
+// conversion must not clobber (or leave a partial) snapshot.
+func TestInstallUploadKeepsOldSnapshotOnBadDump(t *testing.T) {
+	s := newService(t)
+	ctx := t.Context()
+	ix, err := vocab.Load(ctx, s.Blob, s.AuthoritiesPrefix, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Index = ix
+	if err := s.PutSource(ctx, Source{Name: "lcgft", Scheme: "lcgft"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InstallUpload(ctx, "lcgft", strings.NewReader(zinesNT)); err != nil {
+		t.Fatal(err)
+	}
+	want, _, err := s.Blob.Get(ctx, s.snapshotPath("lcgft"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InstallUpload(ctx, "lcgft", strings.NewReader("<?xml version=\"1.0\"?><rdf/>")); !errors.Is(err, ErrValidation) {
+		t.Fatalf("xml dump: err = %v, want ErrValidation", err)
+	}
+	got, _, err := s.Blob.Get(ctx, s.snapshotPath("lcgft"))
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("snapshot changed after failed install (err %v)", err)
 	}
 }

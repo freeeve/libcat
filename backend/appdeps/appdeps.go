@@ -113,7 +113,8 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		// installed vocabularies survive restarts (tasks/067).
 		vsrc := &vocabsrc.Service{
 			DB: db, Blob: deps.Blob, AuthoritiesPrefix: cfg.AuthoritiesPrefix,
-			BaseSchemes: vocabSchemes, Logger: logger,
+			BaseSchemes: vocabSchemes, MaxSnapshotMB: cfg.VocabSnapshotCapMB,
+			Logger: logger,
 		}
 		schemes, err := vsrc.Schemes(ctx)
 		if err != nil {
