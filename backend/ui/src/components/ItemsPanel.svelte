@@ -94,6 +94,12 @@
   }
 
   async function bulk(dryRun: boolean): Promise<void> {
+    // Executing a bulk add refetches the list, which would silently drop any
+    // unsaved manual rows/edits -- refuse until they are saved (tasks/114).
+    if (!dryRun && dirty) {
+      error = "save (or remove) the pending item edits before bulk adding";
+      return;
+    }
     busy = true;
     error = "";
     status = "";

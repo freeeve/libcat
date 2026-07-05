@@ -45,6 +45,9 @@
   let saving = $state(false);
   let status = $state("");
   let error = $state("");
+  // A save conflict pauses instead of discarding: the cataloger's rows stay
+  // as typed and they choose to overwrite or reload (tasks/114).
+  let conflicted = $state(false);
 
   const relationPaths = ["broader", "narrower", "related", "exactMatch"];
 
@@ -121,17 +124,39 @@
     try {
       const res = await updateAuthority(authorityId, assemble(), etag);
       etag = res.etag;
+      conflicted = false;
       status = "saved -- the relabel is live in search and propagates at projection";
     } catch (e) {
       if (e instanceof ConflictError) {
-        error = "this term changed underneath you -- reloading the fresh state";
-        await load();
+        conflicted = true;
+        error = "this term changed in another session while you edited";
       } else {
         error = e instanceof ApiError ? e.message : "save failed";
       }
     } finally {
       saving = false;
     }
+  }
+
+  /** Conflict resolution: keep the typed rows and retry the save over the
+   *  fresh etag (overwriting the other session's change). */
+  async function overwriteConflict(): Promise<void> {
+    try {
+      const view = await fetchAuthority(authorityId);
+      etag = view.etag;
+    } catch {
+      error = "could not refresh the term -- try again";
+      return;
+    }
+    conflicted = false;
+    await save();
+  }
+
+  /** Conflict resolution: discard the typed rows and reload the fresh term. */
+  async function discardConflict(): Promise<void> {
+    conflicted = false;
+    error = "";
+    await load();
   }
 
   function addURI(path: string, value: string): void {
@@ -273,8 +298,22 @@
     {/each}
 
     {#if !readOnly}
+      {#if conflicted}
+        <div class="merge-confirm" role="alertdialog" aria-label="Edit conflict">
+          <p>
+            Another session changed this term while you edited. Your typed changes are still here --
+            save them over the other change, or discard them and reload the fresh term.
+          </p>
+          <p>
+            <button class="button" onclick={() => void overwriteConflict()} disabled={saving}>Save mine anyway</button>
+            <button class="button button--quiet" onclick={() => void discardConflict()} disabled={saving}>
+              Discard mine and reload
+            </button>
+          </p>
+        </div>
+      {/if}
       <p class="actions">
-        <button class="button" onclick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+        <button class="button" onclick={() => void save()} disabled={saving || conflicted}>{saving ? "Saving…" : "Save"}</button>
         {#if !mergedInto}
           <button class="button button--quiet" onclick={() => (pickerFor = "merge")}>Merge into another term…</button>
         {/if}
