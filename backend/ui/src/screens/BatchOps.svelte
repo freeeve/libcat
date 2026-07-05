@@ -46,7 +46,10 @@
   let opRows = $state<OpRow[]>([{ path: "", action: "add", value: "", lang: "" }]);
 
   let result = $state<BatchRunResult | null>(null);
-  let dryRunDone = $state(false);
+  // The payload the last dry run previewed. Execute is enabled only while the
+  // current inputs still serialize to it, so editing an op, macro, param, or
+  // the selection after the dry run re-requires a fresh preview (tasks/113).
+  let dryRunFor = $state("");
   let busy = $state(false);
   let error = $state("");
   let status = $state("");
@@ -105,6 +108,12 @@
       });
   }
 
+  /** The execute-relevant inputs, serialized; compared against `dryRunFor`. */
+  const runPayload = $derived(
+    JSON.stringify(macroId ? { selection: selection(), macroId, params: paramValues } : { selection: selection(), ops: ops() }),
+  );
+  const dryRunFresh = $derived(dryRunFor !== "" && dryRunFor === runPayload);
+
   async function resolve(): Promise<void> {
     busy = true;
     error = "";
@@ -125,6 +134,7 @@
     busy = true;
     error = "";
     status = "";
+    const payload = runPayload;
     try {
       const req = macroId
         ? { selection: selection(), macroId, params: paramValues, dryRun }
@@ -134,10 +144,9 @@
         return;
       }
       result = await runBatch(req);
-      dryRunDone = dryRun;
+      dryRunFor = dryRun ? payload : "";
       if (!dryRun) {
         status = `applied to ${result.applied} of ${result.matched} works` + (result.failed ? ` -- ${result.failed} failed` : "");
-        dryRunDone = false;
       }
     } catch (e) {
       result = null;
@@ -298,7 +307,7 @@
     <p class="actions">
       <button class="button" onclick={() => void run(true)} disabled={busy}>Dry run</button>
       {#if !readOnly}
-        <button class="button button--danger" onclick={() => void run(false)} disabled={busy || !dryRunDone} title={dryRunDone ? "" : "dry-run first"}>
+        <button class="button button--danger" onclick={() => void run(false)} disabled={busy || !dryRunFresh} title={dryRunFresh ? "" : "dry-run these exact inputs first"}>
           Execute
         </button>
       {/if}
