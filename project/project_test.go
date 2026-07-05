@@ -179,6 +179,38 @@ func TestContributorsDeterministicOrder(t *testing.T) {
 	}
 }
 
+// contribDuplicate repeats the same (agent, role) on two contribution nodes --
+// a feed + editorial re-assertion, or a provider repeating a creator.
+const contribDuplicate = `<#w3Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:overdrive> .
+<#w3Work> <http://id.loc.gov/ontologies/bibframe/contribution> _:cA <feed:overdrive> .
+_:cA <http://id.loc.gov/ontologies/bibframe/agent> _:agA <feed:overdrive> .
+_:agA <http://www.w3.org/2000/01/rdf-schema#label> "Doe, Sam" <feed:overdrive> .
+_:cA <http://id.loc.gov/ontologies/bibframe/role> _:rA <feed:overdrive> .
+_:rA <http://www.w3.org/2000/01/rdf-schema#label> "author" <feed:overdrive> .
+<#w3Work> <http://id.loc.gov/ontologies/bibframe/contribution> _:cB <editorial:> .
+_:cB <http://id.loc.gov/ontologies/bibframe/agent> _:agB <editorial:> .
+_:agB <http://www.w3.org/2000/01/rdf-schema#label> "Doe, Sam" <editorial:> .
+_:cB <http://id.loc.gov/ontologies/bibframe/role> _:rB <editorial:> .
+_:rB <http://www.w3.org/2000/01/rdf-schema#label> "author" <editorial:> .
+`
+
+// TestContributorsDeduped covers tasks/115: two contribution nodes carrying
+// the same (name, role) -- e.g. a feed and an editorial re-assertion --
+// project as one contributor, like every other deduped dimension.
+func TestContributorsDeduped(t *testing.T) {
+	cat, err := Project([]byte(contribDuplicate), "overdrive")
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if len(cat.Works) != 1 {
+		t.Fatalf("got %d works, want 1", len(cat.Works))
+	}
+	want := []Contributor{{Name: "Doe, Sam", Role: "author"}}
+	if !reflect.DeepEqual(cat.Works[0].Contributors, want) {
+		t.Errorf("contributors = %+v, want deduped %+v", cat.Works[0].Contributors, want)
+	}
+}
+
 func TestFacets(t *testing.T) {
 	cat, err := Project([]byte(sampleCatalog), "overdrive")
 	if err != nil {

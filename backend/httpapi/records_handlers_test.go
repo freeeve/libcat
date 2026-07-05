@@ -151,6 +151,18 @@ func TestValidateDryRun(t *testing.T) {
 	}
 }
 
+// TestMutateMissingWork404 covers tasks/115: mutate routes distinguish a
+// missing work (404, matching the read paths) from a real conflict (409).
+func TestMutateMissingWork404(t *testing.T) {
+	h, _ := newRecordsAPI(t)
+	rec := request(t, h, http.MethodPost, "/v1/works/merge", "lib-token", "", map[string]string{
+		"from": "wzzz999zzz999", "to": "wmissing00000",
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("merge into a missing work = %d %s, want 404", rec.Code, rec.Body)
+	}
+}
+
 func TestMergeSplitBatch(t *testing.T) {
 	h, bs := newRecordsAPI(t)
 	original := seedWorkGrain(t, bs)

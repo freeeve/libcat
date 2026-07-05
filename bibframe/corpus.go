@@ -24,15 +24,20 @@ type BuildStats struct {
 
 // WorkID returns a stable, filesystem-safe id for a record's grain, taken from
 // the control number (MARC 001) and falling back to a hash of the record when
-// absent. Phase 0 only: ARCHITECTURE §4's identity model replaces this with a
-// minted, provider-independent id in identity/ (Phase 1), which also changes the
-// grain's subject IRIs and filename.
-func WorkID(rec *codex.Record) string {
+// absent. A record with no 001 whose encoding fails is an error: hashing the
+// nil fallback would give every such record the same id, silently overwriting
+// grains (tasks/115). Phase 0 only: ARCHITECTURE §4's identity model replaces
+// this with a minted, provider-independent id in identity/ (Phase 1), which
+// also changes the grain's subject IRIs and filename.
+func WorkID(rec *codex.Record) (string, error) {
 	if id := strings.TrimSpace(rec.ControlField("001")); id != "" {
-		return sanitize(id)
+		return sanitize(id), nil
 	}
-	b, _ := iso2709.Encode(rec)
-	return "x" + hashID(b)[:16]
+	b, err := iso2709.Encode(rec)
+	if err != nil {
+		return "", fmt.Errorf("bibframe: no 001 and record not encodable for the hash fallback: %w", err)
+	}
+	return "x" + hashID(b)[:16], nil
 }
 
 // GrainPath returns the sink-relative path for a work id:
@@ -90,7 +95,10 @@ func BuildCorpus(sink storage.Sink, records []*codex.Record, provider string) (B
 	}
 	entries := make([]entry, 0, len(records))
 	for _, rec := range records {
-		id := WorkID(rec)
+		id, err := WorkID(rec)
+		if err != nil {
+			return stats, err
+		}
 		grain, err := Grain(rec, feed)
 		if err != nil {
 			return stats, fmt.Errorf("grain %s: %w", id, err)

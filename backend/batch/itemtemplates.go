@@ -74,13 +74,16 @@ func (s *Service) UpdateItemTemplate(ctx context.Context, id string, t ItemTempl
 	t.Owner = current.Owner
 	t.CreatedAt = current.CreatedAt
 	t.UpdatedAt = time.Now().UTC()
+	// Write the new partition before deleting the old one: a fault between
+	// the two leaves a harmless duplicate instead of losing the template
+	// (tasks/115).
+	if err := s.putItemTemplate(ctx, t, store.CondNone); err != nil {
+		return ItemTemplate{}, err
+	}
 	if current.Shared != t.Shared {
 		if err := s.DB.Delete(ctx, store.Record{Key: itemTemplateKey(itemTemplateScope(current), current.ID)}, store.CondNone); err != nil && !errors.Is(err, store.ErrNotFound) {
 			return ItemTemplate{}, err
 		}
-	}
-	if err := s.putItemTemplate(ctx, t, store.CondNone); err != nil {
-		return ItemTemplate{}, err
 	}
 	return t, nil
 }

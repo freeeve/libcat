@@ -1,11 +1,14 @@
 package editor
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/project"
+
+	"github.com/freeeve/libcatalog/backend/profiles"
 )
 
 // applyAndProject runs ops over a real grain, then projects the result --
@@ -172,6 +175,49 @@ func TestOpValidation(t *testing.T) {
 		if _, err := ApplyOps(m, grain, workID, []Op{op}); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// TestCardinalityBeyondOne covers tasks/115: field.Max is enforced past the
+// old Max==1 special case -- an oversized set is rejected, and adds stop once
+// the live values reach the cap.
+func TestCardinalityBeyondOne(t *testing.T) {
+	m := newMapper(t)
+	prof := *m.WorkProfile
+	prof.Fields = append([]profiles.Field(nil), prof.Fields...)
+	workID, grain := firstWork(t)
+	doc, err := m.ToDoc(grain, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := 0
+	for _, v := range doc.Work.Fields["tags"] {
+		if !v.Overridden {
+			live++
+		}
+	}
+	max := live + 1
+	for i, f := range prof.Fields {
+		if f.Path == "tags" {
+			prof.Fields[i].Max = max
+		}
+	}
+	m.WorkProfile = &prof
+
+	over := make([]OpValue, max+1)
+	for i := range over {
+		over[i] = OpValue{V: fmt.Sprintf("tag-%d", i)}
+	}
+	if _, err := ApplyOps(m, grain, workID, []Op{{Resource: "work", Path: "tags", Action: "set", Values: over}}); err == nil {
+		t.Errorf("set of %d into a max-%d field accepted", len(over), max)
+	}
+	// One add fits (live+1 == max); a second overflows.
+	g2, err := ApplyOps(m, grain, workID, []Op{{Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "cap-a"}}})
+	if err != nil {
+		t.Fatalf("add within cap: %v", err)
+	}
+	if _, err := ApplyOps(m, g2, workID, []Op{{Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "cap-b"}}}); err == nil {
+		t.Errorf("add past a max-%d field accepted", max)
 	}
 }
 

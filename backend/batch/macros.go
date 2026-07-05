@@ -108,13 +108,16 @@ func (s *Service) UpdateMacro(ctx context.Context, id string, m Macro, owner str
 	m.Owner = current.Owner
 	m.CreatedAt = current.CreatedAt
 	m.UpdatedAt = time.Now().UTC()
+	// Write the new partition before deleting the old one: a fault between
+	// the two leaves a harmless duplicate instead of losing the macro
+	// (tasks/115).
+	if err := s.putMacro(ctx, m, store.CondNone); err != nil {
+		return Macro{}, err
+	}
 	if current.Shared != m.Shared {
 		if err := s.DB.Delete(ctx, store.Record{Key: macroKey(scopeOf(current), current.ID)}, store.CondNone); err != nil && !errors.Is(err, store.ErrNotFound) {
 			return Macro{}, err
 		}
-	}
-	if err := s.putMacro(ctx, m, store.CondNone); err != nil {
-		return Macro{}, err
 	}
 	return m, nil
 }

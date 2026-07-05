@@ -532,6 +532,11 @@ func (p *projector) contributors(w rdf.Term) []Contributor {
 		primary bool
 	}
 	var es []entry
+	// Dedupe on (name, role) like the other dimensions (tasks/115): a feed and
+	// an editorial contribution node for the same agent -- or a provider
+	// repeating a creator -- must not list the contributor twice. A duplicate
+	// that is primary anywhere stays primary.
+	seen := map[Contributor]int{}
 	for _, node := range p.view.Objects(w, pContribution) {
 		agent, ok := p.view.Object(node, pAgent)
 		if !ok {
@@ -545,7 +550,14 @@ func (p *projector) contributors(w rdf.Term) []Contributor {
 		if r, ok := p.view.Object(node, pRole); ok {
 			role, _ = p.view.Literal(r, pLabel)
 		}
-		es = append(es, entry{Contributor{Name: name, Role: role}, p.view.HasType(node, primaryContr)})
+		c := Contributor{Name: name, Role: role}
+		primary := p.view.HasType(node, primaryContr)
+		if i, dup := seen[c]; dup {
+			es[i].primary = es[i].primary || primary
+			continue
+		}
+		seen[c] = len(es)
+		es = append(es, entry{c, primary})
 	}
 	// Sort by (primary desc, name, role) -- a total order over the distinguishing
 	// fields, so the projection is independent of contribution statement order: two

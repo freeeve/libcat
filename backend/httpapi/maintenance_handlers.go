@@ -71,7 +71,7 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 		}
 		etag, err := mutateWorkGrain(r, bs, workID, mutate)
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+			writeMutateError(w, err)
 			return
 		}
 		if queue != nil {
@@ -140,7 +140,7 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 			return bibframe.SetItems(g, req.InstanceID, req.Items)
 		})
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+			writeMutateError(w, err)
 			return
 		}
 		if queue != nil {
@@ -205,7 +205,7 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 		}
 		etag, err := mutateWorkGrain(r, bs, workID, mutate)
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+			writeMutateError(w, err)
 			return
 		}
 		if queue != nil {

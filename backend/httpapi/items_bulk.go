@@ -102,7 +102,7 @@ func registerItemsBulk(mux *http.ServeMux, bs blob.Store, queue *suggest.Service
 			return bibframe.SetItems(g, req.InstanceID, append(current, generated...))
 		})
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+			writeMutateError(w, err)
 			return
 		}
 		if queue != nil {

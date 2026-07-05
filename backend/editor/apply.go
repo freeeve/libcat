@@ -61,6 +61,25 @@ func ApplyOps(m *Mapper, grainNQ []byte, workID string, ops []Op) ([]byte, error
 	return bibframe.ApplyEditorialPatch(grainNQ, patch)
 }
 
+// liveCount counts the field values an add stacks onto: everything except
+// feed values already shadowed by an override marker (tasks/115).
+func liveCount(values []FieldValue) int {
+	n := 0
+	for _, v := range values {
+		if !v.Overridden {
+			n++
+		}
+	}
+	return n
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 // resolveField finds the profile field and resource node for an op.
 func resolveField(m *Mapper, doc *WorkDoc, workID string, op Op) (profiles.Field, string, []FieldValue, error) {
 	var profile *profiles.Profile
@@ -112,6 +131,9 @@ func applyOne(m *Mapper, doc *WorkDoc, workID string, op Op, patch *bibframe.Pat
 		if err := validateValue(field, *op.Value); err != nil {
 			return err
 		}
+		if field.Max > 0 && liveCount(existing)+1 > field.Max {
+			return fmt.Errorf("field takes at most %d value%s", field.Max, plural(field.Max))
+		}
 		patch.Add = append(patch.Add, valueQuads(field, nodeIRI, op.Path, []OpValue{*op.Value})...)
 		return nil
 	case "remove":
@@ -136,8 +158,8 @@ func applyOne(m *Mapper, doc *WorkDoc, workID string, op Op, patch *bibframe.Pat
 				return err
 			}
 		}
-		if field.Max == 1 && len(op.Values) > 1 {
-			return fmt.Errorf("field takes at most one value")
+		if field.Max > 0 && len(op.Values) > field.Max {
+			return fmt.Errorf("field takes at most %d value%s", field.Max, plural(field.Max))
 		}
 		if anyFeed(existing) {
 			overrideField(field, nodeIRI, op.Path, existing, op.Values, patch)

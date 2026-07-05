@@ -193,7 +193,7 @@ func (s *Store) Query(ctx context.Context, pk, skPrefix string, opt store.QueryO
 		}
 		count := 0
 		for {
-			out, err := s.client.Query(ctx, &dynamodb.QueryInput{
+			in := &dynamodb.QueryInput{
 				TableName:                 &s.table,
 				KeyConditionExpression:    &keyCond,
 				ExpressionAttributeNames:  names,
@@ -201,7 +201,14 @@ func (s *Store) Query(ctx context.Context, pk, skPrefix string, opt store.QueryO
 				ScanIndexForward:          aws.Bool(!opt.Descending),
 				ExclusiveStartKey:         startKey,
 				ConsistentRead:            aws.Bool(true),
-			})
+			}
+			// Push the limit down so a small page does not read (and pay
+			// for) a full 1MB partition page (tasks/115). +1 covers the
+			// client-side cursor check without a second round trip.
+			if opt.Limit > 0 {
+				in.Limit = aws.Int32(int32(opt.Limit - count + 1))
+			}
+			out, err := s.client.Query(ctx, in)
 			if err != nil {
 				yield(store.Record{}, err)
 				return

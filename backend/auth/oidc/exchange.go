@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 // ExchangeConfig wires the PKCE token-exchange proxy: the SPA is a public
@@ -39,6 +40,25 @@ func ExchangeHandler(cfg ExchangeConfig) http.Handler {
 	if client == nil {
 		client = http.DefaultClient
 	}
+	// Discovery resolves once per handler, like the JWKS cache: without this
+	// every exchange pays an extra upstream round trip when TokenEndpoint is
+	// left to discovery, which is how appdeps builds it (tasks/115). A failed
+	// discovery is not cached, so a transiently-down issuer retries.
+	var epMu sync.Mutex
+	cachedEndpoint := ""
+	resolveEndpoint := func(ctx context.Context) (string, error) {
+		epMu.Lock()
+		defer epMu.Unlock()
+		if cachedEndpoint != "" {
+			return cachedEndpoint, nil
+		}
+		ep, err := tokenEndpoint(ctx, client, cfg)
+		if err != nil {
+			return "", err
+		}
+		cachedEndpoint = ep
+		return ep, nil
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if cfg.ClientSecret == "" {
 			http.Error(w, `{"error":"exchange not configured"}`, http.StatusServiceUnavailable)
@@ -53,7 +73,7 @@ func ExchangeHandler(cfg ExchangeConfig) http.Handler {
 			http.Error(w, `{"error":"unsupported grant_type"}`, http.StatusBadRequest)
 			return
 		}
-		endpoint, err := tokenEndpoint(r.Context(), client, cfg)
+		endpoint, err := resolveEndpoint(r.Context())
 		if err != nil {
 			http.Error(w, `{"error":"issuer unavailable"}`, http.StatusBadGateway)
 			return

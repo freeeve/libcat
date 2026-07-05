@@ -264,7 +264,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 			return bibframe.AddMergeMarker(grain, req.From, req.To)
 		})
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+			writeMutateError(w, err)
 			return
 		}
 		if queue != nil {
@@ -292,7 +292,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 			return bibframe.AddSplitMarkers(grain, newWork, req.From, req.Instances)
 		})
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+			writeMutateError(w, err)
 			return
 		}
 		if queue != nil {
@@ -371,6 +371,27 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 	registerDrafts(mux, db, librarian)
 }
 
+// errWorkNotFound and errGrainStore let handlers map a mutateWorkGrain
+// failure onto the right status instead of calling everything a conflict
+// (tasks/115): missing work 404 (matching the read paths), store fault 500,
+// domain error from the mutate func 409.
+var (
+	errWorkNotFound = errors.New("no such work")
+	errGrainStore   = errors.New("grain store unavailable")
+)
+
+// writeMutateError maps a mutateWorkGrain failure onto its status code.
+func writeMutateError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errWorkNotFound):
+		writeError(w, http.StatusNotFound, "no such work")
+	case errors.Is(err, errGrainStore):
+		writeError(w, http.StatusInternalServerError, "grain store unavailable")
+	default:
+		writeError(w, http.StatusConflict, err.Error())
+	}
+}
+
 // mutateWorkGrain CAS-updates one work's grain, retrying from fresh (server-
 // initiated edits like merge/split/batch own their concurrency, unlike the
 // client-token PUT).
@@ -382,7 +403,10 @@ func mutateWorkGrain(r *http.Request, bs blob.Store, workID string, mutate func(
 		}
 		grain, etag, err := bs.Get(r.Context(), path)
 		if err != nil {
-			return "", errors.New("no such work")
+			if errors.Is(err, blob.ErrNotFound) {
+				return "", errWorkNotFound
+			}
+			return "", fmt.Errorf("%w: %v", errGrainStore, err)
 		}
 		updated, err := mutate(grain)
 		if err != nil {
@@ -393,7 +417,7 @@ func mutateWorkGrain(r *http.Request, bs blob.Store, workID string, mutate func(
 			continue
 		}
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: %v", errGrainStore, err)
 		}
 		return newTag, nil
 	}

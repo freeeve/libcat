@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"time"
 
@@ -321,10 +322,19 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 }
 
 // signingKey decodes the configured Ed25519 key (seed or full private key,
-// base64 std or raw-url), or generates an ephemeral one for dev.
+// base64 std or raw-url), or generates an ephemeral one for dev. Under
+// Lambda an ephemeral key is an error, not a warning: each concurrent
+// sandbox would mint its own key, so tokens issued by one sandbox fail
+// verification on the next -- intermittent 401s, not just
+// sessions-die-on-restart (tasks/115). The same applies to any
+// horizontally-scaled deployment, which we cannot detect; the warning says
+// so.
 func signingKey(encoded string, logger *slog.Logger) (ed25519.PrivateKey, error) {
 	if encoded == "" {
-		logger.Warn("LCATD_LOCAL_SIGNING_KEY unset; generating ephemeral key (sessions die on restart)")
+		if os.Getenv("AWS_LAMBDA_FUNCTION_NAME") != "" {
+			return nil, fmt.Errorf("LCATD_LOCAL_SIGNING_KEY must be set under Lambda: concurrent sandboxes each minting an ephemeral key make token verification fail across instances")
+		}
+		logger.Warn("LCATD_LOCAL_SIGNING_KEY unset; generating ephemeral key (sessions die on restart, and break across instances if this deployment scales past one)")
 		_, key, err := ed25519.GenerateKey(rand.Reader)
 		return key, err
 	}
