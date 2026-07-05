@@ -6,12 +6,14 @@
   // exactly as the editing grid marks them.
   import { onMount } from "svelte";
   import { marcPreview } from "../lib/api";
+  import { sequencer } from "../lib/sequence";
   import MarcRecordView from "./MarcRecordView.svelte";
   import type { MarcField, MarcRecordDoc, Op } from "../lib/types";
 
   let { workId, ops }: { workId: string; ops: Op[] } = $props();
 
   const DEBOUNCE_MS = 400;
+  const seq = sequencer();
 
   let records = $state<MarcRecordDoc[]>([]);
   let knownLoss = $state<Record<string, string>>({});
@@ -64,14 +66,17 @@
   }
 
   async function refresh(): Promise<void> {
+    const t = seq.take();
     try {
       const res = await marcPreview(workId, ops);
+      if (t.stale) return;
       records = res.records ?? [];
       error = "";
     } catch {
+      if (t.stale) return;
       error = "MARC preview unavailable";
     } finally {
-      loading = false;
+      if (!t.stale) loading = false;
     }
   }
 </script>

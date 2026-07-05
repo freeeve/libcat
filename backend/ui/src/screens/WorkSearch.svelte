@@ -9,12 +9,14 @@
   import { bindKeys, pushScope, popScope } from "../lib/keyboard";
   import { navigate } from "../lib/router";
   import { screenState } from "../lib/screenState.svelte";
+  import { sequencer } from "../lib/sequence";
   import RowList from "../components/RowList.svelte";
   import type { WorkSummary } from "../lib/types";
 
   const SCOPE = "works";
   const DEBOUNCE_MS = 250;
   const FRESH_MS = 60_000;
+  const seq = sequencer();
 
   const st = screenState("works", () => ({
     q: "",
@@ -51,11 +53,13 @@
   /** Runs the search; a refresh keeps the selection pinned to the same
       work id, a new query starts back at the top. */
   async function search(query: string, refresh: boolean): Promise<void> {
+    const t = seq.take();
     loading = true;
     error = "";
     const keepId = refresh ? st.works[st.selected]?.WorkID : undefined;
     try {
       const page = await fetchWorks(query);
+      if (t.stale) return;
       st.works = page.works ?? [];
       st.total = page.total;
       st.matched = page.matched ?? st.works.length;
@@ -64,29 +68,33 @@
       st.selected = found >= 0 ? found : Math.min(st.selected, Math.max(0, st.works.length - 1));
       if (!refresh) st.selected = 0;
     } catch (e) {
+      if (t.stale) return;
       st.works = [];
       error = e instanceof ApiError && e.status === 401 ? "session expired -- sign in again" : "search failed";
     } finally {
-      loading = false;
+      if (!t.stale) loading = false;
     }
   }
 
   /** Appends the next window of matches; selection stays put. */
   async function loadMore(): Promise<void> {
     if (loading || st.works.length >= st.matched) return;
+    const t = seq.take();
     loading = true;
     error = "";
     try {
       const page = await fetchWorks(st.q, 50, st.works.length);
+      if (t.stale) return;
       const seen = new Set(st.works.map((w) => w.WorkID));
       st.works = [...st.works, ...(page.works ?? []).filter((w) => !seen.has(w.WorkID))];
       st.total = page.total;
       st.matched = page.matched ?? st.matched;
       st.loadedAt = Date.now();
     } catch {
+      if (t.stale) return;
       error = "loading more failed";
     } finally {
-      loading = false;
+      if (!t.stale) loading = false;
     }
   }
 

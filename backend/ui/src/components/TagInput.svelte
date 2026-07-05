@@ -4,6 +4,7 @@
   // the plain tag string through onselect; oninput tracks free typing so a
   // form can also take unlisted tags.
   import { fetchTags, searchFolkTerms } from "../lib/api";
+  import { sequencer } from "../lib/sequence";
 
   let {
     id = "tag-input",
@@ -22,6 +23,7 @@
   } = $props();
 
   const DEBOUNCE_MS = 200;
+  const seq = sequencer();
 
   interface Option {
     tag: string;
@@ -42,6 +44,7 @@
   }
 
   async function search(query: string): Promise<void> {
+    const t = seq.take();
     const trimmed = query.trim();
     if (!trimmed) {
       options = [];
@@ -52,6 +55,7 @@
       fetchTags(trimmed).catch(() => ({ tags: [] })),
       searchFolkTerms(trimmed).catch(() => ({ terms: [] })),
     ]);
+    if (t.stale) return;
     const merged = new Map<string, Option>();
     for (const t of tags.tags ?? []) merged.set(t.tag, { tag: t.tag, count: t.count, folk: false });
     for (const f of folk.terms ?? []) {

@@ -6,6 +6,7 @@
   import { onMount } from "svelte";
   import { fetchMacros, fetchWorks } from "../lib/api";
   import { popScope, pushScope } from "../lib/keyboard";
+  import { sequencer } from "../lib/sequence";
   import { navigate } from "../lib/router";
   import Modal from "./Modal.svelte";
   import RowList from "./RowList.svelte";
@@ -22,6 +23,7 @@
 
   const SCOPE = "palette";
   const DEBOUNCE_MS = 200;
+  const seq = sequencer();
 
   const NAV: Entry[] = [
     { id: "nav-works", label: "Go to Works", run: () => navigate("/works") },
@@ -90,13 +92,17 @@
   }
 
   async function searchWorks(query: string): Promise<void> {
+    const t = seq.take();
     if (query.trim().length < 2) {
       works = [];
       return;
     }
     try {
-      works = ((await fetchWorks(query, 8)).works ?? []).slice(0, 8);
+      const page = await fetchWorks(query, 8);
+      if (t.stale) return;
+      works = (page.works ?? []).slice(0, 8);
     } catch {
+      if (t.stale) return;
       works = [];
     }
   }

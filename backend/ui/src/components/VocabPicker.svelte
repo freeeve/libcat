@@ -9,6 +9,7 @@
   import { cacheVocabTerm, fetchVocabSources, searchTerms, vocabSuggest } from "../lib/api";
   import { getConfig } from "../lib/config";
   import { popScope, pushScope } from "../lib/keyboard";
+  import { sequencer } from "../lib/sequence";
   import { allAltLabels, bestDefinition, bestLabel } from "../lib/vocab";
   import Modal from "./Modal.svelte";
   import NeighborhoodPanel from "./NeighborhoodPanel.svelte";
@@ -27,6 +28,7 @@
 
   const SCOPE = "picker";
   const DEBOUNCE_MS = 200;
+  const seq = sequencer();
   const schemes = (getConfig().schemes ?? []).filter((s) => s !== "folk");
 
   /** One tab: a locally indexed scheme, or a live suggest source. */
@@ -87,6 +89,7 @@
   }
 
   async function search(query: string): Promise<void> {
+    const t = seq.take();
     if (!tab || query.trim() === "") {
       results = [];
       highlight = 0;
@@ -97,6 +100,7 @@
     try {
       if (tab.live && tab.source) {
         const res = await vocabSuggest(tab.source, query);
+        if (t.stale) return;
         liveSuggs = Object.fromEntries((res.suggestions ?? []).map((s) => [s.id, s]));
         results = (res.suggestions ?? []).map((s) => ({
           scheme: s.scheme,
@@ -108,14 +112,16 @@
         }));
       } else {
         const res = await searchTerms(tab.scheme, query);
+        if (t.stale) return;
         results = res.terms ?? [];
       }
       highlight = 0;
     } catch {
+      if (t.stale) return;
       results = [];
       error = tab.live ? "live source unavailable" : "term search failed";
     } finally {
-      searching = false;
+      if (!t.stale) searching = false;
     }
   }
 
