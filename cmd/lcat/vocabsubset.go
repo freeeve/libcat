@@ -66,7 +66,7 @@ func runVocabSubset(args []string) error {
 	fmt.Printf("harvesting %d distinct %s subjects...\n", len(uris), *scheme)
 
 	nts := fetchConcepts(uris, *concurrency)
-	data, terms := subsetFromNT(*scheme, uris, nts)
+	data, terms := subsetFromNT(*scheme, *namespace, uris, nts)
 	if err := os.WriteFile(*out, data, 0o644); err != nil {
 		return err
 	}
@@ -151,13 +151,30 @@ func fetchConcept(client *http.Client, uri string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 }
 
+// schemeless strips a leading http(s):// so URIs that differ only by scheme
+// compare equal. id.loc.gov serves its SKOS keyed on the canonical http URI, but
+// a catalog may carry the https form; the snapshot must use the catalog's form
+// or the index (which matches URIs exactly) never resolves it.
+func schemeless(u string) string {
+	if rest, ok := strings.CutPrefix(u, "https://"); ok {
+		return rest
+	}
+	if rest, ok := strings.CutPrefix(u, "http://"); ok {
+		return rest
+	}
+	return u
+}
+
 // subsetFromNT converts the fetched per-concept SKOS N-Triples into one
 // authority-tree N-Quads snapshot under graph authority:<scheme>, keeping only
 // the predicates the index reads and emitting concepts in the given URI order
-// (deterministic output). Returns the bytes and the count of terms with a
-// prefLabel. Pure -- unit-testable without the network.
-func subsetFromNT(scheme string, order []string, nts map[string][]byte) ([]byte, int) {
+// (deterministic output). URIs within `namespace` are re-schemed to match the
+// catalog's URI (id.loc.gov's payload is canonical-http; a catalog may be
+// https), so the snapshot resolves against the exact-match index. Returns the
+// bytes and the count of terms with a prefLabel. Pure -- unit-testable.
+func subsetFromNT(scheme, namespace string, order []string, nts map[string][]byte) ([]byte, int) {
 	graph := bibframe.AuthorityGraph(scheme)
+	nsBare := schemeless(namespace)
 	var enc rdf.Encoder
 	var out []byte
 	terms := 0
@@ -171,15 +188,32 @@ func subsetFromNT(scheme string, order []string, nts map[string][]byte) ([]byte,
 			fmt.Fprintf(os.Stderr, "skip %s: parse: %v\n", uri, err)
 			continue
 		}
+		target := "http"
+		if strings.HasPrefix(uri, "https://") {
+			target = "https"
+		}
+		// norm rewrites an in-namespace URI to the catalog's scheme (subjects and
+		// broader/narrower targets alike); URIs elsewhere (exactMatch to wikidata,
+		// worldcat) are left untouched.
+		norm := func(v string) string {
+			if b := schemeless(v); strings.HasPrefix(b, nsBare) {
+				return target + "://" + b
+			}
+			return v
+		}
 		hasLabel := false
 		for _, q := range ds.Quads {
 			if !q.S.IsIRI() || !subsetKeep[q.P.Value] {
 				continue
 			}
-			if q.P.Value == subsetPrefLabel && q.S.Value == uri {
+			if q.P.Value == subsetPrefLabel && schemeless(q.S.Value) == schemeless(uri) {
 				hasLabel = true
 			}
-			out = enc.AppendQuad(out, rdf.Quad{S: q.S, P: q.P, O: q.O, G: graph})
+			o := q.O
+			if o.IsIRI() {
+				o = rdf.NewIRI(norm(o.Value))
+			}
+			out = enc.AppendQuad(out, rdf.Quad{S: rdf.NewIRI(norm(q.S.Value)), P: q.P, O: o, G: graph})
 		}
 		if hasLabel {
 			terms++
