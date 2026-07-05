@@ -26,6 +26,7 @@ func runIngestCmd(args []string) error {
 	out := fs.String("out", "", "output directory for canonical grains and catalog.nq")
 	feed := fs.String("feed", "", "provenance graph feed:<name> (default: the provider name)")
 	reconcile := fs.String("reconcile", "", "flag feed-only works this scan no longer lists: review | auto-suppress (tasks/078)")
+	allowEmpty := fs.Bool("reconcile-allow-empty", false, "let a zero-record scan reconcile (withdraws every feed-only work; tasks/103)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -36,7 +37,7 @@ func runIngestCmd(args []string) error {
 		return fmt.Errorf("--out is required")
 	}
 	cfg := ingest.Config{Feed: *feed, Source: *source}
-	return runIngest(reg, *provider, cfg, *out, *reconcile)
+	return runIngest(reg, *provider, cfg, *out, *reconcile, *allowEmpty)
 }
 
 // runIngest constructs the named provider from reg and runs the shared ingest
@@ -44,7 +45,7 @@ func runIngestCmd(args []string) error {
 // on stdout. With a reconcile policy it then diffs the corpus against the
 // scan and flags feed-only works the scan no longer lists (tasks/078). It is
 // shared by `lcat ingest` and the `lcat overdrive` alias.
-func runIngest(reg *ingest.Registry, name string, cfg ingest.Config, out, reconcile string) error {
+func runIngest(reg *ingest.Registry, name string, cfg ingest.Config, out, reconcile string, reconcileAllowEmpty bool) error {
 	prov, err := reg.New(name, cfg)
 	if err != nil {
 		return err
@@ -60,6 +61,12 @@ func runIngest(reg *ingest.Registry, name string, cfg ingest.Config, out, reconc
 		res.Stats.Grains, res.Stats.Records, out, prov.Name(), res.MintedWorks, res.MintedInstances, res.Retired)
 	if reconcile == "" {
 		return nil
+	}
+	// A zero-record scan reconciled against the corpus withdraws every
+	// feed-only work in one pass -- almost always a misconfigured source, not
+	// an emptied feed, so refuse without the explicit override (tasks/103).
+	if len(res.WorkIDs) == 0 && !reconcileAllowEmpty {
+		return fmt.Errorf("refusing to reconcile a zero-record scan (it would withdraw every feed:%s work); re-run with --reconcile-allow-empty if the feed really is empty", prov.Name())
 	}
 	present := make(map[string]bool, len(res.WorkIDs))
 	for _, id := range res.WorkIDs {

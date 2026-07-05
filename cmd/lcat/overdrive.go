@@ -20,6 +20,7 @@ func runOverdrive(args []string) error {
 	out := fs.String("out", "", "output directory for canonical grains (direct JSON->BIBFRAME)")
 	provider := fs.String("provider", overdrive.ProviderName, "provenance graph feed:<provider> for the records")
 	reconcile := fs.String("reconcile", "", "flag feed-only works this scan no longer lists: review | auto-suppress (tasks/078)")
+	allowEmpty := fs.Bool("reconcile-allow-empty", false, "let a zero-record scan reconcile (withdraws every feed-only work; tasks/103)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -30,5 +31,5 @@ func runOverdrive(args []string) error {
 		return fmt.Errorf("--out (grains output directory) is required")
 	}
 	cfg := ingest.Config{Feed: *provider, Source: *cache}
-	return runIngest(providerRegistry(), overdrive.ProviderName, cfg, *out, *reconcile)
+	return runIngest(providerRegistry(), overdrive.ProviderName, cfg, *out, *reconcile, *allowEmpty)
 }

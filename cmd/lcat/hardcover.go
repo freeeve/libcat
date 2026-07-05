@@ -60,5 +60,5 @@ func runHardcover(args []string) error {
 		return fmt.Errorf("--out (grains output directory) is required")
 	}
 	cfg := ingest.Config{Feed: *feed, Source: *source, Params: params}
-	return runIngest(providerRegistry(), hardcover.ProviderName, cfg, *out, "")
+	return runIngest(providerRegistry(), hardcover.ProviderName, cfg, *out, "", false)
 }

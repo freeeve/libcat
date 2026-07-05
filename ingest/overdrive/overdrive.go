@@ -70,11 +70,19 @@ type page struct {
 }
 
 // ReadCache reads every page-*.json in dir (the OverDrive scan cache) and returns
-// all items across the pages, in page order.
+// all items across the pages, in page order. A dir with no page files is an
+// error, not an empty feed: a mistyped --cache path must not read as "the
+// provider now carries zero titles" (tasks/103).
 func ReadCache(dir string) ([]Item, error) {
+	if _, err := os.Stat(dir); err != nil {
+		return nil, fmt.Errorf("overdrive cache %s: %w", dir, err)
+	}
 	matches, err := filepath.Glob(filepath.Join(dir, "page-*.json"))
 	if err != nil {
 		return nil, err
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("overdrive cache %s: no page-*.json files", dir)
 	}
 	sort.Strings(matches)
 	var items []Item
