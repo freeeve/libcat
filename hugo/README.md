@@ -313,6 +313,8 @@ merge-free.
 
 ## Integration points still stubbed
 
-- **Search** -- the search box is wired to `assets/lcat-search.js`, an interim
-  client-side substring filter (progressive enhancement). It will be replaced by
-  the roaringrange WASM reader over the `search-manifest.json` index (`tasks/010`).
+- **Advanced search reader** -- Pagefind is the shipped, recommended engine (see
+  "Search"), and the no-config fallback is `assets/lcat-search.js`, a client-side
+  substring filter. The remaining stub is the opt-in advanced path: the
+  roaringrange WASM reader over its build-side indexes (`tasks/009`/`010`), for
+  deployments that outgrow Pagefind.

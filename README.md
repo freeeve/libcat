@@ -25,8 +25,9 @@ lives in here.
     and export engine).
   - [`roaringrange`](https://github.com/freeeve/roaringrange) -- the **advanced**
     search index and reader (lexical BM25; semantic embeddings opt-in) for
-    large-corpus / custom-ranking deployments. The default static search is
-    **Pagefind** over the built HTML (tasks/017).
+    large-corpus / custom-ranking deployments. The recommended static search is
+    **Pagefind** over the built HTML (tasks/017); out of the box the module
+    falls back to a small client-side filter until a site opts in.
 - **No triplestore, no database for the static tier** -- files in git, files on
   S3/CloudFront. No paid AI in the default build.
 
@@ -55,8 +56,28 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 
 ## Status
 
-Planning / bootstrapping. The reference implementation is being migrated out of
-qllpoc -- see that repo's `tasks/038`--`044`.
+Working, with versioned releases -- the root, `backend/`, and `hugo/` modules
+tag in lockstep (latest: `v0.7.2`). Both tiers are implemented:
+
+- **Tier 1** ships end to end: MARC / Hardcover / OverDrive ingest to
+  canonical BIBFRAME grains, projection to `catalog.json`/`facets.json`, and
+  the Hugo module's faceted, multilingual, Pagefind-searchable site with
+  optional live availability (OverDrive/Thunder, DAIA). "Eve's Library" is
+  the live adopter built on it.
+- **Tier 2** is the `lcatd` backend serving an embedded cataloging SPA:
+  a dual-view (BIBFRAME doc / MARC) record editor with editing profiles,
+  dry-run previews, and duplicate warnings; copy cataloging over SRU/Z39.50
+  with staged batches, overlay policies, and revert; batch edits, macros,
+  and saved queries; authority control with local headings and installable
+  vocabulary snapshots (LCSH-scale); moderated patron suggestions and tag
+  promotion; exports (MARC, N-Quads, JSON-LD, CSV); and a read-only sandbox
+  mode for public demos. Auth is built-in local users and/or OIDC. Deploy as
+  a container (`backend/cmd/lcatd`) or AWS Lambda (`backend/cmd/lcatd-lambda`);
+  `backend/deploy/terraform/modules/readonly-demo` stands up the demo shape.
+
+The reference implementation was migrated out of qllpoc (that repo's
+`tasks/038`--`044`); libcatalog is now developed in place, tracked in
+[`tasks/`](tasks/).
 
 ## License
 
