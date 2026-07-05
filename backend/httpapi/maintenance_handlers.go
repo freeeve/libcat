@@ -12,14 +12,15 @@ import (
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/suggest"
+	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
 // registerMaintenance mounts the tasks/051 maintenance surfaces: the
 // visibility stance (tombstone with optional redirect, suppress) and the
-// duplicate-detection worklist over the identity scan.
-func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Service, verifier auth.TokenVerifier) {
+// duplicate-detection worklist over the shared work index.
+func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue *suggest.Service, verifier auth.TokenVerifier) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
-	registerItemsBulk(mux, bs, queue, librarian)
+	registerItemsBulk(mux, bs, ix, queue, librarian)
 
 	mux.Handle("GET /v1/works/{id}/visibility", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		workID := r.PathValue("id")
@@ -69,7 +70,7 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 			writeError(w, http.StatusBadRequest, "action must be tombstone|untombstone|suppress|unsuppress")
 			return
 		}
-		etag, err := mutateWorkGrain(r, bs, workID, mutate)
+		etag, err := mutateWorkGrain(r, bs, ix, workID, mutate)
 		if err != nil {
 			writeMutateError(w, err)
 			return
@@ -136,7 +137,7 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 			writeError(w, http.StatusBadRequest, "at most 200 items per instance")
 			return
 		}
-		etag, err := mutateWorkGrain(r, bs, workID, func(g []byte) ([]byte, error) {
+		etag, err := mutateWorkGrain(r, bs, ix, workID, func(g []byte) ([]byte, error) {
 			return bibframe.SetItems(g, req.InstanceID, req.Items)
 		})
 		if err != nil {
@@ -158,7 +159,7 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 	// suppress-or-keep call. Auto-suppressed rows are decided, so they stay
 	// out of the queue.
 	mux.Handle("GET /v1/withdrawn", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		summaries, _, err := ingest.ScanSummaries(r.Context(), bs, "data/works/")
+		summaries, err := ix.Summaries(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "scan failed")
 			return
@@ -203,7 +204,7 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 			writeError(w, http.StatusBadRequest, "action must be keep|suppress")
 			return
 		}
-		etag, err := mutateWorkGrain(r, bs, workID, mutate)
+		etag, err := mutateWorkGrain(r, bs, ix, workID, mutate)
 		if err != nil {
 			writeMutateError(w, err)
 			return
@@ -231,41 +232,23 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, queue *suggest.Servi
 			Key   string    `json:"key"`
 			Works []dupWork `json:"works"`
 		}
-		prior, _, err := bibframe.LoadPriorStore(r.Context(), bs, "data/works/", "")
+		byKey, err := ix.DuplicateGroups(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "scan failed")
 			return
 		}
 		titles := map[string]string{}
-		if summaries, _, err := ingest.ScanSummaries(r.Context(), bs, "data/works/"); err == nil {
+		if summaries, err := ix.Summaries(r.Context()); err == nil {
 			for _, s := range summaries {
 				titles[s.WorkID] = s.Title
 			}
 		}
-		byKey := map[string]map[string]bool{}
-		for _, gi := range prior.Grains {
-			for _, wk := range gi.Works {
-				if wk.ClusterKey == "" {
-					continue
-				}
-				set := byKey[wk.ClusterKey]
-				if set == nil {
-					set = map[string]bool{}
-					byKey[wk.ClusterKey] = set
-				}
-				set[wk.WorkID] = true
-			}
-		}
 		groups := []dupGroup{}
-		for key, set := range byKey {
-			if len(set) < 2 {
-				continue
-			}
+		for key, ids := range byKey {
 			g := dupGroup{Key: key}
-			for id := range set {
+			for _, id := range ids {
 				g.Works = append(g.Works, dupWork{WorkID: id, Title: titles[id]})
 			}
-			sort.Slice(g.Works, func(i, j int) bool { return g.Works[i].WorkID < g.Works[j].WorkID })
 			groups = append(groups, g)
 		}
 		sort.Slice(groups, func(i, j int) bool { return groups[i].Key < groups[j].Key })

@@ -17,6 +17,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/profilesvc"
 	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
+	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
 // grainView is the read shape of a record: raw canonical N-Quads plus the
@@ -37,7 +38,7 @@ type WorkSaveHook interface {
 // registerRecords mounts the librarian record-editing surface: grain
 // read/write with ETag optimistic locking, dry-run validation, drafts,
 // merge/split, and quad-level batch edits.
-func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *suggest.Service, prof *profilesvc.Service, verifier auth.TokenVerifier, hook WorkSaveHook) {
+func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db store.Store, queue *suggest.Service, prof *profilesvc.Service, verifier auth.TokenVerifier, hook WorkSaveHook) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	readGrain := func(w http.ResponseWriter, r *http.Request) ([]byte, string, string, bool) {
@@ -132,6 +133,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 			writeError(w, http.StatusInternalServerError, "grain write failed")
 			return
 		}
+		ix.Apply(bibframe.GrainPath(workID), newTag, updated)
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
@@ -189,7 +191,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 			if doc, derr := prof.Mapper().ToDoc(updated, workID); derr == nil {
 				resp["doc"] = doc
 			}
-			if dup := findDuplicate(r.Context(), bs, workID, updated); dup != nil {
+			if dup := findDuplicate(r.Context(), ix, workID, updated); dup != nil {
 				resp["duplicate"] = dup
 			}
 			writeJSON(w, http.StatusOK, resp)
@@ -211,6 +213,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 			writeError(w, http.StatusInternalServerError, "grain write failed")
 			return
 		}
+		ix.Apply(bibframe.GrainPath(workID), newTag, updated)
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
@@ -222,7 +225,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 		}
 		w.Header().Set("ETag", newTag)
 		resp := map[string]any{"workId": workID, "etag": newTag, "diff": diff}
-		if dup := findDuplicate(r.Context(), bs, workID, updated); dup != nil {
+		if dup := findDuplicate(r.Context(), ix, workID, updated); dup != nil {
 			resp["duplicate"] = dup
 		}
 		writeJSON(w, http.StatusOK, resp)
@@ -260,7 +263,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 			return
 		}
 		// The marker lives in the survivor's grain (tasks/001 semantics).
-		etag, err := mutateWorkGrain(r, bs, req.To, func(grain []byte) ([]byte, error) {
+		etag, err := mutateWorkGrain(r, bs, ix, req.To, func(grain []byte) ([]byte, error) {
 			return bibframe.AddMergeMarker(grain, req.From, req.To)
 		})
 		if err != nil {
@@ -288,7 +291,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 			return
 		}
 		newWork := identity.Mint(identity.WorkPrefix)
-		etag, err := mutateWorkGrain(r, bs, req.From, func(grain []byte) ([]byte, error) {
+		etag, err := mutateWorkGrain(r, bs, ix, req.From, func(grain []byte) ([]byte, error) {
 			return bibframe.AddSplitMarkers(grain, newWork, req.From, req.Instances)
 		})
 		if err != nil {
@@ -350,7 +353,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, db store.Store, queue *s
 				results = append(results, itemResult{WorkID: workID, Diff: &diff})
 				continue
 			}
-			etag, err := mutateWorkGrain(r, bs, workID, func(grain []byte) ([]byte, error) {
+			etag, err := mutateWorkGrain(r, bs, ix, workID, func(grain []byte) ([]byte, error) {
 				return bibframe.ApplyEditorialPatch(grain, req.Patch.ToBibframe())
 			})
 			if err != nil {
@@ -394,8 +397,8 @@ func writeMutateError(w http.ResponseWriter, err error) {
 
 // mutateWorkGrain CAS-updates one work's grain, retrying from fresh (server-
 // initiated edits like merge/split/batch own their concurrency, unlike the
-// client-token PUT).
-func mutateWorkGrain(r *http.Request, bs blob.Store, workID string, mutate func([]byte) ([]byte, error)) (string, error) {
+// client-token PUT), and pushes the written grain into the shared work index.
+func mutateWorkGrain(r *http.Request, bs blob.Store, ix *workindex.Index, workID string, mutate func([]byte) ([]byte, error)) (string, error) {
 	path := bibframe.GrainPath(workID)
 	for attempt := range 6 {
 		if attempt > 0 {
@@ -419,6 +422,7 @@ func mutateWorkGrain(r *http.Request, bs blob.Store, workID string, mutate func(
 		if err != nil {
 			return "", fmt.Errorf("%w: %v", errGrainStore, err)
 		}
+		ix.Apply(path, newTag, updated)
 		return newTag, nil
 	}
 	return "", errors.New("write kept conflicting")

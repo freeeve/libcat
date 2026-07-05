@@ -291,14 +291,21 @@ func ScanSummaries(ctx context.Context, st blob.Store, prefix string) ([]WorkSum
 // grains can hold several Works). Exported for callers that already hold the
 // grain bytes, like the on-save authority auto-linker (tasks/046).
 func SummarizeGrain(grain []byte) ([]WorkSummary, error) {
-	const (
-		bfNS      = "http://id.loc.gov/ontologies/bibframe/"
-		rdfsLabel = "http://www.w3.org/2000/01/rdf-schema#label"
-	)
 	ds, err := rdf.ParseNQuads(grain)
 	if err != nil {
 		return nil, err
 	}
+	return SummarizeDataset(ds), nil
+}
+
+// SummarizeDataset is SummarizeGrain for callers that already hold the parsed
+// dataset (the work index scans identity, summaries, and barcodes off one
+// parse).
+func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
+	const (
+		bfNS      = "http://id.loc.gov/ontologies/bibframe/"
+		rdfsLabel = "http://www.w3.org/2000/01/rdf-schema#label"
+	)
 	// One merged view over all graphs; enrichers see feed + editorial data.
 	merged := &rdf.Graph{}
 	for _, gt := range ds.Graphs() {
@@ -374,5 +381,5 @@ func SummarizeGrain(grain []byte) ([]WorkSummary, error) {
 		sort.Strings(s.ISBNs)
 		out = append(out, s)
 	}
-	return out, nil
+	return out
 }

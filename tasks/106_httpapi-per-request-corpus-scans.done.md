@@ -42,9 +42,32 @@ The duplicates/withdrawn handlers should reuse one scan and cache it.
 
 ## Status (2026-07-05 session)
 
-Not started -- the scans are unchanged. Related context from the same review
-round: tasks/101 (done) made `WorkKey` return `""` for title-less records, so
-`findDuplicate` and the duplicates handler no longer see the shared
-`"\x1f\x1f"` pseudo-key as a match; the O(corpus) cost itself remains. The
-shared index proposed here is also the intended fix vehicle for tasks/107 and
-part of tasks/109 -- design them together.
+Done. Implemented `backend/workindex.Index` -- a shared in-memory index over
+`data/works/` holding provider keys, cluster keys, barcodes, and WorkSummaries
+per grain. Freshness is two-layered: reads refresh by ETag diff on a 30s TTL
+(one List per window; only changed grains are re-fetched/re-scanned), and every
+httpapi grain write (mutateWorkGrain, PUT works, ops execute, MARC save) pushes
+its bytes in synchronously via `Apply`, so sessions read their own writes.
+`appdeps` builds the index and warms it in a background goroutine at boot;
+`Deps.WorkIndex` lets a deployment inject one to share with copycat/workers
+(tasks/107/109).
+
+Routed through it: `findDuplicate` (dry-run + execute), bulk-item barcode
+collision checks (`allBarcodes` deleted), `GET /v1/duplicates` (LoadPriorStore
++ second scan both gone), `GET /v1/withdrawn`, and the works list/tags cache
+(`worksList` now delegates; its private 30s cache removed). `identity` gained
+`ScanDataset` and `ingest` gained `SummarizeDataset` so the index scans
+identity, summaries, and barcodes off one parse per grain.
+
+Acceptance verified against a 5000-work seeded store on the throwaway 8491
+instance: ops dry-run/execute and bulk-item dry runs are sub-millisecond after
+warm-up (were full corpus read+parse per request); repeated
+duplicates/withdrawn reads do no I/O within the TTL (unit-asserted with a
+counting store in workindex_test.go); bulk-add continuation reads its own
+writes (SEED-0003/0004 written -> next preview 0005). Derived lookup maps are
+rebuilt lazily O(corpus-in-memory) after a change; per-key incremental
+maintenance is the next step if profiling ever shows it on the save path.
+Non-httpapi writers (copycat commit, publish, enrich) stay visible within one
+TTL until tasks/107/109 route them through the shared index. The
+refresh-window List still pays DirStore.List's read-every-file ETag cost
+(~150ms at 5k works) -- that fix belongs to tasks/109.

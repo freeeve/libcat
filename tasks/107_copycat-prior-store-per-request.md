@@ -34,6 +34,11 @@ bytes. Scope preCommitSnapshot's listing to the works the batch touches.
 
 ## Status (2026-07-05 session)
 
-Not started. Depends on the identity-index design in
-[[106_httpapi-per-request-corpus-scans]] for the O(1) end state; the
-reuse-between-Stage-and-Commit half can land independently.
+Not started. The shared identity index now exists: `backend/workindex.Index`
+(tasks/106, done) -- ETag-diff refresh + `Apply` on write, injectable via
+`httpapi.Deps.WorkIndex`, built and warmed in appdeps. Copycat can take the
+same `*workindex.Index` for matching (needs an accessor exposing all
+works/instances to feed `identity.SeedResolver`, or per-key lookups via
+`ProviderOwners`/`ClusterOwners`) and should `Apply` its Commit writes so the
+editor index stays exact. The reuse-between-Stage-and-Commit half can still
+land independently.

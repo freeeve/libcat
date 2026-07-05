@@ -44,6 +44,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/ui"
 	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/backend/vocabsrc"
+	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
 // Build assembles the handler dependencies from configuration. The document
@@ -93,6 +94,18 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		deps.Blob = blob.ReadOnly(deps.Blob)
 		deps.ReadOnly = true
 		logger.Info("read-only mode", "enabled", true)
+	}
+	// The shared work index (tasks/106): built here rather than inside httpapi
+	// so it can warm in the background while the server starts, instead of the
+	// first editor request paying the corpus scan.
+	if deps.Blob != nil {
+		widx := workindex.New(deps.Blob, "data/works/")
+		deps.WorkIndex = widx
+		go func() {
+			if err := widx.Refresh(ctx); err != nil {
+				logger.Warn("work index warm-up", "err", err)
+			}
+		}()
 	}
 	if deps.Blob != nil {
 		// The authority-source service resolves the effective scheme filter

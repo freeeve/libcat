@@ -2,11 +2,12 @@ package httpapi
 
 import (
 	"context"
-	"path"
-	"strings"
+	"sort"
 
+	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/identity"
-	"github.com/freeeve/libcatalog/storage/blob"
+
+	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
 // duplicateView reports that a saved (or previewed) doc's identity collides
@@ -19,64 +20,55 @@ type duplicateView struct {
 	Via string `json:"via"` // "identifier" | "title-author"
 }
 
-// findDuplicate dry-runs the edited grain's identity signals against every
-// other work in the corpus: identifier collisions outrank clustering-key
-// collisions, and any error degrades to "no warning" -- the save itself is
-// never blocked or failed by this check.
-func findDuplicate(ctx context.Context, bs blob.Store, workID string, grain []byte) *duplicateView {
+// findDuplicate checks the edited grain's identity signals against the shared
+// work index: identifier collisions outrank clustering-key collisions,
+// matches from the work's own grain never count (post-merge grains hold
+// sibling works), and any error degrades to "no warning" -- the save itself
+// is never blocked or failed by this check.
+func findDuplicate(ctx context.Context, ix *workindex.Index, workID string, grain []byte) *duplicateView {
 	self, err := identity.ScanGrain(grain)
 	if err != nil {
 		return nil
 	}
-	selfKeys := map[string]bool{}
-	selfProv := map[string]bool{}
+	var selfKeys, selfProv []string
 	for _, w := range self.Works {
 		if w.WorkID == workID && w.ClusterKey != "" {
-			selfKeys[w.ClusterKey] = true
+			selfKeys = append(selfKeys, w.ClusterKey)
 		}
 	}
 	for _, inst := range self.Instances {
 		if inst.WorkID != workID {
 			continue
 		}
-		for _, pk := range inst.ProviderKeys {
-			selfProv[pk] = true
-		}
+		selfProv = append(selfProv, inst.ProviderKeys...)
 	}
 	if len(selfKeys) == 0 && len(selfProv) == 0 {
 		return nil
 	}
-	var titleHit *duplicateView
-	for entry, err := range bs.List(ctx, "data/works/") {
+	sort.Strings(selfKeys)
+	sort.Strings(selfProv)
+	selfPath := bibframe.GrainPath(workID)
+	for _, pk := range selfProv {
+		owners, err := ix.ProviderOwners(ctx, pk)
 		if err != nil {
-			return titleHit
+			return nil
 		}
-		base := path.Base(entry.Path)
-		if !strings.HasSuffix(base, ".nq") || base == "catalog.nq" || base == workID+".nq" {
-			continue
-		}
-		other, _, err := bs.Get(ctx, entry.Path)
-		if err != nil {
-			continue
-		}
-		gi, err := identity.ScanGrain(other)
-		if err != nil {
-			continue
-		}
-		for _, inst := range gi.Instances {
-			for _, pk := range inst.ProviderKeys {
-				if selfProv[pk] && inst.WorkID != "" {
-					return &duplicateView{WorkID: inst.WorkID, Via: "identifier"}
-				}
-			}
-		}
-		if titleHit == nil {
-			for _, w := range gi.Works {
-				if w.ClusterKey != "" && selfKeys[w.ClusterKey] {
-					titleHit = &duplicateView{WorkID: w.WorkID, Via: "title-author"}
-				}
+		for _, ref := range owners {
+			if ref.Path != selfPath {
+				return &duplicateView{WorkID: ref.WorkID, Via: "identifier"}
 			}
 		}
 	}
-	return titleHit
+	for _, ck := range selfKeys {
+		owners, err := ix.ClusterOwners(ctx, ck)
+		if err != nil {
+			return nil
+		}
+		for _, ref := range owners {
+			if ref.Path != selfPath {
+				return &duplicateView{WorkID: ref.WorkID, Via: "title-author"}
+			}
+		}
+	}
+	return nil
 }

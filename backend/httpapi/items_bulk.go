@@ -1,20 +1,18 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/freeeve/libcodex/rdf"
-
 	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/storage/blob"
 
 	"github.com/freeeve/libcatalog/backend/auth"
 	"github.com/freeeve/libcatalog/backend/suggest"
+	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
 const (
@@ -25,7 +23,7 @@ const (
 // registerItemsBulk mounts bulk item creation (tasks/069): N copies in one
 // action with an auto-incrementing, collision-checked barcode pattern.
 // dryRun previews the generated list without writing.
-func registerItemsBulk(mux *http.ServeMux, bs blob.Store, queue *suggest.Service, librarian func(http.Handler) http.Handler) {
+func registerItemsBulk(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue *suggest.Service, librarian func(http.Handler) http.Handler) {
 	mux.Handle("POST /v1/works/{id}/items/bulk", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := auth.FromContext(r.Context())
 		workID := r.PathValue("id")
@@ -77,7 +75,7 @@ func registerItemsBulk(mux *http.ServeMux, bs blob.Store, queue *suggest.Service
 			writeError(w, http.StatusBadRequest, "at most 200 items per instance")
 			return
 		}
-		taken, err := allBarcodes(r.Context(), bs)
+		taken, err := ix.Barcodes(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "barcode scan failed")
 			return
@@ -94,7 +92,7 @@ func registerItemsBulk(mux *http.ServeMux, bs blob.Store, queue *suggest.Service
 			writeJSON(w, http.StatusOK, map[string]any{"workId": workID, "items": generated})
 			return
 		}
-		etag, err := mutateWorkGrain(r, bs, workID, func(g []byte) ([]byte, error) {
+		etag, err := mutateWorkGrain(r, bs, ix, workID, func(g []byte) ([]byte, error) {
 			current, err := bibframe.ItemsOf(g, req.InstanceID)
 			if err != nil {
 				return nil, err
@@ -114,34 +112,6 @@ func registerItemsBulk(mux *http.ServeMux, bs blob.Store, queue *suggest.Service
 		w.Header().Set("ETag", etag)
 		writeJSON(w, http.StatusOK, map[string]any{"workId": workID, "etag": etag, "items": generated})
 	})))
-}
-
-// allBarcodes scans the corpus for every lcat:barcode value -- barcodes are
-// globally unique, so collision checks read the whole tree.
-func allBarcodes(ctx context.Context, bs blob.Store) (map[string]bool, error) {
-	taken := map[string]bool{}
-	for entry, err := range bs.List(ctx, "data/works/") {
-		if err != nil {
-			return nil, err
-		}
-		if !strings.HasSuffix(entry.Path, ".nq") {
-			continue
-		}
-		grain, _, err := bs.Get(ctx, entry.Path)
-		if err != nil {
-			continue
-		}
-		ds, err := rdf.ParseNQuads(grain)
-		if err != nil {
-			continue
-		}
-		for _, q := range ds.Quads {
-			if q.P.Value == bibframe.PredBarcode && q.O.IsLiteral() {
-				taken[q.O.Value] = true
-			}
-		}
-	}
-	return taken, nil
 }
 
 // nextBarcodes generates count barcodes prefix+zero-padded counter, starting

@@ -78,6 +78,12 @@ func ScanGrain(nq []byte) (GrainIdentity, error) {
 	if err != nil {
 		return GrainIdentity{}, err
 	}
+	return ScanDataset(ds), nil
+}
+
+// ScanDataset is ScanGrain for callers that already hold the parsed dataset
+// (the work index scans identity, summaries, and barcodes off one parse).
+func ScanDataset(ds *rdf.Dataset) GrainIdentity {
 	var gi GrainIdentity
 	for _, gt := range ds.Graphs() {
 		g := ds.Graph(gt)
@@ -106,7 +112,7 @@ func ScanGrain(nq []byte) (GrainIdentity, error) {
 			gi.Instances = append(gi.Instances, id)
 		}
 	}
-	return gi, nil
+	return gi
 }
 
 // minted reports whether a node is a catalog-minted entity: the "#<id>Work" /

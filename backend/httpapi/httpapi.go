@@ -23,6 +23,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/suggest"
 	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/backend/vocabsrc"
+	"github.com/freeeve/libcatalog/backend/workindex"
 	"github.com/freeeve/libcatalog/storage/blob"
 )
 
@@ -34,6 +35,11 @@ type Deps struct {
 	// Blob is the grain store. Record and export handlers (later tasks)
 	// read and publish through it.
 	Blob blob.Store
+	// WorkIndex is the shared identity/summary index over the work grains
+	// (tasks/106). Optional: New builds one over Blob when nil. A deployment
+	// passes its own to share the index with services that write grains
+	// outside httpapi (copycat, workers) or to warm it at boot.
+	WorkIndex *workindex.Index
 	// Verifier authenticates staff bearer tokens (an auth.Multi when both
 	// SSO and local users are configured). nil leaves staff routes
 	// unregistered.
@@ -133,10 +139,14 @@ func New(deps Deps) http.Handler {
 		hook = deps.Authorities
 	}
 	if deps.Blob != nil && deps.DB != nil && deps.Verifier != nil {
-		registerRecords(mux, deps.Blob, deps.DB, deps.Suggest, deps.Profiles, deps.Verifier, hook)
-		registerMARC(mux, deps.Blob, deps.Suggest, deps.Profiles, deps.Verifier)
-		registerMaintenance(mux, deps.Blob, deps.Suggest, deps.Verifier)
-		wl := registerWorksList(mux, deps.Blob, deps.Verifier)
+		ix := deps.WorkIndex
+		if ix == nil {
+			ix = workindex.New(deps.Blob, "data/works/")
+		}
+		registerRecords(mux, deps.Blob, ix, deps.DB, deps.Suggest, deps.Profiles, deps.Verifier, hook)
+		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Verifier)
+		registerMaintenance(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
+		wl := registerWorksList(mux, ix, deps.Verifier)
 		registerTags(mux, wl, deps.Verifier)
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {

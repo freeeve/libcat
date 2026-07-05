@@ -13,6 +13,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/marcview"
 	"github.com/freeeve/libcatalog/backend/profilesvc"
 	"github.com/freeeve/libcatalog/backend/suggest"
+	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
 // registerMARC mounts the MARC half of the dual-view editor (tasks/049):
@@ -21,7 +22,7 @@ import (
 // record back as an editorial diff under If-Match, with dryRun returning the
 // exact quad delta. The fidelity table rides along so the SPA can warn
 // without hardcoding it.
-func registerMARC(mux *http.ServeMux, bs blob.Store, queue *suggest.Service, prof *profilesvc.Service, verifier auth.TokenVerifier) {
+func registerMARC(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue *suggest.Service, prof *profilesvc.Service, verifier auth.TokenVerifier) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	readGrain := func(w http.ResponseWriter, r *http.Request) ([]byte, string, string, bool) {
@@ -157,6 +158,7 @@ func registerMARC(mux *http.ServeMux, bs blob.Store, queue *suggest.Service, pro
 			writeError(w, http.StatusInternalServerError, "grain write failed")
 			return
 		}
+		ix.Apply(bibframe.GrainPath(workID), newTag, updated)
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "MARC_EDIT", Actor: id.Email, ETag: newTag,

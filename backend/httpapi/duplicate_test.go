@@ -6,6 +6,8 @@ import (
 
 	"github.com/freeeve/libcatalog/bibframe"
 	"github.com/freeeve/libcatalog/storage/blob"
+
+	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
 // identityGrain renders a minimal grain carrying the signals ScanGrain reads:
@@ -40,28 +42,29 @@ func TestFindDuplicate(t *testing.T) {
 	put("wother1", identityGrain("wother1", "The Left Hand of Darkness", "Le Guin, Ursula K.", "9780441478125"))
 	put("wother2", identityGrain("wother2", "The Dispossessed", "Le Guin, Ursula K.", "9780061054884"))
 	put("wself11", identityGrain("wself11", "A Wizard of Earthsea", "Le Guin, Ursula K.", "9780547773742"))
+	ix := workindex.New(bs, "data/works/")
 
 	// The saved doc keeps its own identity: no warning.
-	if dup := findDuplicate(ctx, bs, "wself11", identityGrain("wself11", "A Wizard of Earthsea", "Le Guin, Ursula K.", "9780547773742")); dup != nil {
+	if dup := findDuplicate(ctx, ix, "wself11", identityGrain("wself11", "A Wizard of Earthsea", "Le Guin, Ursula K.", "9780547773742")); dup != nil {
 		t.Fatalf("self-match reported: %+v", dup)
 	}
 	// An edit that lands another work's ISBN warns via the identifier.
-	dup := findDuplicate(ctx, bs, "wself11", identityGrain("wself11", "A Wizard of Earthsea", "Le Guin, Ursula K.", "9780441478125"))
+	dup := findDuplicate(ctx, ix, "wself11", identityGrain("wself11", "A Wizard of Earthsea", "Le Guin, Ursula K.", "9780441478125"))
 	if dup == nil || dup.WorkID != "wother1" || dup.Via != "identifier" {
 		t.Fatalf("isbn collision = %+v", dup)
 	}
 	// A title/author collision warns via the clustering key.
-	dup = findDuplicate(ctx, bs, "wself11", identityGrain("wself11", "The Dispossessed", "Le Guin, Ursula K.", "9780547773742"))
+	dup = findDuplicate(ctx, ix, "wself11", identityGrain("wself11", "The Dispossessed", "Le Guin, Ursula K.", "9780547773742"))
 	if dup == nil || dup.WorkID != "wother2" || dup.Via != "title-author" {
 		t.Fatalf("cluster collision = %+v", dup)
 	}
 	// The identifier signal outranks title/author when both collide.
-	dup = findDuplicate(ctx, bs, "wself11", identityGrain("wself11", "The Dispossessed", "Le Guin, Ursula K.", "9780441478125"))
+	dup = findDuplicate(ctx, ix, "wself11", identityGrain("wself11", "The Dispossessed", "Le Guin, Ursula K.", "9780441478125"))
 	if dup == nil || dup.Via != "identifier" {
 		t.Fatalf("precedence = %+v", dup)
 	}
 	// A doc with distinct identity in a corpus of others: no warning.
-	if dup := findDuplicate(ctx, bs, "wself11", identityGrain("wself11", "Always Coming Home", "Le Guin, Ursula K.", "9780520227354")); dup != nil {
+	if dup := findDuplicate(ctx, ix, "wself11", identityGrain("wself11", "Always Coming Home", "Le Guin, Ursula K.", "9780520227354")); dup != nil {
 		t.Fatalf("false positive: %+v", dup)
 	}
 }

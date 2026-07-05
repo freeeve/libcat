@@ -48,5 +48,11 @@ already been paid.
 
 Not started. Note `batch.Run` changed nearby in tasks/111 (audit now rides on
 `result.Applied > 0`) -- the MaxWorks-after-scan ordering this task fixes is
-unchanged. Coordinate the shared summaries source with the index design in
-[[106_httpapi-per-request-corpus-scans]].
+unchanged. The shared summaries source now exists: `backend/workindex.Index`
+(tasks/106, done) exposes `Summaries(ctx)` (same shape and order as
+`ingest.ScanSummaries`), refreshes by ETag diff, and is injectable via
+`httpapi.Deps.WorkIndex` / constructed in appdeps -- batch, publish,
+authoritiesvc, and enrich can take it instead of five independent scanners
+(and should `Apply` their writes). The DirStore.List fixes here also directly
+cut the index's refresh cost: it Lists once per 30s window, and each List
+currently reads every file's content just to compute the ETag.
