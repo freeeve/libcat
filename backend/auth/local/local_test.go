@@ -201,3 +201,67 @@ func TestBootstrap(t *testing.T) {
 		t.Fatalf("bootstrap admin: %+v, %v", id, err)
 	}
 }
+
+// TestDummyHashBurnsRealWork guards the anti-enumeration path (tasks/105): the
+// unknown-user branch verifies against dummyPasswordHash, which must be a
+// well-formed PHC string -- a parse error would return before the argon2 work
+// and silently reintroduce the timing oracle.
+func TestDummyHashBurnsRealWork(t *testing.T) {
+	ok, err := verifyPassword("any password", dummyPasswordHash)
+	if err != nil {
+		t.Fatalf("dummy hash must parse (or the oracle is back): %v", err)
+	}
+	if ok {
+		t.Fatal("dummy hash must never verify")
+	}
+}
+
+// TestRateWindowExpires asserts the login pre-read stamps a TTL on the
+// counter window (tasks/105): without one, every clean login leaves a
+// permanent counter item behind.
+func TestRateWindowExpires(t *testing.T) {
+	svc, db := newService(t)
+	t0 := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	svc.SetClock(func() time.Time { return t0 })
+	db.SetClock(func() time.Time { return t0 })
+
+	// Unknown user: the pre-read creates the window, the failure bumps it.
+	if _, err := svc.Login(t.Context(), "ghost@example.org", "wrong-password"); !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("unknown login = %v", err)
+	}
+	rateKey := store.Key{PK: "RATE#LOGIN#ghost@example.org", SK: "HOUR#" + t0.Format("2006-01-02T15")}
+	if n, err := db.Increment(t.Context(), rateKey, 0, time.Time{}); err != nil || n != 1 {
+		t.Fatalf("window count = %d, %v", n, err)
+	}
+	// Past the TTL the counter is gone; a missing TTL would keep it at 1.
+	db.SetClock(func() time.Time { return t0.Add(3 * time.Hour) })
+	if n, err := db.Increment(t.Context(), rateKey, 0, time.Time{}); err != nil || n != 0 {
+		t.Fatalf("expired window count = %d, %v (rate item leaked without TTL)", n, err)
+	}
+}
+
+// TestCreateUserRepairsIndex covers the non-atomic profile+index create
+// (tasks/105): when the index item is missing (a create that died between the
+// two writes), retrying the create must repair it even though the profile
+// already exists.
+func TestCreateUserRepairsIndex(t *testing.T) {
+	svc, db := newService(t)
+	if err := svc.CreateUser(t.Context(), "lost@example.org", "", "password123", []auth.Role{auth.RoleLibrarian}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the torn write: profile present, index item gone.
+	if err := db.Delete(t.Context(), store.Record{Key: usersIndexKey("lost@example.org")}, store.CondNone); err != nil {
+		t.Fatal(err)
+	}
+	users, err := svc.ListUsers(t.Context())
+	if err != nil || len(users) != 0 {
+		t.Fatalf("torn create should hide the user from ListUsers: %v, %v", users, err)
+	}
+	if err := svc.CreateUser(t.Context(), "lost@example.org", "", "password123", []auth.Role{auth.RoleLibrarian}); !errors.Is(err, ErrUserExists) {
+		t.Fatalf("retry = %v, want ErrUserExists", err)
+	}
+	users, err = svc.ListUsers(t.Context())
+	if err != nil || len(users) != 1 || users[0].Email != "lost@example.org" {
+		t.Fatalf("retry should repair the index: %v, %v", users, err)
+	}
+}

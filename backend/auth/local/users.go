@@ -86,6 +86,11 @@ func (s *Service) CreateUser(ctx context.Context, email, name, password string, 
 	}
 	if _, err := s.store.Put(ctx, store.Record{Key: userKey(email), Data: data}, store.CondIfAbsent); err != nil {
 		if errors.Is(err, store.ErrConditionFailed) {
+			// The profile exists; re-assert its index item anyway so a
+			// create that died between the two writes -- which left the
+			// user invisible to ListUsers -- is repaired by any retry,
+			// including a boot-time Bootstrap re-run (tasks/105).
+			_, _ = s.store.Put(ctx, store.Record{Key: usersIndexKey(email)}, store.CondNone)
 			return ErrUserExists
 		}
 		return err

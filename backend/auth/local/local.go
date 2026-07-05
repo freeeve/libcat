@@ -37,8 +37,22 @@ const (
 	defaultAccessTTL  = 15 * time.Minute
 	defaultRefreshTTL = 30 * 24 * time.Hour
 	// loginFailureCap is the per-account failed-login cap per hour window.
+	// The counter is keyed by account, not caller, which an attacker who
+	// knows a staff email can use to lock that account out for the rest of
+	// the hour window -- an accepted trade-off for this deployment's size
+	// (tasks/105): caller-keyed limits belong at the edge proxy, and a
+	// locked window self-clears via the counter TTL.
 	loginFailureCap = 10
+	// rateWindowTTL clears stale failure-counter windows from the store.
+	rateWindowTTL = 2 * time.Hour
 )
+
+// dummyPasswordHash is verified against on the unknown-user login path so
+// that path costs the same argon2id work as a wrong password for a real
+// account -- otherwise response latency is an account-existence oracle
+// (tasks/105). PHC string for an unguessable throwaway password, using the
+// same parameters as hashPassword.
+const dummyPasswordHash = "$argon2id$v=19$m=65536,t=1,p=4$bGNhdC1kdW1teS1zYWx0IQ$M+w1/CTq7g1obR5MFtN+b4yAuc4ZjzWg3//Y+l8ELpQ"
 
 // Service implements built-in users and auth.TokenVerifier for its own
 // issued tokens.
@@ -98,12 +112,18 @@ func (s *Service) Login(ctx context.Context, email, password string) (Tokens, er
 	}
 	window := s.now().UTC().Format("2006-01-02T15")
 	rateKey := store.Key{PK: "RATE#LOGIN#" + email, SK: "HOUR#" + window}
-	failures, err := s.store.Increment(ctx, rateKey, 0, time.Time{})
+	// The zero-delta read still creates the window item, so it carries the
+	// same TTL as a failure bump -- without one, every clean login would
+	// leave a counter row behind forever (tasks/105).
+	failures, err := s.store.Increment(ctx, rateKey, 0, s.now().Add(rateWindowTTL))
 	if err == nil && failures >= loginFailureCap {
 		return Tokens{}, ErrRateLimited
 	}
 	u, err := s.getUser(ctx, email)
 	if err != nil {
+		// Unknown account: burn the same argon2id work a wrong password
+		// costs, so latency cannot probe which emails exist (tasks/105).
+		_, _ = verifyPassword(password, dummyPasswordHash)
 		s.recordFailure(ctx, rateKey)
 		return Tokens{}, ErrBadCredentials
 	}
@@ -118,7 +138,7 @@ func (s *Service) Login(ctx context.Context, email, password string) (Tokens, er
 // recordFailure bumps the account's failed-login counter for the current
 // hour window; the TTL clears stale windows.
 func (s *Service) recordFailure(ctx context.Context, key store.Key) {
-	_, _ = s.store.Increment(ctx, key, 1, s.now().Add(2*time.Hour))
+	_, _ = s.store.Increment(ctx, key, 1, s.now().Add(rateWindowTTL))
 }
 
 // Refresh rotates a refresh token: the presented token is retired and a new
