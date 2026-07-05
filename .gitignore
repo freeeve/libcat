@@ -12,6 +12,14 @@ coverage.*
 # Node (Hugo module assets, if any)
 node_modules/
 
+# Terraform / Lambda deploy artifacts
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+bootstrap
+lcatd*.zip
+
 # Editor / OS
 .DS_Store
 *.swp

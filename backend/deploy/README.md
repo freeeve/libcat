@@ -54,11 +54,25 @@ Deploy the zip as a `provided.al2023` (arm64) function with a Function URL and:
 `LCATD_BOOTSTRAP_ADMIN=demo@example.org:<pw>`, `LCATD_LOCAL_SIGNING_KEY=<key>`
 (a stable key so a session survives a warm instance), `LCATD_ABUSE_SECRET=<...>`.
 Background workers are skipped in read-only mode, so the freeze-between-
-invocations model is fine. Optionally front it with CloudFront for a custom
-domain and edge-cached `/assets/*`. Caveat: concurrent cold instances have
-separate in-memory stores, so token *refresh* can miss across instances -- use a
-generous access-token TTL. The **writable** production stack (below) is a
-separate deployment (tasks/099).
+invocations model is fine.
+
+**Turnkey terraform module** (`deploy/terraform/modules/readonly-demo/`): a
+consumer supplies the built zip (via the module's `build-zip.sh`) and gets the
+Lambda + Function URL + a CloudFront distribution wired with the right cache
+split:
+
+- `/assets/*` (hashed, immutable) -> cached hard at the edge, so a page renders
+  without waking Lambda;
+- `/config` and `/v1/*` -> never cached, forwarded to the function
+  (all-viewer-except-Host, so auth/cookies pass but the Function URL's Host is
+  preserved);
+- HTML / SPA routes -> served fresh so a redeploy shows immediately.
+
+So the cold start is only felt on the first API call. See the module's README to
+wire it up (and a custom domain via an ACM cert in us-east-1). Caveat: concurrent
+cold instances have separate in-memory stores, so token *refresh* can miss across
+instances -- use a generous access-token TTL. The **writable** production stack
+(below) is a separate deployment (tasks/099).
 
 ## Terraform (AWS reference)
 
