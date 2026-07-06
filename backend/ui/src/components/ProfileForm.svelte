@@ -339,7 +339,13 @@
               <span class="idkind">{ID_KIND_LABELS[idKinds[fv.v]] ?? idKinds[fv.v]}</span>
             {/if}
             {#if fv.annotation && spec.kind !== "vocab"}
-              <span class="chip-scheme" title={"heading source: " + fv.annotation}>{fv.annotation}</span>
+              {#if spec.path === "contributors"}
+                <!-- The contribution's bf:role label (tasks/138), presented
+                     like the public site's "Name (role)". -->
+                <span class="muted">({fv.annotation})</span>
+              {:else}
+                <span class="chip-scheme" title={"heading source: " + fv.annotation}>{fv.annotation}</span>
+              {/if}
             {/if}
             {#if fv.lang}<span class="lang">@{fv.lang}</span>{/if}
             <ProvenanceBadge prov={fv.prov} />

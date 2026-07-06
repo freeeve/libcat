@@ -30,9 +30,14 @@ type FieldValue struct {
 	// (tasks/042).
 	Overridden bool `json:"overridden,omitempty"`
 	// Annotation is the field's display-only qualifier resolved from the
-	// value's structure node (e.g. a heading's bf:source label). Its quads
-	// stay in passthrough; ToGrain ignores it.
+	// value's structure node (e.g. a heading's bf:source label, a
+	// contribution's bf:role label). Its quads stay in passthrough; ToGrain
+	// ignores it.
 	Annotation string `json:"annotation,omitempty"`
+	// Primary marks a chained value whose structure head is typed
+	// bflc:PrimaryContribution (tasks/138) -- the author sorts before the
+	// narrator. Display-only; ToGrain ignores it.
+	Primary bool `json:"primary,omitempty"`
 	// Node is the value's subject term in N-Quads syntax -- the resource
 	// node for direct fields, the intermediate node for chained fields.
 	// Reconstruction metadata; clients treat it as opaque.
@@ -194,22 +199,39 @@ func claimFields(ds *rdf.Dataset, claimed []bool, node rdf.Term, profile *profil
 			// on the chain head (resource, first predicate) -- when
 			// present, every feed-sourced leaf value is shadowed.
 			headOverridden := node.IsIRI() && overrides.Shadows(node.Value, field.Predicates[0])
-			mids := []rdf.Term{node}
-			for _, pred := range field.Predicates[:len(field.Predicates)-1] {
-				var next []rdf.Term
-				for _, mid := range mids {
-					next = append(next, objectsAll(ds, mid, pred)...)
+			// Each hop keeps its structure head (the first-hop node, e.g.
+			// the bf:Contribution): the annotation chain and the primary
+			// marker hang off it, not off the deepest intermediate
+			// (tasks/138). For 2-hop chains head and node coincide, so
+			// annotation behavior there is unchanged.
+			type chainHop struct{ head, node rdf.Term }
+			hops := []chainHop{{head: node, node: node}}
+			for hi, pred := range field.Predicates[:len(field.Predicates)-1] {
+				var next []chainHop
+				for _, h := range hops {
+					for _, o := range objectsAll(ds, h.node, pred) {
+						head := h.head
+						if hi == 0 {
+							head = o
+						}
+						next = append(next, chainHop{head: head, node: o})
+					}
 				}
-				mids = next
+				hops = next
 			}
 			leaf := field.Predicates[len(field.Predicates)-1]
-			for _, mid := range mids {
-				vals := claimDirect(ds, claimed, mid, leaf, overrides, headOverridden)
+			for _, h := range hops {
+				vals := claimDirect(ds, claimed, h.node, leaf, overrides, headOverridden)
 				if len(field.Annotation) > 0 {
-					if note := annotationLabel(ds, mid, field.Annotation); note != "" {
+					if note := annotationLabel(ds, h.head, field.Annotation); note != "" {
 						for i := range vals {
 							vals[i].Annotation = note
 						}
+					}
+				}
+				if isPrimaryContribution(ds, h.head) {
+					for i := range vals {
+						vals[i].Primary = true
 					}
 				}
 				values = append(values, vals...)
@@ -217,6 +239,9 @@ func claimFields(ds *rdf.Dataset, claimed []bool, node rdf.Term, profile *profil
 		}
 		if len(values) > 0 {
 			sort.Slice(values, func(i, j int) bool {
+				if values[i].Primary != values[j].Primary {
+					return values[i].Primary
+				}
 				if values[i].V != values[j].V {
 					return values[i].V < values[j].V
 				}
@@ -280,6 +305,19 @@ func annotationLabel(ds *rdf.Dataset, node rdf.Term, chain []string) string {
 	}
 	sort.Strings(labels)
 	return strings.Join(labels, ", ")
+}
+
+// isPrimaryContribution reports whether a chained value's structure head is
+// typed bflc:PrimaryContribution (tasks/138), so the doc can sort the
+// primary agent (the author) before added contributions (the narrator).
+func isPrimaryContribution(ds *rdf.Dataset, head rdf.Term) bool {
+	const primaryType = "http://id.loc.gov/ontologies/bflc/PrimaryContribution"
+	for _, o := range objectsAll(ds, head, "http://www.w3.org/1999/02/22-rdf-syntax-ns#type") {
+		if o.IsIRI() && o.Value == primaryType {
+			return true
+		}
+	}
+	return false
 }
 
 // objectsAll returns the objects of (subject, predicate) across every graph.

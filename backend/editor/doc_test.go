@@ -330,3 +330,54 @@ func TestDirectFieldAnnotation(t *testing.T) {
 		t.Fatalf("round trip unstable\n--- first\n%s\n--- second\n%s", back, again)
 	}
 }
+
+// TestContributorRolesAndPrimaryOrder proves the contributors field carries
+// each contribution's bf:role label as its display annotation and sorts the
+// bflc:PrimaryContribution agent first (tasks/138), while the structure
+// quads stay passthrough (round trip stable).
+func TestContributorRolesAndPrimaryOrder(t *testing.T) {
+	m := newMapper(t)
+	grain := []byte(`<#wrole00000001Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:test> .
+<#wrole00000001Work> <http://id.loc.gov/ontologies/bibframe/contribution> <#c1> <feed:test> .
+<#c1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Contribution> <feed:test> .
+<#c1> <http://id.loc.gov/ontologies/bibframe/agent> <#a1> <feed:test> .
+<#a1> <http://www.w3.org/2000/01/rdf-schema#label> "Channing, Stockard" <feed:test> .
+<#c1> <http://id.loc.gov/ontologies/bibframe/role> <#r1> <feed:test> .
+<#r1> <http://www.w3.org/2000/01/rdf-schema#label> "narrator" <feed:test> .
+<#wrole00000001Work> <http://id.loc.gov/ontologies/bibframe/contribution> <#c2> <feed:test> .
+<#c2> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bflc/PrimaryContribution> <feed:test> .
+<#c2> <http://id.loc.gov/ontologies/bibframe/agent> <#a2> <feed:test> .
+<#a2> <http://www.w3.org/2000/01/rdf-schema#label> "Forman, Gayle" <feed:test> .
+<#c2> <http://id.loc.gov/ontologies/bibframe/role> <#r2> <feed:test> .
+<#r2> <http://www.w3.org/2000/01/rdf-schema#label> "author" <feed:test> .
+`)
+	doc, err := m.ToDoc(grain, "wrole00000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vals := doc.Work.Fields["contributors"]
+	if len(vals) != 2 {
+		t.Fatalf("contributors = %+v, want two values", vals)
+	}
+	if vals[0].V != "Forman, Gayle" || !vals[0].Primary || vals[0].Annotation != "author" {
+		t.Fatalf("primary contribution not first with its role: %+v", vals[0])
+	}
+	if vals[1].V != "Channing, Stockard" || vals[1].Primary || vals[1].Annotation != "narrator" {
+		t.Fatalf("added contribution wrong: %+v", vals[1])
+	}
+	back, err := m.ToGrain(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := m.ToDoc(back, "wrole00000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := m.ToGrain(doc2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(again, back) {
+		t.Fatalf("round trip unstable\n--- first\n%s\n--- second\n%s", back, again)
+	}
+}

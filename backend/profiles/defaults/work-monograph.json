@@ -27,6 +27,7 @@
       "help": "Agent names from the record's contributions; edit via the MARC tab for now",
       "valueSource": {"kind": "literal"},
       "readOnly": true,
+      "annotation": ["http://id.loc.gov/ontologies/bibframe/role", "http://www.w3.org/2000/01/rdf-schema#label"],
       "marcHint": "100/700"
     },
     {
