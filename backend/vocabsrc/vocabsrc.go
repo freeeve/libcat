@@ -62,7 +62,8 @@ func (s Source) CanSnapshot() bool { return s.SnapshotURL != "" }
 
 // Builtins returns the shipped sources: the id.loc.gov datasets (subjects,
 // genre/form, children's subjects downloadable; the name authority file is
-// live-only -- its dump is ~11M concepts), Wikidata, and VIAF.
+// live-only -- its dump is ~11M concepts), OCLC FAST (live-only, tasks/132),
+// Wikidata, and VIAF.
 func Builtins() []Source {
 	return []Source{
 		{
@@ -95,6 +96,15 @@ func Builtins() []Source {
 			Homepage:      "https://id.loc.gov/authorities/names.html",
 			SuggestFlavor: FlavorSuggest2, SuggestURL: "https://id.loc.gov",
 			SuggestDataset: "authorities/names",
+		},
+		{
+			// Suggest-only (tasks/132): the full FAST dump is ~2M concepts --
+			// not resident-index-shaped for small deployments; a corpus subset
+			// snapshot (lcat vocab-subset) supplies display labels instead.
+			Name: "fast", Scheme: "fast", Builtin: true,
+			License:       "ODC-BY (OCLC FAST)",
+			Homepage:      "https://fast.oclc.org/",
+			SuggestFlavor: FlavorSearchFAST, SuggestURL: "https://fast.oclc.org",
 		},
 		{
 			Name: "wikidata", Scheme: "wikidata", Builtin: true,

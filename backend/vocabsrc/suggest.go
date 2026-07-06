@@ -20,6 +20,10 @@ const (
 	FlavorWikidata = "wikidata"
 	// FlavorVIAF is the VIAF AutoSuggest API.
 	FlavorVIAF = "viaf"
+	// FlavorSearchFAST is OCLC's searchFAST fastsuggest API (tasks/132) -- a
+	// Solr-shaped response; the full documented parameter set is required
+	// (the bare query/fl form 400s).
+	FlavorSearchFAST = "searchfast"
 )
 
 // Suggestion is one live typeahead hit, source-tagged for the picker badge.
@@ -80,6 +84,9 @@ func (c *SuggestClient) Suggest(ctx context.Context, src Source, q string, limit
 	case FlavorVIAF:
 		u = fmt.Sprintf("%s/viaf/AutoSuggest?query=%s",
 			strings.TrimSuffix(src.SuggestURL, "/"), url.QueryEscape(q))
+	case FlavorSearchFAST:
+		u = fmt.Sprintf("%s/searchfast/fastsuggest?query=%s&queryIndex=suggestall&queryReturn=suggestall%%2Cidroot%%2Cauth%%2Ctag&suggest=autoSubject&rows=%d&wt=json",
+			strings.TrimSuffix(src.SuggestURL, "/"), url.QueryEscape(q), limit)
 	default:
 		return nil, fmt.Errorf("%w: unknown suggest flavor %q", ErrValidation, src.SuggestFlavor)
 	}
@@ -92,6 +99,8 @@ func (c *SuggestClient) Suggest(ctx context.Context, src Source, q string, limit
 		return parseSuggest2(src, body, limit)
 	case FlavorWikidata:
 		return parseWikidata(src, body, limit)
+	case FlavorSearchFAST:
+		return parseSearchFAST(src, body, limit)
 	default:
 		return parseVIAF(src, body, limit)
 	}
@@ -240,4 +249,90 @@ func parseVIAF(src Source, body []byte, limit int) ([]Suggestion, error) {
 // compactID strips the embedded spaces VIAF leaves in source ids ("n  79021164").
 func compactID(id string) string {
 	return strings.ReplaceAll(id, " ", "")
+}
+
+// parseSearchFAST reads OCLC fastsuggest's Solr response (tasks/132). The
+// authorized heading is the label; a matched variant form (suggestall differing
+// from auth -- how a used-for hit surfaces) becomes a variant; the MARC heading
+// tag becomes a facet description for the picker badge.
+func parseSearchFAST(src Source, body []byte, limit int) ([]Suggestion, error) {
+	var res struct {
+		Response struct {
+			Docs []struct {
+				IDRoot     []string `json:"idroot"`
+				Auth       string   `json:"auth"`
+				SuggestAll []string `json:"suggestall"`
+				Tag        int      `json:"tag"`
+			} `json:"docs"`
+		} `json:"response"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		return nil, fmt.Errorf("vocabsrc: searchfast decode: %w", err)
+	}
+	out := make([]Suggestion, 0, len(res.Response.Docs))
+	for _, doc := range res.Response.Docs {
+		label := doc.Auth
+		if label == "" && len(doc.SuggestAll) > 0 {
+			label = doc.SuggestAll[0]
+		}
+		var uri string
+		if len(doc.IDRoot) > 0 {
+			uri = fastURI(doc.IDRoot[0])
+		}
+		if uri == "" || label == "" {
+			continue
+		}
+		sugg := Suggestion{
+			Source: src.Name, Scheme: src.Scheme, ID: uri, Label: label,
+			Description: fastFacet(doc.Tag),
+		}
+		for _, s := range doc.SuggestAll {
+			if s != "" && s != label {
+				sugg.Variants = append(sugg.Variants, s)
+			}
+		}
+		out = append(out, sugg)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// fastURI maps a searchFAST idroot ("fst01108566") to the canonical concept URI
+// form (http://id.worldcat.org/fast/1108566): the fst prefix and zero padding
+// go, matching how FAST URIs appear in catalogs and skos:exactMatch links.
+func fastURI(idroot string) string {
+	id := strings.TrimLeft(strings.TrimPrefix(idroot, "fst"), "0")
+	if id == "" || strings.Trim(id, "0123456789") != "" {
+		return ""
+	}
+	return "http://id.worldcat.org/fast/" + id
+}
+
+// fastFacet names a FAST heading's facet from its MARC heading tag, so the
+// suggest picker can badge a topical vs. genre vs. name hit.
+func fastFacet(tag int) string {
+	switch tag {
+	case 100:
+		return "personal name"
+	case 110:
+		return "corporate name"
+	case 111:
+		return "meeting"
+	case 130:
+		return "uniform title"
+	case 147:
+		return "event"
+	case 148:
+		return "period"
+	case 150:
+		return "topical"
+	case 151:
+		return "geographic"
+	case 155:
+		return "form/genre"
+	default:
+		return ""
+	}
 }

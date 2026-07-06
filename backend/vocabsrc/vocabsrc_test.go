@@ -42,7 +42,7 @@ func TestBuiltinsListed(t *testing.T) {
 	for _, src := range sources {
 		byName[src.Name] = src
 	}
-	for _, name := range []string{"lcsh", "lcgft", "lcshac", "lcnaf", "wikidata", "viaf"} {
+	for _, name := range []string{"lcsh", "lcgft", "lcshac", "lcnaf", "fast", "wikidata", "viaf"} {
 		src, ok := byName[name]
 		if !ok || !src.Builtin {
 			t.Fatalf("builtin %s missing or unmarked: %+v", name, src)
@@ -53,6 +53,13 @@ func TestBuiltinsListed(t *testing.T) {
 	}
 	if !byName["lcgft"].CanSnapshot() || !byName["lcgft"].CanSuggest() {
 		t.Error("lcgft should suggest and snapshot")
+	}
+	// fast is live-only like lcnaf (tasks/132: the full dump is ~2M concepts; a
+	// corpus subset supplies display labels). Being suggest-capable it also
+	// registers as a moderated enrichment target at boot (appdeps iterates
+	// CanSuggest sources) -- no fast-specific wiring exists to test.
+	if !byName["fast"].CanSuggest() || byName["fast"].CanSnapshot() {
+		t.Errorf("fast should be suggest-only: %+v", byName["fast"])
 	}
 }
 
@@ -118,6 +125,12 @@ func TestSuggestFlavors(t *testing.T) {
 			_, _ = w.Write([]byte(`{"search":[{"id":"Q24925","label":"science fiction","description":"genre of speculative fiction","concepturi":"http://www.wikidata.org/entity/Q24925"}]}`))
 		case r.URL.Path == "/viaf/AutoSuggest":
 			_, _ = w.Write([]byte(`{"result":[{"term":"Le Guin, Ursula K.","displayForm":"Le Guin, Ursula K., 1929-2018","nametype":"personal","viafid":"66475792","lc":"n  79021164","dnb":"118570803","wkp":"Q181659"}]}`))
+		case r.URL.Path == "/searchfast/fastsuggest":
+			if r.URL.Query().Get("queryIndex") != "suggestall" || r.URL.Query().Get("wt") != "json" {
+				http.Error(w, "bad request", http.StatusBadRequest) // the bare form 400s on the real service
+				return
+			}
+			_, _ = w.Write([]byte(`{"response":{"numFound":2,"docs":[{"idroot":["fst01108566"],"tag":150,"suggestall":["Sci-fi"],"auth":"Science fiction"},{"idroot":["fst01726489"],"tag":155,"suggestall":["Science fiction"],"auth":"Science fiction"}]}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -142,6 +155,26 @@ func TestSuggestFlavors(t *testing.T) {
 	}, "science fiction", 5)
 	if err != nil || len(wd) != 1 || wd[0].ID != "http://www.wikidata.org/entity/Q24925" || wd[0].Description == "" {
 		t.Fatalf("wikidata: %v %+v", err, wd)
+	}
+
+	// searchfast (tasks/132): fst-prefixed, zero-padded idroot maps to the
+	// canonical id.worldcat.org URI; auth is the label with a matched variant
+	// form kept; the MARC tag becomes the facet description (150 topical, 155
+	// form/genre).
+	ff, err := c.Suggest(ctx, Source{
+		Name: "fast", Scheme: "fast", SuggestFlavor: FlavorSearchFAST, SuggestURL: srv.URL,
+	}, "science fiction", 5)
+	if err != nil || len(ff) != 2 {
+		t.Fatalf("searchfast: %v %+v", err, ff)
+	}
+	if ff[0].ID != "http://id.worldcat.org/fast/1108566" || ff[0].Label != "Science fiction" || ff[0].Description != "topical" {
+		t.Fatalf("searchfast hit 0: %+v", ff[0])
+	}
+	if len(ff[0].Variants) != 1 || ff[0].Variants[0] != "Sci-fi" {
+		t.Fatalf("searchfast variants: %+v", ff[0].Variants)
+	}
+	if ff[1].ID != "http://id.worldcat.org/fast/1726489" || ff[1].Description != "form/genre" || len(ff[1].Variants) != 0 {
+		t.Fatalf("searchfast hit 1: %+v", ff[1])
 	}
 
 	vf, err := c.Suggest(ctx, Source{
@@ -530,5 +563,24 @@ func TestInstallUploadKeepsOldSnapshotOnBadDump(t *testing.T) {
 	got, _, err := s.Blob.Get(ctx, s.snapshotPath("lcgft"))
 	if err != nil || string(got) != string(want) {
 		t.Fatalf("snapshot changed after failed install (err %v)", err)
+	}
+}
+
+// TestFastURI covers the idroot -> canonical URI mapping (tasks/132): fst
+// prefix and zero padding stripped; a malformed idroot yields no URI (the hit
+// is skipped rather than emitting a bogus identifier).
+func TestFastURI(t *testing.T) {
+	cases := map[string]string{
+		"fst01108566": "http://id.worldcat.org/fast/1108566",
+		"fst00000042": "http://id.worldcat.org/fast/42",
+		"1108566":     "http://id.worldcat.org/fast/1108566",
+		"fst":         "",
+		"fstX9":       "",
+		"":            "",
+	}
+	for in, want := range cases {
+		if got := fastURI(in); got != want {
+			t.Errorf("fastURI(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
