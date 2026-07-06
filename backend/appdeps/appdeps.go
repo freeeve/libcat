@@ -245,7 +245,15 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	if len(verifiers) > 0 {
 		deps.Verifier = auth.NewMulti(verifiers)
 	}
-	deps.UI = ui.Handler()
+	var brandCSS []byte
+	if cfg.BrandCSS != "" {
+		css, err := os.ReadFile(cfg.BrandCSS)
+		if err != nil {
+			return httpapi.Deps{}, fmt.Errorf("read LCATD_BRAND_CSS: %w", err)
+		}
+		brandCSS = css
+	}
+	deps.UI = ui.Handler(brandCSS)
 	if ui.IsPlaceholder() {
 		logger.Warn("cataloging SPA not built into this binary; the browser UI shows a build notice (run 'npm run build' in backend/ui before 'go build'). The JSON API is unaffected.")
 	}

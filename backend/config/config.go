@@ -99,6 +99,13 @@ type Config struct {
 	RebuildCmd string
 	RebuildDir string
 
+	// BrandCSS, when set, is the path of a CSS file that re-brands the SPA
+	// at boot without a rebuild (tasks/135): the server reads it once,
+	// serves it at /brand.css, and links it from index.html after app.css,
+	// so its rules (typically :root / html[data-theme="dark"] token
+	// overrides) win the cascade. An unreadable file fails the boot.
+	BrandCSS string
+
 	// Provider names the primary feed graph (CSV export projection).
 	// Default "overdrive".
 	Provider string
@@ -131,6 +138,7 @@ func FromEnv() (Config, error) {
 		AbuseSecret:       os.Getenv("LCATD_ABUSE_SECRET"),
 		WebhookURL:        os.Getenv("LCATD_WEBHOOK_URL"),
 		WebhookSecret:     os.Getenv("LCATD_WEBHOOK_SECRET"),
+		BrandCSS:          os.Getenv("LCATD_BRAND_CSS"),
 		RebuildCmd:        os.Getenv("LCATD_REBUILD_CMD"),
 		RebuildDir:        os.Getenv("LCATD_REBUILD_DIR"),
 		Provider:          envOr("LCATD_PROVIDER", "overdrive"),

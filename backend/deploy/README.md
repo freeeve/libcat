@@ -132,6 +132,43 @@ single-flight work across replicas -- horizontal scaling is safe. The deeper
 k8s ergonomics review (probe wiring, manifests vs Helm, the no-AWS worker
 path, and the hugo-watcher local preview loop) is tracked as tasks/054.
 
+## Branding (runtime theme override)
+
+The SPA's palette, type stacks, and corner radius are CSS custom properties
+(`backend/ui/src/app.css`). `LCATD_BRAND_CSS=<path>` re-brands them at boot
+without forking or rebuilding the SPA: the server reads the file once,
+serves it at `/brand.css`, and links it from `index.html` after `app.css`,
+so its rules win the cascade. The link is render-blocking like any head
+stylesheet -- the first paint already carries the brand. An unreadable file
+fails the boot loudly.
+
+Author plain CSS, overriding the same selectors `app.css` defines --
+`:root` for light and `html[data-theme="dark"]` for dark (the attribute the
+in-app toggle sets):
+
+```css
+:root {
+  --accent: #c42a8c;
+  --info: #678cb8;
+}
+html[data-theme="dark"] {
+  --accent: #df41a5;
+  --info: #95c2e5;
+}
+```
+
+Tokens worth overriding: the color palette (`bg`, `surface`, `surface-alt`,
+`ink`, `ink-muted`, `rule`, `accent`, `accent-ink`, `danger`, `ok`, `info`,
+the `prov-*` provenance inks, the `pend-*` pending-edit trio), the type
+stacks (`font`, `display`, `mono`), and `radius`. Keep each pair AA-contrast
+on its background; the defaults are. Any other CSS works too -- the file is
+served verbatim.
+
+On Lambda, bundle the file into the deployment package and point
+`LCATD_BRAND_CSS` at it (e.g. `/var/task/brand.css`). A deployment hosting
+`dist/` on its own CDN (API-only lcatd) appends its own stylesheet instead
+-- the env var only affects the embedded index.html.
+
 ## Rebuild pipeline
 
 Publishes and enrichments change grains; something must re-run
