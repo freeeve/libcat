@@ -1,8 +1,9 @@
 /**
- * Link presentation hints derived from a URL's shape. The MARC crosswalk
- * keeps only 856 $u, so the editor labels well-known link forms (OverDrive
- * title/sample/cover URLs) and detects image links for inline thumbnails
- * client-side until the crosswalk carries $3/$z labels.
+ * Link presentation hints derived from a URL's shape. Since libcodex
+ * v0.15.0 the crosswalk carries 856 $3 as the locator's rdfs:label, which
+ * the doc surfaces as the value's annotation and the editor prefers
+ * (tasks/147); this heuristic remains the fallback for label-less locators
+ * and grains ingested before that, and still decides thumbnail rendering.
  */
 export interface LinkInfo {
   /** Friendly label for the link, or "" when the URL shape is unrecognized. */

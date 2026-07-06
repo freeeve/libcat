@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	codex "github.com/freeeve/libcodex"
-	"github.com/freeeve/libcodex/rdf"
 )
 
 // subjectHeading finds the first 6xx data field whose $a matches label.
@@ -20,8 +19,9 @@ func subjectHeading(rec *codex.Record, tag, label string) (codex.Field, bool) {
 
 // TestDecodeGrainMARCControlledSubjects proves SKOS-shaped controlled
 // subjects reach MARC output (tasks/136): the emission writes bf:subject +
-// skos:prefLabel, the shim renders them as `650 _7 $a Label $2 code $0 iri`,
-// and the stored grain stays untouched.
+// skos:prefLabel, and the crosswalk (native since libcodex v0.15.0, which
+// retired this repo's decode-local shim -- tasks/147) renders them as
+// `650 _7 $a Label $2 code $0 iri`, with the stored grain untouched.
 func TestDecodeGrainMARCControlledSubjects(t *testing.T) {
 	grain, _ := marcGrainFixture(t)
 	const workID = "wmarc00000001"
@@ -81,41 +81,9 @@ func TestDecodeGrainMARCControlledSubjects(t *testing.T) {
 			t.Errorf("non-English prefLabel minted its own heading: %+v", f)
 		}
 	}
-	// The shim is decode-local: the grain bytes are unchanged.
+	// Nothing is decode-local state anymore, but the contract stands: the
+	// grain bytes are unchanged.
 	if string(grain) != before {
 		t.Fatal("DecodeGrainMARC mutated the grain bytes")
-	}
-}
-
-// TestShimControlledSubjectsRespectsExisting proves a subject node already
-// carrying rdfs:label (the crosswalk-native shape) is left alone, and an
-// ambiguous heading (two IRIs, one label) is dropped from the $0 map.
-func TestShimControlledSubjectsRespectsExisting(t *testing.T) {
-	feed := FeedGraph("test")
-	work := rdf.NewIRI(WorkIRI("wshim00000001"))
-	native := rdf.NewIRI("https://example.org/native")
-	dupA := rdf.NewIRI("https://homosaurus.org/v4/a")
-	dupB := rdf.NewIRI("https://homosaurus.org/v4/b")
-	ds := &rdf.Dataset{}
-	ds.Add(work, rdf.NewIRI(predSubject), native, feed)
-	ds.Add(native, rdf.NewIRI(predRDFSLabel), rdf.NewLiteral("Native heading", "", ""), feed)
-	ds.Add(native, rdf.NewIRI(predPrefLabel), rdf.NewLiteral("Ignored", "en", ""), feed)
-	ds.Add(work, rdf.NewIRI(predSubject), dupA, feed)
-	ds.Add(dupA, rdf.NewIRI(predPrefLabel), rdf.NewLiteral("Same label", "en", ""), feed)
-	ds.Add(work, rdf.NewIRI(predSubject), dupB, feed)
-	ds.Add(dupB, rdf.NewIRI(predPrefLabel), rdf.NewLiteral("Same label", "en", ""), feed)
-
-	quadsBefore := len(ds.Quads)
-	byLabel := shimControlledSubjects(ds)
-	if _, ok := byLabel["Same label"]; ok {
-		t.Error("ambiguous heading kept in the $0 map")
-	}
-	if _, ok := byLabel["Native heading"]; ok {
-		t.Error("crosswalk-native subject entered the $0 map")
-	}
-	for _, q := range ds.Quads[quadsBefore:] {
-		if q.S == native {
-			t.Errorf("shim touched the crosswalk-native subject: %+v", q)
-		}
 	}
 }

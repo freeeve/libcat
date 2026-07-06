@@ -122,9 +122,13 @@ func DecodeGrainMARC(grain []byte) ([]*codex.Record, error) {
 		keep = append(keep, q)
 	}
 	ds.Quads = keep
-	// SKOS-shaped controlled subjects become crosswalk-readable for this
-	// decode only, and their headings gain $0 authority links (tasks/136).
-	subjectsByLabel := shimControlledSubjects(ds)
+	// SKOS-shaped controlled subjects and their $0 authority links are read
+	// natively by the crosswalk since libcodex v0.15.0 (tasks/136 filed it;
+	// tasks/147 retired the decode-local shim that used to live here). The
+	// crosswalk still mints one heading PER prefLabel with no language
+	// preference (libcodex tasks/091), so multilingual terms are filtered to
+	// their preferred label for this decode only.
+	filterPreferredSubjectLabels(ds)
 	var enc rdf.Encoder
 	var doc []byte
 	for _, gt := range ds.Graphs() {
@@ -134,7 +138,6 @@ func DecodeGrainMARC(grain []byte) ([]*codex.Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	injectSubjectAuthorityIDs(recs, subjectsByLabel)
 	nodes := marcRecordNodes(ds)
 	if len(nodes) == len(recs) {
 		for i, rec := range recs {
@@ -150,6 +153,63 @@ func DecodeGrainMARC(grain []byte) ([]*codex.Record, error) {
 		}
 	}
 	return recs, nil
+}
+
+// filterPreferredSubjectLabels keeps one prefLabel language per bf:subject
+// IRI node for this decode: libcodex v0.15.0 reads SKOS subjects natively
+// but mints one heading PER prefLabel with no language preference (their
+// tasks/091 tracks the fix -- delete this filter when it lands). The pick
+// is English, then untagged, then the first tag sorted (the label-pick
+// order every label-bearing shape shares, tasks/116). Distinct labels in
+// the chosen language are left alone.
+func filterPreferredSubjectLabels(ds *rdf.Dataset) {
+	subjects := map[string]bool{}
+	for _, q := range ds.Quads {
+		if q.P.Value == bfSubjectIRI && q.O.IsIRI() {
+			subjects[q.O.Value] = true
+		}
+	}
+	langs := map[string]map[string]bool{}
+	for _, q := range ds.Quads {
+		if q.P.Value == skosPrefLabelIRI && q.S.IsIRI() && q.O.IsLiteral() && subjects[q.S.Value] {
+			set := langs[q.S.Value]
+			if set == nil {
+				set = map[string]bool{}
+				langs[q.S.Value] = set
+			}
+			set[q.O.Lang] = true
+		}
+	}
+	pick := map[string]string{}
+	for uri, set := range langs {
+		if len(set) < 2 {
+			continue
+		}
+		switch {
+		case set["en"]:
+			pick[uri] = "en"
+		case set[""]:
+			pick[uri] = ""
+		default:
+			tags := make([]string, 0, len(set))
+			for l := range set {
+				tags = append(tags, l)
+			}
+			sort.Strings(tags)
+			pick[uri] = tags[0]
+		}
+	}
+	if len(pick) == 0 {
+		return
+	}
+	keep := ds.Quads[:0]
+	for _, q := range ds.Quads {
+		if lang, ok := pick[q.S.Value]; ok && q.P.Value == skosPrefLabelIRI && q.O.IsLiteral() && q.O.Lang != lang {
+			continue
+		}
+		keep = append(keep, q)
+	}
+	ds.Quads = keep
 }
 
 // MARCRecordNodes exposes the record -> instance-node mapping DecodeGrainMARC

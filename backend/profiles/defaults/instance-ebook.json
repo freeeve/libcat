@@ -32,6 +32,7 @@
       "label": "Links",
       "help": "Access, cover-image, and sample URLs",
       "valueSource": {"kind": "entity"},
+      "annotation": ["http://www.w3.org/2000/01/rdf-schema#label"],
       "marcHint": "856$u"
     },
     {

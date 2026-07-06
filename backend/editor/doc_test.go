@@ -381,3 +381,31 @@ func TestContributorRolesAndPrimaryOrder(t *testing.T) {
 		t.Fatalf("round trip unstable\n--- first\n%s\n--- second\n%s", back, again)
 	}
 }
+
+// TestLinksAnnotatedFromLocatorLabels: since libcodex v0.15.0 each 856 is a
+// locator node carrying $3 as rdfs:label (tasks/147), and the instance
+// links field annotates from it -- the editor shows "Image" / "Thumbnail" /
+// "Excerpt" from the grain instead of guessing from URL shapes. The real
+// OverDrive MARC Express samples carry exactly those $3 values.
+func TestLinksAnnotatedFromLocatorLabels(t *testing.T) {
+	m := newMapper(t)
+	annotations := map[string]bool{}
+	for workID, grain := range realGrains(t) {
+		doc, err := m.ToDoc(grain, workID)
+		if err != nil {
+			t.Fatalf("%s: ToDoc: %v", workID, err)
+		}
+		for _, inst := range doc.Instances {
+			for _, v := range inst.Fields["links"] {
+				if v.Annotation != "" {
+					annotations[v.Annotation] = true
+				}
+			}
+		}
+	}
+	for _, want := range []string{"Image", "Thumbnail", "Excerpt"} {
+		if !annotations[want] {
+			t.Errorf("no links value annotated %q (got %v)", want, annotations)
+		}
+	}
+}

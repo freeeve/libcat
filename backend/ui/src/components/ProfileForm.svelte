@@ -303,14 +303,19 @@
               <span class="v" title={fv.v}>{rt.label}</span>
               <span class="rdacode" title={fv.v}>{rt.code}</span>
             {:else if fv.iri && spec.path === "links" && /^https?:\/\//.test(fv.v)}
+              <!-- The locator's grain-carried 856 $3 label (rdfs:label
+                   annotation, libcodex v0.15.0 / tasks/147) wins; the
+                   URL-shape heuristic covers label-less locators and
+                   pre-0.15 grains. -->
               {@const li = linkInfo(fv.v)}
+              {@const label = fv.annotation || li.label}
               {@const p = iriParts(fv.v)}
               <a class="v linkval" href={fv.v} target="_blank" rel="noreferrer" title={fv.v}>
                 {#if li.image}
-                  <img class="linkthumb" src={fv.v} alt={li.label || "linked image"} loading="lazy" />
+                  <img class="linkthumb" src={fv.v} alt={label || "linked image"} loading="lazy" />
                 {/if}
-                {#if li.label}
-                  <span class="linklabel">{li.label}</span>
+                {#if label}
+                  <span class="linklabel">{label}</span>
                   <span class="iri linkhost">{p.host}</span>
                 {:else}
                   <span class="iri">{#if p.host}<span class="iri-host">{p.host}</span>{/if}{p.tail}</span>

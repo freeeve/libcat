@@ -1,6 +1,8 @@
 // Renders the instance links field and pins the enriched link display:
-// OverDrive URL shapes get friendly labels, image links get an inline
-// thumbnail, and unrecognized links keep the compact host › tail form.
+// a grain-carried 856 $3 annotation wins (libcodex v0.15.0, tasks/147),
+// OverDrive URL shapes get heuristic labels otherwise, image links get an
+// inline thumbnail, and unrecognized links keep the compact host › tail
+// form.
 import { describe, expect, it, vi } from "vitest";
 import { flushSync, mount, unmount } from "svelte";
 import ProfileForm from "./ProfileForm.svelte";
@@ -18,6 +20,7 @@ const instance: ResourceDoc = {
         node: "_:l2",
       },
       { v: "https://example.org/about", iri: true, prov: "editorial:", node: "_:l3" },
+      { v: "https://samples.overdrive.com/?x=1", iri: true, prov: "feed:marc", node: "_:l4", annotation: "Excerpt" },
     ],
   },
 };
@@ -36,6 +39,9 @@ describe("ProfileForm links rendering", () => {
     const labels = [...host.querySelectorAll(".linklabel")].map((el) => el.textContent);
     expect(labels).toContain("OverDrive title page");
     expect(labels).toContain("Cover image");
+    // The grain-carried $3 annotation beats the URL heuristic ("Sample (excerpt)").
+    expect(labels).toContain("Excerpt");
+    expect(labels).not.toContain("Sample (excerpt)");
 
     const thumb = host.querySelector("img.linkthumb") as HTMLImageElement;
     expect(thumb).toBeTruthy();
