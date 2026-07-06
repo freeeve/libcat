@@ -60,6 +60,9 @@ other = "Buscar títulos, autores, materias…"
 [searchButton]
 other = "Buscar"
 
+[searchClose]
+other = "Cerrar"
+
 [workCount]
 one = "{{ .Count }} obra"
 other = "{{ .Count }} obras"

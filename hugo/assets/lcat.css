@@ -185,20 +185,47 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border-radius: 4px;
   cursor: pointer;
 }
-/* Optional Pagefind search UI (tasks/017): themed to the module accent and sized to
-   sit in the header. Pagefind ships its own pagefind-ui.css; these custom properties
-   just align it with lcat.css. Only present when [params.search] engine = "pagefind". */
-.lcat-search-pagefind {
+/* Optional Pagefind search UI (tasks/017): the Component UI lives in a modal
+   <dialog>, not the header -- in the header flex row its results drawer joined
+   header layout and its page-width filter grid misrendered (tasks/127). Pagefind
+   ships its own pagefind-ui.css; the custom properties align it with lcat.css.
+   Only present when [params.search] engine = "pagefind". */
+.lcat-search-trigger {
+  border: 1px solid var(--lcat-border);
+  border-radius: 4px;
+  background: var(--lcat-surface-alt);
+  color: var(--lcat-muted);
+  padding: 0.4rem 1.1rem;
+  cursor: pointer;
+}
+.lcat-search-trigger:hover { color: var(--lcat-fg); border-color: var(--lcat-accent); }
+.lcat-search-dialog {
   --pagefind-ui-primary: var(--lcat-accent);
   --pagefind-ui-text: var(--lcat-fg);
   --pagefind-ui-background: var(--lcat-bg);
   --pagefind-ui-border: var(--lcat-border);
+  --pagefind-ui-tag: var(--lcat-surface-alt);
   --pagefind-ui-font: inherit;
   --pagefind-ui-border-radius: 4px;
-  min-width: 18rem;
-  flex: 1 1 22rem;
-  max-width: 32rem;
+  width: min(46rem, 92vw);
+  max-height: min(85vh, 44rem);
+  border: 1px solid var(--lcat-border);
+  border-radius: 8px;
+  background: var(--lcat-bg);
+  color: var(--lcat-fg);
+  padding: 1rem 1.25rem 1.25rem;
 }
+.lcat-search-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.lcat-search-close {
+  display: block;
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--lcat-muted);
+  cursor: pointer;
+  padding: 0.15rem 0.25rem;
+}
+.lcat-search-close:hover { color: var(--lcat-fg); }
 .lcat-layout {
   display: grid;
   grid-template-columns: 16rem 1fr;

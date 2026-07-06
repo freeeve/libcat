@@ -8,12 +8,20 @@
   activates once the post-build step has run. Pagefind reads <html lang> (tasks/016)
   to auto-load the matching language index and segments CJK natively (tasks/005).
 
+  The Component UI (input + filter accordions + results) mounts inside a modal
+  <dialog>, NOT in the header (tasks/127): in the header flex row the drawer
+  participated in layout -- the header grew to drawer height and the filter grid,
+  which assumes page-scale width, painted filters and results on top of each other.
+  The header carries only a trigger button; the native dialog gives the UI a
+  page-scale surface, Esc/backdrop dismissal, and focus containment for free.
+
   Without JS the <noscript> form still submits to /works/, so search never blocks
-  browsing. data-pagefind-ignore keeps the widget's own chrome out of the index.
+  browsing (the trigger stays hidden without JS, like the theme toggle).
+  data-pagefind-ignore keeps the widget's own chrome out of the index.
 */ -}}
 <link href="{{ "/pagefind/pagefind-ui.css" | relURL }}" rel="stylesheet">
 <div class="lcat-search lcat-search-pagefind">
-  <div id="lcat-pagefind" data-pagefind-ignore></div>
+  <button type="button" class="lcat-search-trigger" id="lcat-search-open" hidden>{{ i18n "searchButton" }}</button>
   <noscript>
     <form role="search" action="{{ "/works/" | relURL }}" method="get">
       <label for="lcat-q" class="lcat-visually-hidden">{{ i18n "searchLabel" }}</label>
@@ -22,11 +30,25 @@
     </form>
   </noscript>
 </div>
+<dialog class="lcat-search-dialog" id="lcat-search-dialog" aria-label="{{ i18n "searchLabel" }}">
+  <button type="button" class="lcat-search-close" id="lcat-search-close">{{ i18n "searchClose" }}</button>
+  <div id="lcat-pagefind" data-pagefind-ignore></div>
+</dialog>
 <script src="{{ "/pagefind/pagefind-ui.js" | relURL }}" defer></script>
 <script>
   window.addEventListener("DOMContentLoaded", function () {
-    if (window.PagefindUI) {
-      new PagefindUI({ element: "#lcat-pagefind", showSubResults: true, showImages: false });
+    var open = document.getElementById("lcat-search-open");
+    var dlg = document.getElementById("lcat-search-dialog");
+    if (!open || !dlg || !dlg.showModal || !window.PagefindUI) return;
+    new PagefindUI({ element: "#lcat-pagefind", showSubResults: true, showImages: false });
+    function show() {
+      dlg.showModal();
+      var input = dlg.querySelector("input");
+      if (input) input.focus();
     }
+    open.addEventListener("click", show);
+    document.getElementById("lcat-search-close").addEventListener("click", function () { dlg.close(); });
+    dlg.addEventListener("click", function (e) { if (e.target === dlg) dlg.close(); });
+    open.hidden = false;
   });
 </script>

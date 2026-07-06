@@ -66,6 +66,9 @@ other = "Search titles, authors, subjects…"
 [searchButton]
 other = "Search"
 
+[searchClose]
+other = "Close"
+
 # Result / term counts (CLDR plural forms; .Count is the number of works)
 [workCount]
 one = "{{ .Count }} work"
