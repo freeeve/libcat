@@ -1,5 +1,6 @@
 # Go
 /bin/
+/lcat
 *.test
 *.out
 coverage.*
