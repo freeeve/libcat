@@ -1,5 +1,6 @@
-# 132 -- Push main + the hugo/v0.8.0 tag (demo verified, waiting to pin)
+# 139 -- Push main + the hugo/v0.8.0 tag (demo verified, waiting to pin)
 
+(Renumbered from 132, which collided with the searchfast suggest task.)
 Filed from libcatalog-demo (its tasks/023). The 127/128/129/131 fixes (Pagefind
 modal, term links from minted pages, clickable card chips + contributor names,
 ?q deep link) are tagged `hugo/v0.8.0` locally but origin only has `hugo/v0.7.0`,

@@ -149,8 +149,11 @@ func (p *Profile) Validate() error {
 			}
 		}
 		if len(f.Annotation) > 0 {
-			if len(f.Predicates) < 2 {
-				return fmt.Errorf("profiles: %s/%s: annotation requires a chained field (the value needs a structure node)", p.ID, f.Path)
+			// Chained fields resolve the annotation from the structure
+			// node; a direct field resolves it from each IRI value's own
+			// node (tasks/140), so it needs an entity-valued kind.
+			if len(f.Predicates) < 2 && f.ValueSource.Kind != KindVocab && f.ValueSource.Kind != KindEntity {
+				return fmt.Errorf("profiles: %s/%s: annotation on a direct field requires entity or vocab values (the annotation resolves from the value node)", p.ID, f.Path)
 			}
 			if len(f.Annotation) > 2 {
 				return fmt.Errorf("profiles: %s/%s: annotation chains must be 1 or 2 long", p.ID, f.Path)

@@ -290,6 +290,14 @@
                 <span class="chip-scheme">{term.scheme}</span>
                 <span class="chip-caret" aria-hidden="true">{expanded === expKey ? "▾" : "▸"}</span>
               </button>
+            {:else if fv.iri && spec.kind === "vocab" && fv.annotation}
+              {@const p = iriParts(fv.v)}
+              <!-- Vocab-index miss, but the grain carries the term's own
+                   skos:prefLabel (tasks/137): show the name; the hint still
+                   signals no browse/hierarchy/typeahead for this term. -->
+              <span class="v" title={fv.v}>{fv.annotation}</span>
+              {#if p.host}<span class="chip-scheme" title={fv.v}>{p.host}</span>{/if}
+              <span class="unres muted">not in local index</span>
             {:else if fv.iri && iriTerm(fv.v)}
               {@const rt = iriTerm(fv.v)!}
               <span class="v" title={fv.v}>{rt.label}</span>
@@ -330,7 +338,7 @@
             {#if spec.kind === "literal" && idKinds[fv.v]}
               <span class="idkind">{ID_KIND_LABELS[idKinds[fv.v]] ?? idKinds[fv.v]}</span>
             {/if}
-            {#if fv.annotation}
+            {#if fv.annotation && spec.kind !== "vocab"}
               <span class="chip-scheme" title={"heading source: " + fv.annotation}>{fv.annotation}</span>
             {/if}
             {#if fv.lang}<span class="lang">@{fv.lang}</span>{/if}

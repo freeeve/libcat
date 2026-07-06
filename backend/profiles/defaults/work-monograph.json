@@ -50,6 +50,7 @@
       "label": "Subjects",
       "help": "Controlled vocabulary terms (authority URIs)",
       "valueSource": {"kind": "vocab", "ref": "homosaurus"},
+      "annotation": ["http://www.w3.org/2004/02/skos/core#prefLabel"],
       "marcHint": "650"
     },
     {

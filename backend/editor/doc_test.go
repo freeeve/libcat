@@ -289,3 +289,44 @@ func TestOverriddenFlag(t *testing.T) {
 	}
 	t.Skip("no grain with feed subjects")
 }
+
+// TestDirectFieldAnnotation proves a vocab field's IRI values carry the
+// grain-written skos:prefLabel as their display annotation (tasks/137/140):
+// the name shows without an installed vocab snapshot, the label quad stays
+// passthrough, and the round trip stays stable.
+func TestDirectFieldAnnotation(t *testing.T) {
+	m := newMapper(t)
+	grain := []byte(`<#wsubjWork> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:test> .
+<#wsubjWork> <http://id.loc.gov/ontologies/bibframe/subject> <https://homosaurus.org/v4/homoit0000506> <feed:test> .
+<https://homosaurus.org/v4/homoit0000506> <http://www.w3.org/2004/02/skos/core#prefLabel> "Sexual orientation"@en <feed:test> .
+`)
+	doc, err := m.ToDoc(grain, "wsubj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjects := doc.Work.Fields["subjects"]
+	if len(subjects) != 1 {
+		t.Fatalf("subjects = %+v, want one value", subjects)
+	}
+	if subjects[0].Annotation != "Sexual orientation" {
+		t.Fatalf("annotation = %q, want the grain prefLabel", subjects[0].Annotation)
+	}
+	back, err := m.ToGrain(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(back), "Sexual orientation") {
+		t.Fatal("prefLabel quad did not survive the round trip")
+	}
+	doc2, err := m.ToDoc(back, "wsubj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := m.ToGrain(doc2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(again, back) {
+		t.Fatalf("round trip unstable\n--- first\n%s\n--- second\n%s", back, again)
+	}
+}

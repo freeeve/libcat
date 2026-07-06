@@ -131,8 +131,25 @@
     return [...seen].sort();
   }
 
-  function values(workId: string, path: string): string {
-    return (st.docs[workId]?.work.fields[path] ?? []).map((v) => v.v).join(" · ");
+  /** Display values: an IRI whose grain carries a name (the doc annotation,
+   *  tasks/140) shows the name; the raw value stays in the title tooltip. */
+  function values(workId: string, path: string): { text: string; raw: string }[] {
+    return (st.docs[workId]?.work.fields[path] ?? []).map((v) => ({
+      text: v.iri && v.annotation ? v.annotation : v.v,
+      raw: v.v,
+    }));
+  }
+
+  /** One line per instance: the edition facts (ISBN, publisher, date,
+   *  extent) that actually distinguish separately-minted records. */
+  function instanceLines(workId: string): string[] {
+    const doc = st.docs[workId];
+    if (!doc) return [];
+    return doc.instances.map((inst) => {
+      const part = (path: string) => (inst.fields[path] ?? []).map((v) => v.v).join(", ");
+      const facts = ["isbn", "publisher", "publicationDate", "extent"].map(part).filter(Boolean);
+      return facts.length ? facts.join(" · ") : inst.id;
+    });
   }
 
   async function merge(g: DuplicateGroup): Promise<void> {
@@ -204,11 +221,30 @@
                 </tr>
               </thead>
               <tbody>
+                {#if g.works.some((w) => (st.docs[w.workId]?.instances.length ?? 0) > 0)}
+                  <tr>
+                    <th scope="row">instances</th>
+                    {#each g.works as w (w.workId)}
+                      <td class:survivor={w.workId === st.survivor}>
+                        {#each instanceLines(w.workId) as line, li (li)}
+                          <span class="instline">{line}</span>
+                        {:else}
+                          <span class="muted">none</span>
+                        {/each}
+                      </td>
+                    {/each}
+                  </tr>
+                {/if}
                 {#each paths(g) as p (p)}
                   <tr>
                     <th scope="row">{p}</th>
                     {#each g.works as w (w.workId)}
-                      <td class:survivor={w.workId === st.survivor}>{values(w.workId, p)}</td>
+                      <td class:survivor={w.workId === st.survivor}>
+                        {#each values(w.workId, p) as val, vi (val.raw + vi)}
+                          {#if vi > 0}<span class="sep" aria-hidden="true">·</span>{/if}
+                          <span title={val.raw !== val.text ? val.raw : undefined}>{val.text}</span>
+                        {/each}
+                      </td>
                     {/each}
                   </tr>
                 {:else}
@@ -307,6 +343,13 @@
     font-size: 0.72rem;
     font-weight: 400;
     color: var(--ink-muted);
+  }
+  .instline {
+    display: block;
+  }
+  .sep {
+    color: var(--ink-muted);
+    padding: 0 0.25em;
   }
   .acts {
     display: flex;

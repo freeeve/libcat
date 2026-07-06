@@ -173,6 +173,20 @@ func claimFields(ds *rdf.Dataset, claimed []bool, node rdf.Term, profile *profil
 		var values []FieldValue
 		if len(field.Predicates) == 1 {
 			values = claimDirect(ds, claimed, node, field.Predicates[0], overrides, false)
+			// A direct field's annotation chain resolves from each IRI
+			// value's own node (tasks/137/140): subjects carry the
+			// grain-written skos:prefLabel of the authority IRI, so the
+			// doc shows names even when no vocab snapshot is installed.
+			if len(field.Annotation) > 0 {
+				for i := range values {
+					if !values[i].IRI {
+						continue
+					}
+					if note := annotationLabel(ds, rdf.NewIRI(values[i].V), field.Annotation); note != "" {
+						values[i].Annotation = note
+					}
+				}
+			}
 		} else {
 			// The link quads (node -> intermediates) stay unclaimed: they
 			// belong to the structure, not the value, and passthrough
