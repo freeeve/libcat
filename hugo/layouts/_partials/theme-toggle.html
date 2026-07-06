@@ -17,7 +17,7 @@
     function paint() {
       var d = dark();
       btn.setAttribute("aria-pressed", String(d));
-      btn.textContent = d ? {{ i18n "lightMode" | default "Light mode" | jsonify }} : {{ i18n "darkMode" | default "Dark mode" | jsonify }};
+      btn.textContent = d ? {{ i18n "lightMode" | default "Light mode" | jsonify | safeJS }} : {{ i18n "darkMode" | default "Dark mode" | jsonify | safeJS }};
     }
     btn.addEventListener("click", function () {
       var next = dark() ? "light" : "dark";
