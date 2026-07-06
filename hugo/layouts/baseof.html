@@ -6,7 +6,9 @@
   <script>try{var t=localStorage.getItem("lcat-theme");if(t)document.documentElement.setAttribute("data-lcat-theme",t)}catch(e){}</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {{ partial "head-seo.html" . }}
-  {{ with resources.Get "lcat.css" }}<link rel="stylesheet" href="{{ .RelPermalink }}">{{ end }}{{ partial "head-extra.html" . }}
+  {{- /* Assets are fingerprinted so upgrades change the URL: adopters can serve
+         them with max-age=31536000,immutable without staleness after a bump. */}}
+  {{ with resources.Get "lcat.css" }}{{ with . | fingerprint }}<link rel="stylesheet" href="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}">{{ end }}{{ end }}{{ partial "head-extra.html" . }}
   {{ block "head" . }}{{ end }}
 </head>
 <body>
@@ -25,13 +27,13 @@
   </div>{{ partial "footer.html" . }}
   {{- /* The interim substring filter loads only for the default search path; the
          Pagefind path (tasks/017) ships its own UI from the search partial. */ -}}
-  {{ if ne (site.Params.search.engine | default "") "pagefind" }}{{ with resources.Get "lcat-search.js" }}<script src="{{ .RelPermalink }}" defer></script>{{ end }}{{ end }}
+  {{ if ne (site.Params.search.engine | default "") "pagefind" }}{{ with resources.Get "lcat-search.js" }}{{ with . | fingerprint }}<script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>{{ end }}{{ end }}{{ end }}
   {{- /* Client-side live availability (tasks/004), enabled only when the site
          configures [params.availability]. The config (library slug etc.) is emitted
          as JSON for the adapter; no availability data is in the static build. */ -}}
   {{ with site.Params.availability }}{{ if .enabled }}
   <script id="lcat-availability-config" type="application/json">{{ . | jsonify }}</script>
-  {{ with resources.Get "lcat-availability.js" }}<script src="{{ .RelPermalink }}" defer></script>{{ end }}
+  {{ with resources.Get "lcat-availability.js" }}{{ with . | fingerprint }}<script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>{{ end }}{{ end }}
   {{ end }}{{ end }}
 </body>
 </html>
