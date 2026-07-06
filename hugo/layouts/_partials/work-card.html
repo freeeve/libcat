@@ -1,7 +1,12 @@
 {{- /* One Work in a result list. Expects a Work page (from the content adapter).
        When the site opts into cover art ([params] covers = true, tasks/025) an optional
        cover slot precedes the text; the .lcat-card-body wrapper keeps the text column
-       intact whether or not a cover renders. */ -}}
+       intact whether or not a cover renders.
+
+       Rendered via partialCached keyed on the work's .RelPermalink (tasks/133): a
+       work's card is identical everywhere it appears (works list pagers, every term
+       page it belongs to), so it renders once per work per language instead of once
+       per appearance. Keep the output a function of the work page alone. */ -}}
 <article class="lcat-card">
   {{- if site.Params.covers }}{{ partial "lcat-cover.html" (dict "url" .Params.cover "title" .Title "variant" "card") }}{{ end }}
   <div class="lcat-card-body">

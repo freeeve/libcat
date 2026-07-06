@@ -371,6 +371,60 @@ the markup itself.
 Overriding a hook never requires copying `baseof.html`, so a module bump stays
 merge-free.
 
+## Large catalogs (build performance)
+
+Measured against the first ~50k-work consumer (48,515 works / bilingual /
+10k subject + 45k contributor terms; Apple Silicon laptop, hugo 0.148):
+
+**What the module does for you (tasks/133).** The facet sidebar renders once
+per language (`partialCached` -- it used to re-render on every list and term
+page: 4 of 11 template-minutes at 10k works), each work card renders once per
+work per language keyed on its URL (a card is identical on every pager and
+term page it appears on), and the page-invariant header partials (search box,
+theme toggle) are cached too. At 10k works / one language this cut a clean
+build from 71s to 57s wall and 168 to 107 CPU-seconds; template time now goes
+to page volume itself, not repeated partials.
+
+**If you shadow `facets.html` or `work-card.html`**, keep them cacheable: the
+facet sidebar may read only facets.json/site/i18n (never page state), and a
+card's output must be a function of the work page alone. A shadow that reads
+the current page renders stale content under the cache.
+
+**Where the rest goes.** A CPU profile of the cached build is ~40% file-write
+syscalls, ~23% Hugo's content-tree bookkeeping, ~10% GC -- all proportional to
+page/file volume, not template work. At 10k works one language emitted 71,727
+files: 10k work pages plus 43k taxonomy term/pager pages plus 18.4k RSS
+feeds. Volume is the lever.
+
+**Site-side levers, biggest first (measured at 10k works, one language):**
+
+- **Trim facet dimensions.** Every `[taxonomies]` entry mints a term page per
+  distinct value per language -- contributors alone were 45k term pages per
+  language at full scale. Dropping the contributor/classification/language
+  dimensions took the build from 57s / 162 CPU-s / 71.7k files to **21s / 65
+  CPU-s / 25k files**; the data stays in catalog.json and on work pages
+  either way. CAUTION: Hugo *merges* `[taxonomies]` across `--config` files
+  -- an override file cannot remove a dimension; trim the block in your main
+  site config.
+- **Drop RSS if you don't want it** (18.4k files here). In your site config:
+
+  ```toml
+  [outputs]
+    home = ["html"]
+    section = ["html"]
+    taxonomy = ["html"]
+    term = ["html"]
+  ```
+
+- **Diagnose before tuning:** `hugo --templateMetrics --templateMetricsHints`
+  names the partials that dominate (a 100%-cache-potential partial with big
+  cumulative time is a `partialCached` candidate -- upstream that finding
+  rather than shadowing, please); `hugo --profile-cpu cpu.prof` + `go tool
+  pprof` for what's left. Wall-clock on a laptop is noisy at this file volume
+  -- trust CPU seconds and file counts.
+- **CI sharding:** `--renderSegments` can split a huge render across jobs
+  (segment per language is the natural cut).
+
 ## Integration points still stubbed
 
 - **Advanced search reader** -- Pagefind is the shipped, recommended engine (see

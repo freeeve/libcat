@@ -4,6 +4,11 @@
   and display their localized label; the other dimensions are {value, count}.
   Each value links to its Hugo taxonomy term page. Falls back silently when
   facets.json is absent.
+
+  Rendered via partialCached, once per language (tasks/133: at 50k works the
+  sidebar otherwise re-renders on every list/term page -- 4 of the 14 build
+  minutes). Keep it page-invariant: nothing here may read page state, only
+  facets.json, site, and i18n (partialCached's cache is per language).
 */ -}}
 {{- $facets := "" -}}
 {{- with resources.Get "facets.json" -}}{{- $facets = . | transform.Unmarshal -}}{{- end -}}

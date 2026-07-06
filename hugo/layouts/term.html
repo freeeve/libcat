@@ -1,5 +1,5 @@
 {{ define "sidebar" }}
-<aside class="lcat-sidebar" aria-label="{{ i18n "facets" }}">{{ partial "facets.html" . }}</aside>
+<aside class="lcat-sidebar" aria-label="{{ i18n "facets" }}">{{ partialCached "facets.html" . }}</aside>
 {{ end }}
 
 {{ define "main" }}
@@ -8,7 +8,7 @@
 <p class="lcat-resultcount" role="status">{{ i18n "workCount" (len .Pages) }}</p>
 <ol class="lcat-results" id="lcat-results">
   {{ range $paginator.Pages }}
-  <li>{{ partial "work-card.html" . }}</li>
+  <li>{{ partialCached "work-card.html" . .RelPermalink }}</li>
   {{ end }}
 </ol>
 {{ template "_internal/pagination.html" . }}

@@ -16,8 +16,12 @@
   {{- partial "banner.html" . }}
   <header class="lcat-header" data-pagefind-ignore>
     <a class="lcat-brand" href="{{ "/" | relURL }}">{{ partial "brand.html" . }}</a>
-    {{ partial "nav.html" . }}{{ partial "search.html" . }}
-    {{ partial "theme-toggle.html" . }}
+    {{- /* search + theme-toggle are page-invariant, so they render once per
+           language (tasks/133). nav is NOT cached: aria-current varies per page.
+           The adopter hooks (banner/brand/head-extra/footer) are not cached
+           either -- an override may legitimately depend on page context. */}}
+    {{ partial "nav.html" . }}{{ partialCached "search.html" . }}
+    {{ partialCached "theme-toggle.html" . }}
   </header>{{ block "hero" . }}{{ end }}
   <div class="lcat-layout">
     {{ block "sidebar" . }}{{ end }}
