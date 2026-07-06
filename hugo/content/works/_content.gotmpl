@@ -41,7 +41,9 @@
     {{- range .subjects -}}
       {{- $label := .id -}}
       {{- with .labels -}}{{- $label = or (index . $lang) (index . "en") $label -}}{{- end -}}
-      {{- $subjectSlugs = $subjectSlugs | append (partial "lcat-slug.html" $label) -}}
+      {{- /* Scheme-prefixed key (tasks/141): same-label terms from different
+             vocabularies mint distinct term pages. */ -}}
+      {{- $subjectSlugs = $subjectSlugs | append (partial "lcat-subject-key.html" (dict "label" $label "scheme" .scheme)) -}}
     {{- end -}}
     {{- /* Adopter passthrough (tasks/022): fields under a Work's reserved `extra` object
            flow verbatim into page params, so a site whose projection carries custom fields

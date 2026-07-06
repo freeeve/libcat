@@ -76,6 +76,7 @@ func TestProject(t *testing.T) {
 		ID:      "https://homosaurus.org/v3/homoit0000669",
 		Labels:  map[string]string{"en": "Transgender people", "es": "Personas trans"},
 		Broader: []string{"https://homosaurus.org/v3/homoit0000282"},
+		Scheme:  "homosaurus",
 	}}
 	if !reflect.DeepEqual(w.Subjects, wantSubjects) {
 		t.Errorf("subjects = %+v, want %+v", w.Subjects, wantSubjects)
@@ -234,6 +235,7 @@ func TestFacets(t *testing.T) {
 		ID:      "https://homosaurus.org/v3/homoit0000669",
 		Labels:  map[string]string{"en": "Transgender people", "es": "Personas trans"},
 		Broader: []string{"https://homosaurus.org/v3/homoit0000282"},
+		Scheme:  "homosaurus",
 		Count:   1,
 	}}
 	if !reflect.DeepEqual(f.Subjects, wantSubj) {

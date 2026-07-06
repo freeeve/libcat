@@ -80,6 +80,37 @@ That is the whole setup -- see `exampleSite/` for a runnable reference.
   Format (ebook / audiobook) is a per-Instance property, so a Work that clusters an
   ebook and an audiobook edition appears under both formats (tasks/011).
 
+## Multiple subject vocabularies (tasks/141)
+
+A corpus carrying more than one controlled vocabulary (say Homosaurus + FAST)
+facets each in its own sidebar group, and same-label terms from different
+vocabularies mint distinct term pages: subject taxonomy keys are
+scheme-prefixed slugs (`fast-lesbians`, `homosaurus-lesbians`), from the
+`scheme` the v8 projector derives per authority namespace (`lcat project
+--subject-scheme` extends the table). Term pages title with the human label
+plus the vocabulary ("Lesbians (FAST)"). A single-scheme or scheme-less
+corpus renders the one "Subjects" group it always had -- but note that
+**re-projecting a multi-scheme corpus changes existing subject term URLs**
+(they gain the scheme prefix).
+
+Group order and display names come from the site config (unlisted schemes
+follow, labeled by their code):
+
+```toml
+[[params.subjectSchemes]]
+  scheme = "homosaurus"
+  name = "Homosaurus"
+[[params.subjectSchemes]]
+  scheme = "fast"
+  name = "FAST"
+```
+
+Like `[taxonomies]`, Hugo does not merge a module's params arrays into the
+importing site -- declare the block site-side. `[params] facetLimit` caps the
+entries rendered per facet group (default 20), and any group with more than
+10 entries gets a client-side type-to-filter box (a substring match over the
+rendered entries; no index, no fetch).
+
 ## SEO head (default)
 
 The base template ships the SEO basics for every page (tasks/119), so an adopter
@@ -128,13 +159,16 @@ if you need those localized.
 
 Both JSON files carry a top-level `version` (`project.SchemaVersion`). The adapter
 fails the build loudly if `catalog.json`'s version does not match the version the
-module targets (`params.catalogSchemaVersion`, currently **7**). Reproject with a
+module targets (`params.catalogSchemaVersion`, currently **8**). Reproject with a
 matching `lcat` if you hit a mismatch. v6 added the holdings signal: `held` on each
 instance and work (physical items, or a live-availability identifier whose feed
 still lists the work -- tasks/078). Whether unheld works are hidden, badged, or
 faceted is the site's choice; the module renders them unchanged by default. v7
 added `summary` on each work (the description/abstract, from `bf:summary` --
 tasks/124); the detail page renders it as paragraphs, and Pagefind indexes it.
+v8 added `scheme` on each subject and subject facet (the vocabulary code derived
+from the authority namespace), driving the per-vocabulary facet groups and
+scheme-prefixed subject term keys above (tasks/141).
 
 ## Data quality
 

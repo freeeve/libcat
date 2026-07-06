@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/freeeve/libcatalog/project"
 )
@@ -18,11 +19,24 @@ func runProject(args []string) error {
 	catalogNQ := fs.String("catalog", "", "path to a catalog.nq dataset")
 	out := fs.String("out", ".", "output directory for catalog.json")
 	provider := fs.String("provider", "overdrive", "provenance graph feed:<provider> to project")
+	schemeMap := fs.String("subject-scheme", "",
+		"extra authority namespace -> scheme entries, comma-separated prefix=code pairs (prepended, so they override the built-in table; tasks/141)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *catalogNQ == "" {
 		return fmt.Errorf("--catalog is required")
+	}
+	if *schemeMap != "" {
+		var extra []project.SchemePrefix
+		for pair := range strings.SplitSeq(*schemeMap, ",") {
+			prefix, code, ok := strings.Cut(strings.TrimSpace(pair), "=")
+			if !ok || prefix == "" || code == "" {
+				return fmt.Errorf("bad --subject-scheme entry %q (want prefix=code)", pair)
+			}
+			extra = append(extra, project.SchemePrefix{Prefix: prefix, Scheme: code})
+		}
+		project.SubjectSchemePrefixes = append(extra, project.SubjectSchemePrefixes...)
 	}
 
 	b, err := os.ReadFile(*catalogNQ)

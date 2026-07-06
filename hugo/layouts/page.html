@@ -33,9 +33,10 @@
       {{ $lang := site.Language.Lang }}
       {{ range . }}
         {{ $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
-        {{/* Facet by label; the subject's canonical link is its authority URI. The
-             term URL comes from the minted term page, never reconstructed (tasks/128). */}}
-        {{ $url := partial "lcat-term-url.html" (dict "taxonomy" "subjects" "key" (partial "lcat-slug.html" $label)) }}
+        {{/* Facet by scheme-prefixed label key (tasks/141); the subject's canonical
+             link is its authority URI. The term URL comes from the minted term
+             page, never reconstructed (tasks/128). */}}
+        {{ $url := partial "lcat-term-url.html" (dict "taxonomy" "subjects" "key" (partial "lcat-subject-key.html" (dict "label" $label "scheme" .scheme))) }}
         <li>{{ if $url }}<a href="{{ $url }}" data-pagefind-filter="subject">{{ $label }}</a>{{ else }}<span data-pagefind-filter="subject">{{ $label }}</span>{{ end }}
           {{ if ne $label .id }}<a class="lcat-authority" href="{{ .id }}" rel="external" aria-label="{{ i18n "authorityRecordFor" (dict "Label" $label) }}" data-pagefind-ignore>↗</a>{{ end }}
         </li>

@@ -10,6 +10,9 @@ other = "Facets"
 [filterWorks]
 other = "Filter works"
 
+[filterFacet]
+other = "Filter…"
+
 [subjects]
 other = "Subjects"
 

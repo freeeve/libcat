@@ -3,7 +3,16 @@
 {{ end }}
 
 {{ define "main" }}
-<h1><span class="lcat-facet-dim">{{ .Data.Singular | humanize }}:</span> {{ .Title }}</h1>
+{{- /* Subject terms key by scheme-prefixed slug (tasks/141), so the human
+       label (and its vocabulary) comes from the cached facets.json lookup;
+       other taxonomies keep the term key as the title. */ -}}
+{{- $title := .Title -}}{{- $scheme := "" -}}
+{{- if eq .Data.Plural "subjects" -}}
+  {{- with index (partialCached "lcat-subject-labels.html" .) .Data.Term -}}
+    {{- $title = .label -}}{{- $scheme = .scheme -}}
+  {{- end -}}
+{{- end -}}
+<h1><span class="lcat-facet-dim">{{ .Data.Singular | humanize }}:</span> {{ $title }}{{ with $scheme }} <span class="lcat-term-scheme">({{ . }})</span>{{ end }}</h1>
 {{ $paginator := .Paginate .Pages }}
 <p class="lcat-resultcount" role="status">{{ i18n "workCount" (len .Pages) }}</p>
 <ol class="lcat-results" id="lcat-results">

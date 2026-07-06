@@ -67,7 +67,11 @@ const (
 // live-availability identifier whose feed still lists the Work (tasks/078).
 // v7 added Work.Summary from bf:summary -- the description/abstract as first-class
 // bibliographic data rather than an adopter extra (tasks/124).
-const SchemaVersion = 7
+// v8 added Subject.Scheme / SubjectFacet.Scheme -- the short vocabulary code
+// derived from the authority-URI namespace -- so a multi-vocabulary corpus can
+// facet and mint term pages per scheme instead of colliding same-label terms
+// from different vocabularies (tasks/141).
+const SchemaVersion = 8
 
 // Catalog is the projected corpus: one record per Work, sorted by id.
 type Catalog struct {
@@ -124,6 +128,41 @@ type Subject struct {
 	ID      string            `json:"id"`
 	Labels  map[string]string `json:"labels,omitempty"`
 	Broader []string          `json:"broader,omitempty"`
+	// Scheme is the short vocabulary code derived from the URI's namespace
+	// (SchemeForURI, tasks/141) -- "homosaurus", "fast", "lcsh", "local";
+	// empty for an unrecognized authority.
+	Scheme string `json:"scheme,omitempty"`
+}
+
+// SchemePrefix maps an authority-URI namespace prefix to its short
+// vocabulary code.
+type SchemePrefix struct{ Prefix, Scheme string }
+
+// SubjectSchemePrefixes is the namespace -> scheme table SchemeForURI
+// consults, first match wins (tasks/141). `lcat project --subject-scheme`
+// prepends deployment-specific entries, so a custom authority (or a
+// different code for a known one) overrides these defaults.
+var SubjectSchemePrefixes = []SchemePrefix{
+	{"https://homosaurus.org/", "homosaurus"},
+	{"http://homosaurus.org/", "homosaurus"},
+	{"http://id.worldcat.org/fast/", "fast"},
+	{"https://id.worldcat.org/fast/", "fast"},
+	{"http://id.loc.gov/authorities/subjects/", "lcsh"},
+	{"https://id.loc.gov/authorities/subjects/", "lcsh"},
+	{"http://id.loc.gov/authorities/childrensSubjects/", "lcshac"},
+	{"https://id.loc.gov/authorities/childrensSubjects/", "lcshac"},
+	{bibframe.LocalAuthorityNS, "local"},
+}
+
+// SchemeForURI returns the short vocabulary code for an authority URI, or ""
+// when the namespace is not in SubjectSchemePrefixes.
+func SchemeForURI(uri string) string {
+	for _, s := range SubjectSchemePrefixes {
+		if strings.HasPrefix(uri, s.Prefix) {
+			return s.Scheme
+		}
+	}
+	return ""
 }
 
 // Instance is one edition/format: its id, format (from its RDA media type), ISBNs,
@@ -187,7 +226,10 @@ type SubjectFacet struct {
 	ID      string            `json:"id"`
 	Labels  map[string]string `json:"labels,omitempty"`
 	Broader []string          `json:"broader,omitempty"`
-	Count   int               `json:"count"`
+	// Scheme is the vocabulary code (see Subject.Scheme) so a consumer
+	// renders one facet group per vocabulary (tasks/141).
+	Scheme string `json:"scheme,omitempty"`
+	Count  int    `json:"count"`
 }
 
 // Facets aggregates the catalog into per-dimension value counts, each value
@@ -215,7 +257,7 @@ func (c *Catalog) Facets() Facets {
 			seen[s.ID] = true
 			sf := subj[s.ID]
 			if sf == nil {
-				sf = &SubjectFacet{ID: s.ID, Labels: s.Labels, Broader: s.Broader}
+				sf = &SubjectFacet{ID: s.ID, Labels: s.Labels, Broader: s.Broader, Scheme: s.Scheme}
 				subj[s.ID] = sf
 			}
 			sf.Count++
@@ -622,7 +664,7 @@ func (p *projector) subjectsAndTags(w rdf.Term) ([]Subject, []string) {
 		for _, s := range g.Objects(w, pSubject) {
 			if s.IsIRI() {
 				if _, ok := subj[s.Value]; !ok {
-					subj[s.Value] = Subject{ID: s.Value, Labels: p.labels[s.Value], Broader: p.broader[s.Value]}
+					subj[s.Value] = Subject{ID: s.Value, Labels: p.labels[s.Value], Broader: p.broader[s.Value], Scheme: SchemeForURI(s.Value)}
 				}
 			} else if label, ok := g.Literal(s, pLabel); ok && label != "" {
 				tags[label] = true

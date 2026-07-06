@@ -22,4 +22,21 @@
 [params]
   # catalogSchemaVersion the module targets; the adapter fails the build loudly on
   # a mismatch with catalog.json's top-level "version" (tasks/009 contract).
-  catalogSchemaVersion = 7
+  catalogSchemaVersion = 8
+
+  # Multi-vocabulary subjects (tasks/141). The facet sidebar renders one group
+  # per vocabulary scheme; [[params.subjectSchemes]] sets group order and display
+  # names (schemes omitted here follow, labeled by their code). Like [taxonomies],
+  # Hugo does NOT merge a module's params arrays into the importing site
+  # (tasks/133 gotcha) -- declare this block site-side. Example:
+  #
+  #   [[params.subjectSchemes]]
+  #     scheme = "homosaurus"
+  #     name = "Homosaurus"
+  #   [[params.subjectSchemes]]
+  #     scheme = "fast"
+  #     name = "FAST"
+  #
+  # facetLimit caps the entries rendered per facet group (default 20); groups
+  # with more than 10 entries get a client-side type-to-filter box.
+  #facetLimit = 20

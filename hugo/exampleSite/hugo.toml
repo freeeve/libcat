@@ -52,6 +52,15 @@ defaultContentLanguage = "en"
 [params]
   covers = true
 
+# Vocabulary groups for the subject facets (tasks/141): order + display names.
+# Schemes not listed here still render, after these, labeled by their code.
+[[params.subjectSchemes]]
+  scheme = "homosaurus"
+  name = "Homosaurus"
+[[params.subjectSchemes]]
+  scheme = "fast"
+  name = "FAST"
+
 # Search engine (tasks/017). "pagefind" swaps the header search box to the Pagefind
 # Component UI -- real ranked, per-language, CJK-capable full-text over the built
 # HTML. It needs one post-build step (`npm run search:index`, run after `hugo`).

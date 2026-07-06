@@ -40,6 +40,10 @@ id.loc.gov/authorities/subjects -> lcsh, ...). Nothing carries it forward.
   collapsible group per scheme with a display name from site config.
 - Backend work-index facet panel: same grouping (the editor already knows
   schemes -- chips show a HOMOSAURUS badge).
+  [Resolution note: the admin SPA's work search has no facet panel today --
+  nothing to group. When one grows, group subjects by project.SchemeForURI
+  like the hugo sidebar; the addendum's filter box likewise applies to the
+  hugo sidebar only for now.]
 - queerbooks preference for defaults: homosaurus first (community
   vocabulary, the catalog's heart), then FAST; scheme display names
   "Homosaurus" / "FAST".

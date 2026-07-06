@@ -261,6 +261,20 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   color: var(--lcat-accent-ink);
 }
 .lcat-facet-total, .lcat-count { color: var(--lcat-muted); font-size: 0.85em; }
+/* A subject term page's vocabulary qualifier (tasks/141). */
+.lcat-term-scheme { color: var(--lcat-muted); font-size: 0.7em; font-weight: 400; }
+/* Per-group type-to-filter (tasks/141). */
+.lcat-facet-filter {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: inherit;
+  background: var(--lcat-bg);
+  border: 1px solid var(--lcat-border);
+  border-radius: 4px;
+}
 .lcat-facets ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
 .lcat-facets li a {
   display: flex;

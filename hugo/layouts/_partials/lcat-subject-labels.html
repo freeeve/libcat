@@ -1,0 +1,30 @@
+{{- /*
+  Term-key -> display map for subject term pages (tasks/141): each entry is
+  {label, scheme} where label is the localized human label and scheme the
+  vocabulary's display name ([[params.subjectSchemes]] name, else the code;
+  "" when the corpus carries no scheme). Term pages otherwise only have the
+  slugged key ("fast-lesbians") for a title. Built from facets.json via
+  scratch (merge in a loop is quadratic at vocabulary scale -- tasks/133);
+  call through partialCached, once per language: nothing here reads page
+  state.
+*/ -}}
+{{- $s := newScratch -}}
+{{- $s.Set "map" dict -}}
+{{- with resources.Get "facets.json" -}}
+  {{- $f := . | transform.Unmarshal -}}
+  {{- $lang := site.Language.Lang -}}
+  {{- $names := dict -}}
+  {{- range site.Params.subjectSchemes -}}
+    {{- if .scheme -}}{{- $names = merge $names (dict .scheme (or .name .scheme)) -}}{{- end -}}
+  {{- end -}}
+  {{- range (index $f "subjects") -}}
+    {{- $label := .id -}}
+    {{- with .labels -}}{{- $label = or (index . $lang) (index . "en") $label -}}{{- end -}}
+    {{- /* partial output is template.HTML; SetInMap needs a string key. */ -}}
+    {{- $key := string (partial "lcat-subject-key.html" (dict "label" $label "scheme" .scheme)) -}}
+    {{- $scheme := or .scheme "" -}}
+    {{- with $scheme -}}{{- $scheme = or (index $names .) . -}}{{- end -}}
+    {{- $s.SetInMap "map" $key (dict "label" $label "scheme" $scheme) -}}
+  {{- end -}}
+{{- end -}}
+{{- return ($s.Get "map") -}}

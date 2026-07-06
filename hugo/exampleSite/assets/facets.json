@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "languages": [
     {
       "value": "eng",
@@ -24,13 +24,23 @@
       "broader": [
         "https://homosaurus.org/v3/homoit0000282"
       ],
-      "count": 2
+      "count": 2,
+      "scheme": "homosaurus"
     },
     {
       "id": "https://homosaurus.org/v3/homoit0000282",
       "labels": {
         "en": "Gender identity"
       },
+      "count": 1,
+      "scheme": "homosaurus"
+    },
+    {
+      "id": "http://id.worldcat.org/fast/1735592",
+      "labels": {
+        "en": "Transgender people"
+      },
+      "scheme": "fast",
       "count": 1
     }
   ],

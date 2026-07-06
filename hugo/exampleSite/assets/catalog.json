@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "works": [
     {
       "id": "wexampleone",
@@ -21,7 +21,8 @@
           "id": "https://homosaurus.org/v3/homoit0000282",
           "labels": {
             "en": "Gender identity"
-          }
+          },
+          "scheme": "homosaurus"
         },
         {
           "id": "https://homosaurus.org/v3/homoit0000669",
@@ -31,7 +32,8 @@
           },
           "broader": [
             "https://homosaurus.org/v3/homoit0000282"
-          ]
+          ],
+          "scheme": "homosaurus"
         }
       ],
       "tags": [
@@ -106,7 +108,15 @@
           },
           "broader": [
             "https://homosaurus.org/v3/homoit0000282"
-          ]
+          ],
+          "scheme": "homosaurus"
+        },
+        {
+          "id": "http://id.worldcat.org/fast/1735592",
+          "labels": {
+            "en": "Transgender people"
+          },
+          "scheme": "fast"
         }
       ],
       "tags": [
