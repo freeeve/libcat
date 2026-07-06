@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 // the acceptance lens: edits must reach catalog.json.
 func applyAndProject(t *testing.T, m *Mapper, grain []byte, workID string, ops []Op) ([]byte, project.Work) {
 	t.Helper()
-	updated, err := ApplyOps(m, grain, workID, ops)
+	updated, err := ApplyOps(m, grain, workID, ops, nil)
 	if err != nil {
 		t.Fatalf("ApplyOps: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestAddRemoveTagLifecycle(t *testing.T) {
 		Resource: "work", Path: "tags", Action: "add",
 		Value: &OpValue{V: "cozy fantasy"},
 	}})
-	if !contains(w.Tags, "cozy fantasy") {
+	if !slices.Contains(w.Tags, "cozy fantasy") {
 		t.Fatalf("tags = %v", w.Tags)
 	}
 	if strings.Contains(string(updated), bibframe.PredOverrides) {
@@ -104,7 +105,7 @@ func TestAddRemoveTagLifecycle(t *testing.T) {
 	restored, err := ApplyOps(m, updated, workID, []Op{{
 		Resource: "work", Path: "tags", Action: "remove",
 		Value: &OpValue{V: "cozy fantasy"},
-	}})
+	}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,9 +173,72 @@ func TestOpValidation(t *testing.T) {
 		"read-only clear":  {Resource: "work", Path: "subjectLabels", Action: "clear"},
 	}
 	for name, op := range cases {
-		if _, err := ApplyOps(m, grain, workID, []Op{op}); err == nil {
+		if _, err := ApplyOps(m, grain, workID, []Op{op}, nil); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+// TestAddSubjectWritesLabelCompanion covers tasks/145: an editorial subject
+// add also writes the vocabulary's prefLabel into the grain's
+// authority:<scheme> graph (feed parity with ingest.enrichmentQuads), so the
+// doc annotates -- and the Duplicates compare shows names -- with no vocab
+// lookup at read time. An IRI the resolver does not know still adds cleanly,
+// just bare.
+func TestAddSubjectWritesLabelCompanion(t *testing.T) {
+	m := newMapper(t)
+	workID, grain := firstWork(t)
+	const known = "https://homosaurus.org/v3/homoit0000508"
+	const unknown = "https://example.org/authority/unknown"
+	resolver := func(iri string) (string, map[string]string, bool) {
+		if iri == known {
+			// Both languages ride the grain (the projection localizes from
+			// them); the doc annotation picks one (English first).
+			return "homosaurus", map[string]string{"en": "Gay men", "es": "Hombres gais"}, true
+		}
+		return "", nil, false
+	}
+	updated, err := ApplyOps(m, grain, workID, []Op{
+		{Resource: "work", Path: "subjects", Action: "add", Value: &OpValue{V: known, IRI: true}},
+		{Resource: "work", Path: "subjects", Action: "add", Value: &OpValue{V: unknown, IRI: true}},
+	}, resolver)
+	if err != nil {
+		t.Fatalf("ApplyOps: %v", err)
+	}
+	companion := "<" + known + "> <http://www.w3.org/2004/02/skos/core#prefLabel> \"Gay men\"@en <authority:homosaurus> ."
+	if !strings.Contains(string(updated), companion) {
+		t.Fatalf("label companion missing from grain:\n%s", updated)
+	}
+	if strings.Contains(string(updated), "<"+unknown+"> <http://www.w3.org/2004/02/skos/core#prefLabel>") {
+		t.Fatal("unresolvable IRI grew a label")
+	}
+	// The doc now annotates the value from the grain alone (tasks/137/140).
+	doc, err := m.ToDoc(updated, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var annotated bool
+	for _, v := range doc.Work.Fields["subjects"] {
+		if v.V == known && v.Annotation == "Gay men" {
+			annotated = true
+		}
+		if v.V == unknown && v.Annotation != "" {
+			t.Fatalf("unknown term annotated %q", v.Annotation)
+		}
+	}
+	if !annotated {
+		t.Fatalf("subject not annotated: %+v", doc.Work.Fields["subjects"])
+	}
+	// Re-adding the same term is a no-op for the companion too (idempotent
+	// patch additions) -- the grain does not grow duplicate labels.
+	again, err := ApplyOps(m, updated, workID, []Op{
+		{Resource: "work", Path: "subjects", Action: "remove", Value: &OpValue{V: known, IRI: true}},
+	}, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(again), companion); n != 1 {
+		t.Fatalf("companion count after remove = %d, want 1 (labels persist)", n)
 	}
 }
 
@@ -208,24 +272,15 @@ func TestCardinalityBeyondOne(t *testing.T) {
 	for i := range over {
 		over[i] = OpValue{V: fmt.Sprintf("tag-%d", i)}
 	}
-	if _, err := ApplyOps(m, grain, workID, []Op{{Resource: "work", Path: "tags", Action: "set", Values: over}}); err == nil {
+	if _, err := ApplyOps(m, grain, workID, []Op{{Resource: "work", Path: "tags", Action: "set", Values: over}}, nil); err == nil {
 		t.Errorf("set of %d into a max-%d field accepted", len(over), max)
 	}
 	// One add fits (live+1 == max); a second overflows.
-	g2, err := ApplyOps(m, grain, workID, []Op{{Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "cap-a"}}})
+	g2, err := ApplyOps(m, grain, workID, []Op{{Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "cap-a"}}}, nil)
 	if err != nil {
 		t.Fatalf("add within cap: %v", err)
 	}
-	if _, err := ApplyOps(m, g2, workID, []Op{{Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "cap-b"}}}); err == nil {
+	if _, err := ApplyOps(m, g2, workID, []Op{{Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "cap-b"}}}, nil); err == nil {
 		t.Errorf("add past a max-%d field accepted", max)
 	}
-}
-
-func contains(list []string, v string) bool {
-	for _, s := range list {
-		if s == v {
-			return true
-		}
-	}
-	return false
 }

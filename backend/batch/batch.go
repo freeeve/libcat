@@ -109,6 +109,9 @@ type Service struct {
 	// (workindex, tasks/109) search selections resolve against instead of a
 	// per-run corpus walk; nil falls back to ScanSummaries.
 	Summaries ingest.SummarySource
+	// Labels, when set, writes vocabulary label companions next to term
+	// IRIs a batch edit asserts (editor.ApplyOps, tasks/145).
+	Labels editor.LabelResolver
 }
 
 // Resolve expands a selection to its targets, owner-scoped for saved
@@ -259,7 +262,7 @@ func (s *Service) runOne(ctx context.Context, t Target, ops []editor.Op, dryRun 
 			item.Error = readError(err)
 			return item
 		}
-		updated, err := editor.ApplyOps(s.mapper(), grain, t.WorkID, ops)
+		updated, err := editor.ApplyOps(s.mapper(), grain, t.WorkID, ops, s.Labels)
 		if err != nil {
 			item.Error = err.Error()
 			return item
@@ -273,7 +276,7 @@ func (s *Service) runOne(ctx context.Context, t Target, ops []editor.Op, dryRun 
 		if len(old) == 0 {
 			return nil, errors.New("no such work")
 		}
-		updated, err := editor.ApplyOps(s.mapper(), old, t.WorkID, ops)
+		updated, err := editor.ApplyOps(s.mapper(), old, t.WorkID, ops, s.Labels)
 		if err != nil {
 			return nil, err
 		}

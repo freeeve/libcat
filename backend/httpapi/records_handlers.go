@@ -17,6 +17,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/profilesvc"
 	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
+	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/backend/workindex"
 )
 
@@ -38,7 +39,7 @@ type WorkSaveHook interface {
 // registerRecords mounts the librarian record-editing surface: grain
 // read/write with ETag optimistic locking, dry-run validation, drafts,
 // merge/split, and quad-level batch edits.
-func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db store.Store, queue *suggest.Service, prof *profilesvc.Service, verifier auth.TokenVerifier, hook WorkSaveHook) {
+func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db store.Store, queue *suggest.Service, prof *profilesvc.Service, vocabIx *vocab.Index, verifier auth.TokenVerifier, hook WorkSaveHook) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	readGrain := func(w http.ResponseWriter, r *http.Request) ([]byte, string, string, bool) {
@@ -163,7 +164,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeJSON(w, http.StatusPreconditionFailed, grainView{WorkID: workID, ETag: etag, NQuads: string(grain)})
 			return
 		}
-		updated, err := editor.ApplyOps(prof.Mapper(), grain, workID, req.Ops)
+		updated, err := editor.ApplyOps(prof.Mapper(), grain, workID, req.Ops, vocabIx.LabelResolver())
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

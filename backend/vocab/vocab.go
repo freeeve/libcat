@@ -364,6 +364,22 @@ func (ix *Index) Lookup(scheme, id string) (*Term, bool) {
 	return t, ok
 }
 
+// LabelResolver adapts the index to the editor's label-companion contract
+// (editor.LabelResolver, tasks/145): term IRI -> (scheme, lang->prefLabel).
+// Safe on a nil index -- it returns nil, which disables companions.
+func (ix *Index) LabelResolver() func(iri string) (string, map[string]string, bool) {
+	if ix == nil {
+		return nil
+	}
+	return func(iri string) (string, map[string]string, bool) {
+		t, ok := ix.Resolve(iri)
+		if !ok {
+			return "", nil, false
+		}
+		return t.Scheme, t.Labels, true
+	}
+}
+
 // Resolve returns the term for a URI regardless of scheme (schemes checked
 // in sorted order for determinism) -- the editor's chip renderer resolves
 // stored subject references without knowing where they came from (tasks/071).

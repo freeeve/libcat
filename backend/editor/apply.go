@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -11,6 +12,18 @@ import (
 
 	"github.com/freeeve/libcatalog/backend/profiles"
 )
+
+// skosPrefLabel is the annotation predicate the label-companion contract
+// keys on (tasks/145): a direct IRI field whose annotation chain is exactly
+// this predicate gets a grain-written label next to every added link, the
+// same shape the ingest enrichers emit.
+const skosPrefLabel = "http://www.w3.org/2004/02/skos/core#prefLabel"
+
+// LabelResolver resolves a controlled-term IRI to its vocabulary scheme and
+// language-tagged prefLabels ("" key = untagged); ok is false when no loaded
+// vocabulary knows the IRI. vocab.Index.LabelResolver adapts the index; nil
+// disables label companions.
+type LabelResolver func(iri string) (scheme string, labels map[string]string, ok bool)
 
 // OpValue is one value in an operation.
 type OpValue struct {
@@ -46,8 +59,15 @@ type Op struct {
 //     surviving values editorially -- the tasks/042 semantics, so the feed
 //     stays untouched and revert is always possible.
 //
+// Label companions (tasks/145): when labels is non-nil, every IRI the patch
+// asserts on a prefLabel-annotated field also gets its vocabulary labels
+// written into the grain's authority:<scheme> graph, so the grain stays
+// self-describing (Duplicates compare, exports, the projection's label
+// index) without a vocab lookup at read time -- feed parity with
+// ingest.enrichmentQuads.
+//
 // Returns the re-canonicalized grain.
-func ApplyOps(m *Mapper, grainNQ []byte, workID string, ops []Op) ([]byte, error) {
+func ApplyOps(m *Mapper, grainNQ []byte, workID string, ops []Op, labels LabelResolver) ([]byte, error) {
 	doc, err := m.ToDoc(grainNQ, workID)
 	if err != nil {
 		return nil, err
@@ -58,7 +78,71 @@ func ApplyOps(m *Mapper, grainNQ []byte, workID string, ops []Op) ([]byte, error
 			return nil, fmt.Errorf("editor: op %d (%s %s.%s): %w", i, op.Action, op.Resource, op.Path, err)
 		}
 	}
-	return bibframe.ApplyEditorialPatch(grainNQ, patch)
+	grain, err := bibframe.ApplyEditorialPatch(grainNQ, patch)
+	if err != nil || labels == nil {
+		return grain, err
+	}
+	return applyLabelCompanions(m, grain, patch.Add, labels)
+}
+
+// labelPredicates collects the leaf predicates of direct IRI fields whose
+// annotation chain is exactly skos:prefLabel -- the fields whose values take
+// a label companion.
+func labelPredicates(m *Mapper) map[string]bool {
+	preds := map[string]bool{}
+	for _, p := range []*profiles.Profile{m.WorkProfile, m.InstanceProfile} {
+		if p == nil {
+			continue
+		}
+		for _, f := range p.Fields {
+			if len(f.Predicates) == 1 && len(f.Annotation) == 1 && f.Annotation[0] == skosPrefLabel {
+				preds[f.Predicates[0]] = true
+			}
+		}
+	}
+	return preds
+}
+
+// applyLabelCompanions writes the resolved prefLabels of freshly asserted
+// term IRIs into their vocabulary's authority:<scheme> graph. Unresolvable
+// IRIs (no snapshot installed, unknown term) are skipped -- the value keeps
+// working as a bare link, exactly as before. Additions are idempotent, so a
+// term whose labels already ride the grain is unchanged.
+func applyLabelCompanions(m *Mapper, grain []byte, added []rdf.Quad, labels LabelResolver) ([]byte, error) {
+	preds := labelPredicates(m)
+	if len(preds) == 0 {
+		return grain, nil
+	}
+	byScheme := map[string][]rdf.Quad{}
+	seen := map[string]bool{}
+	for _, q := range added {
+		if !q.O.IsIRI() || !preds[q.P.Value] || seen[q.O.Value] {
+			continue
+		}
+		seen[q.O.Value] = true
+		scheme, byLang, ok := labels(q.O.Value)
+		if !ok || scheme == "" {
+			continue
+		}
+		for _, lang := range slices.Sorted(maps.Keys(byLang)) {
+			if byLang[lang] == "" {
+				continue
+			}
+			byScheme[scheme] = append(byScheme[scheme], rdf.Quad{
+				S: rdf.NewIRI(q.O.Value),
+				P: rdf.NewIRI(skosPrefLabel),
+				O: rdf.NewLiteral(byLang[lang], lang, ""),
+			})
+		}
+	}
+	var err error
+	for _, scheme := range slices.Sorted(maps.Keys(byScheme)) {
+		grain, err = bibframe.ApplyPatch(grain, bibframe.AuthorityGraph(scheme), bibframe.Patch{Add: byScheme[scheme]})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return grain, nil
 }
 
 // liveCount counts the field values an add stacks onto: everything except

@@ -281,8 +281,12 @@ func claimDirect(ds *rdf.Dataset, claimed []bool, subject rdf.Term, predicate st
 
 // annotationLabel resolves a field's display annotation from one value's
 // structure node: the distinct literals at the end of the annotation chain,
-// sorted and joined. Nothing is claimed -- the annotation's quads stay in
-// passthrough.
+// sorted and joined. When the leaf literals carry language tags, one
+// language is chosen first -- English, then untagged, then the
+// lexicographically first tag (the tasks/116 PickLabel order) -- so a
+// multilingual vocabulary annotates as one label, not a concatenation of
+// translations (tasks/145). Nothing is claimed -- the annotation's quads
+// stay in passthrough.
 func annotationLabel(ds *rdf.Dataset, node rdf.Term, chain []string) string {
 	terms := []rdf.Term{node}
 	for _, pred := range chain[:len(chain)-1] {
@@ -293,15 +297,36 @@ func annotationLabel(ds *rdf.Dataset, node rdf.Term, chain []string) string {
 		terms = next
 	}
 	leaf := chain[len(chain)-1]
-	seen := map[string]bool{}
-	var labels []string
+	byLang := map[string]map[string]bool{}
 	for _, t := range terms {
 		for _, o := range objectsAll(ds, t, leaf) {
-			if o.IsLiteral() && o.Value != "" && !seen[o.Value] {
-				seen[o.Value] = true
-				labels = append(labels, o.Value)
+			if o.IsLiteral() && o.Value != "" {
+				set := byLang[o.Lang]
+				if set == nil {
+					set = map[string]bool{}
+					byLang[o.Lang] = set
+				}
+				set[o.Value] = true
 			}
 		}
+	}
+	if len(byLang) == 0 {
+		return ""
+	}
+	lang := ""
+	if _, ok := byLang["en"]; ok {
+		lang = "en"
+	} else if _, ok := byLang[""]; !ok {
+		langs := make([]string, 0, len(byLang))
+		for l := range byLang {
+			langs = append(langs, l)
+		}
+		sort.Strings(langs)
+		lang = langs[0]
+	}
+	labels := make([]string, 0, len(byLang[lang]))
+	for l := range byLang[lang] {
+		labels = append(labels, l)
 	}
 	sort.Strings(labels)
 	return strings.Join(labels, ", ")

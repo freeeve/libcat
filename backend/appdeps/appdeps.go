@@ -196,6 +196,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		deps.Batch = &batch.Service{
 			Blob: deps.Blob, DB: db, MapperFn: profSvc.Mapper,
 			Queue: deps.Suggest, Trigger: notifier, Summaries: deps.WorkIndex,
+			Labels: deps.Vocab.LabelResolver(),
 		}
 		deps.Copycat = &copycat.Service{
 			Blob: deps.Blob, DB: db, Queue: deps.Suggest, Trigger: notifier,

@@ -143,8 +143,8 @@ func New(deps Deps) http.Handler {
 		if ix == nil {
 			ix = workindex.New(deps.Blob, "data/works/")
 		}
-		registerRecords(mux, deps.Blob, ix, deps.DB, deps.Suggest, deps.Profiles, deps.Verifier, hook)
-		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Verifier)
+		registerRecords(mux, deps.Blob, ix, deps.DB, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier, hook)
+		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier)
 		registerMaintenance(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
 		wl := registerWorksList(mux, ix, deps.Verifier)
 		registerTags(mux, wl, deps.Verifier)
