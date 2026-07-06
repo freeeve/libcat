@@ -10,9 +10,12 @@
     <h2 class="lcat-card-title">
       <a href="{{ .RelPermalink }}">{{ .Title }}</a>{{ with .Params.subtitle }}<span class="lcat-subtitle">: {{ . }}</span>{{ end }}
     </h2>
+    {{- /* Contributor names link to their term pages (tasks/129); the taxonomy
+           indexes raw names, so the name IS the lookup key (tasks/128). The role
+           suffix stays outside the link text. */}}
     {{- with .Params.contributorList }}
     <p class="lcat-contribs">
-      {{ range $i, $c := first 4 . }}{{ if $i }}; {{ end }}{{ $c.name }}{{ with $c.role }} <span class="lcat-role">({{ . }})</span>{{ end }}{{ end }}
+      {{ range $i, $c := first 4 . }}{{ if $i }}; {{ end }}{{ $url := partial "lcat-term-url.html" (dict "taxonomy" "contributors" "key" $c.name) }}{{ if $url }}<a href="{{ $url }}">{{ $c.name }}</a>{{ else }}{{ $c.name }}{{ end }}{{ with $c.role }} <span class="lcat-role">({{ . }})</span>{{ end }}{{ end }}
     </p>
     {{- end }}
     {{- /* Subject chips, linked to their term pages like the detail page's
