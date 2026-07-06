@@ -53,6 +53,8 @@ func runVocabSubset(args []string) error {
 		"suffix appended to each concept URI for per-term fetching (id.loc.gov convention; Homosaurus serves plain .nt)")
 	dump := fs.String("dump", "", "whole-vocabulary N-Triples/N-Quads dump (file path or URL, e.g. https://homosaurus.org/v3.nt) filtered locally instead of per-term fetching")
 	all := fs.Bool("all", false, "with --dump: keep the entire in-namespace vocabulary, not just the catalog's used slice")
+	fromCatalog := fs.Bool("from-catalog", false,
+		"emit the snapshot purely from catalog.json's subject labels and broader links -- no network (tasks/137); covers exactly the catalog's used slice")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -62,8 +64,32 @@ func runVocabSubset(args []string) error {
 	if *all && *dump == "" {
 		return fmt.Errorf("--all requires --dump (per-term fetching has no concept list beyond the catalog's)")
 	}
+	if *fromCatalog && *dump != "" {
+		return fmt.Errorf("--from-catalog and --dump are exclusive (the catalog IS the dump)")
+	}
 	if *catalogJSON == "" && !(*dump != "" && *all) {
 		return fmt.Errorf("--catalog is required (optional only with --dump --all)")
+	}
+
+	if *fromCatalog {
+		b, err := os.ReadFile(*catalogJSON)
+		if err != nil {
+			return err
+		}
+		var cat project.Catalog
+		if err := json.Unmarshal(b, &cat); err != nil {
+			return fmt.Errorf("parse catalog.json: %w", err)
+		}
+		data, terms := subsetFromCatalog(*scheme, *namespace, cat.Works)
+		if terms == 0 {
+			return fmt.Errorf("no labeled subjects under %q found in %s", *namespace, *catalogJSON)
+		}
+		if err := os.WriteFile(*out, data, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("wrote %d terms (from catalog labels, no network) to %s -- drop it under data/authorities/ and load scheme %q\n",
+			terms, *out, *scheme)
+		return nil
 	}
 
 	var uris []string
@@ -351,4 +377,84 @@ func subsetFromDump(scheme, namespace string, uris []string, all bool, dump []by
 		return nil, 0, fmt.Errorf("dump kept no concepts under %q -- wrong --namespace, or not an N-Triples/N-Quads dump", namespace)
 	}
 	return out, len(labeled), nil
+}
+
+// subsetFromCatalog emits the snapshot purely from catalog.json's own
+// subjects[].labels and broader links (tasks/137): the ingest emission
+// already wrote every used term's prefLabel into the feed graphs, and the
+// projector carried them here, so a corpus-sized index needs no network at
+// all -- the route for authorities whose per-term endpoints are flaky or
+// retired (FAST). Labels merge across works (first non-empty per language
+// wins), broader sets union, and concepts emit in sorted-URI order with
+// sorted languages/parents, so the output is deterministic. Broader targets
+// keep the catalog's URI form untouched -- they resolve against the same
+// exact-match index the subjects do. Returns the snapshot and the count of
+// labeled concepts. Pure.
+func subsetFromCatalog(scheme, namespace string, works []project.Work) ([]byte, int) {
+	type concept struct {
+		labels  map[string]string
+		broader map[string]bool
+	}
+	concepts := map[string]*concept{}
+	for _, w := range works {
+		for _, s := range w.Subjects {
+			if !strings.HasPrefix(s.ID, namespace) {
+				continue
+			}
+			c := concepts[s.ID]
+			if c == nil {
+				c = &concept{labels: map[string]string{}, broader: map[string]bool{}}
+				concepts[s.ID] = c
+			}
+			for lang, label := range s.Labels {
+				if label != "" && c.labels[lang] == "" {
+					c.labels[lang] = label
+				}
+			}
+			for _, b := range s.Broader {
+				if b != "" {
+					c.broader[b] = true
+				}
+			}
+		}
+	}
+	uris := make([]string, 0, len(concepts))
+	for uri := range concepts {
+		uris = append(uris, uri)
+	}
+	sort.Strings(uris)
+	graph := bibframe.AuthorityGraph(scheme)
+	var enc rdf.Encoder
+	var out []byte
+	terms := 0
+	for _, uri := range uris {
+		c := concepts[uri]
+		subj := rdf.NewIRI(uri)
+		langs := make([]string, 0, len(c.labels))
+		for lang := range c.labels {
+			langs = append(langs, lang)
+		}
+		sort.Strings(langs)
+		for _, lang := range langs {
+			out = enc.AppendQuad(out, rdf.Quad{
+				S: subj, P: rdf.NewIRI(subsetPrefLabel),
+				O: rdf.NewLiteral(c.labels[lang], lang, ""), G: graph,
+			})
+		}
+		parents := make([]string, 0, len(c.broader))
+		for b := range c.broader {
+			parents = append(parents, b)
+		}
+		sort.Strings(parents)
+		for _, b := range parents {
+			out = enc.AppendQuad(out, rdf.Quad{
+				S: subj, P: rdf.NewIRI("http://www.w3.org/2004/02/skos/core#broader"),
+				O: rdf.NewIRI(b), G: graph,
+			})
+		}
+		if len(langs) > 0 {
+			terms++
+		}
+	}
+	return out, terms
 }

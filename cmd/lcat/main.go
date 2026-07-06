@@ -119,6 +119,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lcat index --catalog <catalog.json> [--out <dir>]")
 	fmt.Fprintln(os.Stderr, "  lcat vocab-subset --catalog <catalog.json> --out <lcsh.nq> [--scheme lcsh] [--namespace <uri-prefix>]")
 	fmt.Fprintln(os.Stderr, "                    [--fetch-suffix .nt] [--dump <url-or-file> [--all]]   (non-LoC authorities, e.g. Homosaurus)")
+	fmt.Fprintln(os.Stderr, "                    [--from-catalog]   (no network: snapshot from catalog.json's own labels, e.g. FAST)")
 	fmt.Fprintln(os.Stderr, "  lcat merge --dir <grains> --from <workid> --to <workid>")
 	fmt.Fprintln(os.Stderr, "  lcat split --dir <grains> --from <workid> --instances <instid,instid,...>")
 }

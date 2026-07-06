@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/freeeve/libcatalog/project"
 )
 
 func TestSubsetFromNT(t *testing.T) {
@@ -167,5 +169,49 @@ func TestSubsetFromDumpEmpty(t *testing.T) {
 	}
 	if _, _, err := subsetFromDump("homosaurus", "https://example.org/other/", nil, true, []byte(homosaurusDump)); err == nil {
 		t.Fatal("want error for a namespace matching nothing, got nil")
+	}
+}
+
+func TestSubsetFromCatalog(t *testing.T) {
+	const ns = "http://id.worldcat.org/fast/"
+	works := []project.Work{
+		{ID: "w1", Subjects: []project.Subject{
+			{ID: ns + "1136767", Labels: map[string]string{"en": "Substance abuse"}},
+			{ID: ns + "796510", Labels: map[string]string{"en": "Lesbians", "es": "Lesbianas"},
+				Broader: []string{ns + "796500"}},
+			{ID: "https://homosaurus.org/v4/homoit0000506", Labels: map[string]string{"en": "Out of namespace"}},
+		}},
+		// A second work repeating a term with a label the first lacked: the
+		// language sets merge, first non-empty per language wins.
+		{ID: "w2", Subjects: []project.Subject{
+			{ID: ns + "1136767", Labels: map[string]string{"en": "IGNORED duplicate", "fr": "Toxicomanie"}},
+		}},
+	}
+	out, terms := subsetFromCatalog("fast", ns, works)
+	s := string(out)
+	if terms != 2 {
+		t.Fatalf("terms = %d, want 2 (in-namespace labeled concepts)", terms)
+	}
+	if !strings.Contains(s, "<authority:fast>") {
+		t.Fatalf("output not graphed authority:fast:\n%s", s)
+	}
+	for _, want := range []string{`"Substance abuse"@en`, `"Toxicomanie"@fr`, `"Lesbians"@en`, `"Lesbianas"@es`} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %s:\n%s", want, s)
+		}
+	}
+	if !strings.Contains(s, `<http://www.w3.org/2004/02/skos/core#broader> <`+ns+`796500>`) {
+		t.Fatalf("broader dropped:\n%s", s)
+	}
+	if strings.Contains(s, "IGNORED") {
+		t.Fatalf("later duplicate label overwrote the first:\n%s", s)
+	}
+	if strings.Contains(s, "homosaurus") {
+		t.Fatalf("out-of-namespace subject kept:\n%s", s)
+	}
+	// Deterministic: same input, same bytes.
+	again, _ := subsetFromCatalog("fast", ns, works)
+	if string(again) != s {
+		t.Fatal("output not deterministic")
 	}
 }
