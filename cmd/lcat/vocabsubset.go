@@ -46,26 +46,57 @@ func runVocabSubset(args []string) error {
 	catalogJSON := fs.String("catalog", "", "path to catalog.json (from lcat project)")
 	scheme := fs.String("scheme", "lcsh", "authority scheme for the output graph (authority:<scheme>)")
 	namespace := fs.String("namespace", "http://id.loc.gov/authorities/subjects/",
-		"subject URI namespace to harvest; the concept is fetched from <uri>.skos.nt (https)")
+		"subject URI namespace to harvest")
 	out := fs.String("out", "", "output .nq snapshot path")
 	concurrency := fs.Int("concurrency", 6, "parallel authority fetches")
+	suffix := fs.String("fetch-suffix", ".skos.nt",
+		"suffix appended to each concept URI for per-term fetching (id.loc.gov convention; Homosaurus serves plain .nt)")
+	dump := fs.String("dump", "", "whole-vocabulary N-Triples/N-Quads dump (file path or URL, e.g. https://homosaurus.org/v3.nt) filtered locally instead of per-term fetching")
+	all := fs.Bool("all", false, "with --dump: keep the entire in-namespace vocabulary, not just the catalog's used slice")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *catalogJSON == "" || *out == "" {
-		return fmt.Errorf("--catalog and --out are required")
+	if *out == "" {
+		return fmt.Errorf("--out is required")
+	}
+	if *all && *dump == "" {
+		return fmt.Errorf("--all requires --dump (per-term fetching has no concept list beyond the catalog's)")
+	}
+	if *catalogJSON == "" && !(*dump != "" && *all) {
+		return fmt.Errorf("--catalog is required (optional only with --dump --all)")
 	}
 
-	uris, err := catalogSubjectURIs(*catalogJSON, *namespace)
-	if err != nil {
-		return err
+	var uris []string
+	if *catalogJSON != "" {
+		var err error
+		uris, err = catalogSubjectURIs(*catalogJSON, *namespace)
+		if err != nil {
+			return err
+		}
 	}
-	if len(uris) == 0 {
+	if len(uris) == 0 && !(*dump != "" && *all) {
 		return fmt.Errorf("no subject URIs under %q found in %s", *namespace, *catalogJSON)
 	}
-	fmt.Printf("harvesting %d distinct %s subjects...\n", len(uris), *scheme)
 
-	nts := fetchConcepts(uris, *concurrency)
+	if *dump != "" {
+		body, err := readDump(*dump)
+		if err != nil {
+			return err
+		}
+		data, terms, err := subsetFromDump(*scheme, *namespace, uris, *all, body)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(*out, data, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("wrote %d terms (dump %s, %d catalog subjects) to %s -- drop it under data/authorities/ and load scheme %q\n",
+			terms, *dump, len(uris), *out, *scheme)
+		return nil
+	}
+
+	fmt.Printf("harvesting %d distinct %s subjects...\n", len(uris), *scheme)
+	nts := fetchConcepts(uris, *concurrency, *suffix)
 	data, terms := subsetFromNT(*scheme, *namespace, uris, nts)
 	if err := os.WriteFile(*out, data, 0o644); err != nil {
 		return err
@@ -100,10 +131,10 @@ func catalogSubjectURIs(path, namespace string) ([]string, error) {
 	return uris, nil
 }
 
-// fetchConcepts GETs each URI's SKOS N-Triples (<uri>.skos.nt over https),
+// fetchConcepts GETs each URI's SKOS N-Triples (<uri><suffix> over https),
 // returning a uri->body map. A failed fetch is logged and omitted (the term
 // simply stays unresolved, as it was before), never fatal.
-func fetchConcepts(uris []string, concurrency int) map[string][]byte {
+func fetchConcepts(uris []string, concurrency int, suffix string) map[string][]byte {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -118,7 +149,7 @@ func fetchConcepts(uris []string, concurrency int) map[string][]byte {
 		go func(uri string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			body, err := fetchConcept(client, uri)
+			body, err := fetchConcept(client, uri, suffix)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "skip %s: %v\n", uri, err)
 				return
@@ -132,9 +163,8 @@ func fetchConcepts(uris []string, concurrency int) map[string][]byte {
 	return out
 }
 
-func fetchConcept(client *http.Client, uri string) ([]byte, error) {
-	url := strings.Replace(uri, "http://", "https://", 1) + ".skos.nt"
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+func fetchConcept(client *http.Client, uri, suffix string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, conceptURL(uri, suffix), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -149,6 +179,38 @@ func fetchConcept(client *http.Client, uri string) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+}
+
+// conceptURL is a concept's per-term fetch URL: the URI forced to https plus the
+// authority's suffix convention -- id.loc.gov serves <uri>.skos.nt, Homosaurus
+// plain <uri>.nt (tasks/130).
+func conceptURL(uri, suffix string) string {
+	return strings.Replace(uri, "http://", "https://", 1) + suffix
+}
+
+// readDump loads a whole-vocabulary dump from a local file or an http(s) URL.
+// The Accept header covers authorities that content-negotiate rather than
+// publishing a suffixed dump URL.
+func readDump(src string) ([]byte, error) {
+	if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
+		return os.ReadFile(src)
+	}
+	client := &http.Client{Timeout: 5 * time.Minute}
+	req, err := http.NewRequest(http.MethodGet, src, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/n-triples")
+	req.Header.Set("User-Agent", "libcatalog lcat vocab-subset")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dump %s: HTTP %d", src, resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, 256<<20))
 }
 
 // schemeless strips a leading http(s):// so URIs that differ only by scheme
@@ -220,4 +282,73 @@ func subsetFromNT(scheme, namespace string, order []string, nts map[string][]byt
 		}
 	}
 	return out, terms
+}
+
+// subsetFromDump filters a whole-vocabulary N-Triples/N-Quads dump to the
+// catalog's concepts -- or, with all, to every in-namespace concept -- emitting
+// the same graph-tagged snapshot as per-term harvesting (tasks/130): one request
+// for a ~4k-term vocabulary like Homosaurus instead of thousands. URI scheme
+// normalization mirrors subsetFromNT: a concept the catalog carries takes the
+// catalog's exact URI form (the index matches URIs exactly); any other
+// in-namespace URI (a broader parent, an --all concept) takes the namespace
+// flag's scheme; URIs elsewhere are untouched. Returns the snapshot and the
+// count of prefLabel-bearing concepts kept. The dump is the sole input, so
+// keeping nothing (corrupt dump, wrong --namespace: the N-Quads parser skips
+// malformed lines rather than erroring) is fatal here, unlike per-concept
+// fetch skips. Pure.
+func subsetFromDump(scheme, namespace string, uris []string, all bool, dump []byte) ([]byte, int, error) {
+	ds, err := rdf.ParseNQuads(dump)
+	if err != nil {
+		return nil, 0, fmt.Errorf("parse dump: %w", err)
+	}
+	graph := bibframe.AuthorityGraph(scheme)
+	nsBare := schemeless(namespace)
+	nsScheme := "http"
+	if strings.HasPrefix(namespace, "https://") {
+		nsScheme = "https"
+	}
+	catalogForm := make(map[string]string, len(uris))
+	for _, u := range uris {
+		catalogForm[schemeless(u)] = u
+	}
+	norm := func(v string) string {
+		b := schemeless(v)
+		if cu, ok := catalogForm[b]; ok {
+			return cu
+		}
+		if strings.HasPrefix(b, nsBare) {
+			return nsScheme + "://" + b
+		}
+		return v
+	}
+	keep := func(s rdf.Term) bool {
+		if !s.IsIRI() {
+			return false
+		}
+		b := schemeless(s.Value)
+		if _, ok := catalogForm[b]; ok {
+			return true
+		}
+		return all && strings.HasPrefix(b, nsBare)
+	}
+	var enc rdf.Encoder
+	var out []byte
+	labeled := map[string]bool{}
+	for _, q := range ds.Quads {
+		if !keep(q.S) || !subsetKeep[q.P.Value] {
+			continue
+		}
+		if q.P.Value == subsetPrefLabel {
+			labeled[schemeless(q.S.Value)] = true
+		}
+		o := q.O
+		if o.IsIRI() {
+			o = rdf.NewIRI(norm(o.Value))
+		}
+		out = enc.AppendQuad(out, rdf.Quad{S: rdf.NewIRI(norm(q.S.Value)), P: q.P, O: o, G: graph})
+	}
+	if len(out) == 0 {
+		return nil, 0, fmt.Errorf("dump kept no concepts under %q -- wrong --namespace, or not an N-Triples/N-Quads dump", namespace)
+	}
+	return out, len(labeled), nil
 }

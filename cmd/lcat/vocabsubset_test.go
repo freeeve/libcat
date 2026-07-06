@@ -80,3 +80,92 @@ func TestSubsetFromNTHTTPS(t *testing.T) {
 		t.Fatalf("out-of-namespace URI wrongly re-schemed:\n%s", s)
 	}
 }
+
+// TestConceptURL covers the per-term fetch suffix (tasks/130): id.loc.gov's
+// .skos.nt convention stays the default; Homosaurus-style plain .nt works via
+// --fetch-suffix; http URIs are fetched over https either way.
+func TestConceptURL(t *testing.T) {
+	if got := conceptURL("http://id.loc.gov/authorities/subjects/sh85118629", ".skos.nt"); got != "https://id.loc.gov/authorities/subjects/sh85118629.skos.nt" {
+		t.Errorf("conceptURL default = %q", got)
+	}
+	if got := conceptURL("https://homosaurus.org/v3/homoit0000027", ".nt"); got != "https://homosaurus.org/v3/homoit0000027.nt" {
+		t.Errorf("conceptURL homosaurus = %q", got)
+	}
+}
+
+// homosaurusDump is a Homosaurus-shaped whole-vocabulary dump (tasks/130): three
+// concepts with prefLabels and hierarchy, plus non-SKOS noise, plus a subject
+// outside the namespace that must never be kept.
+const homosaurusDump = `<https://homosaurus.org/v3/homoit0000027> <http://www.w3.org/2004/02/skos/core#prefLabel> "Aromantic"@en .
+<https://homosaurus.org/v3/homoit0000027> <http://www.w3.org/2004/02/skos/core#broader> <https://homosaurus.org/v3/homoit0000080> .
+<https://homosaurus.org/v3/homoit0000027> <http://purl.org/dc/terms/identifier> "homoit0000027" .
+<https://homosaurus.org/v3/homoit0000080> <http://www.w3.org/2004/02/skos/core#prefLabel> "Asexual spectrum"@en .
+<https://homosaurus.org/v3/homoit0000556> <http://www.w3.org/2004/02/skos/core#prefLabel> "Lesbians"@en .
+<http://www.wikidata.org/entity/Q24925> <http://www.w3.org/2004/02/skos/core#prefLabel> "science fiction"@en .
+`
+
+// TestSubsetFromDump covers the dump filter mode: only the catalog's concepts
+// are kept (plus their kept predicates), noise predicates and other concepts
+// are dropped, and the count reflects prefLabel-bearing kept concepts.
+func TestSubsetFromDump(t *testing.T) {
+	const ns = "https://homosaurus.org/v3/"
+	uris := []string{"https://homosaurus.org/v3/homoit0000027"}
+	out, terms, err := subsetFromDump("homosaurus", ns, uris, false, []byte(homosaurusDump))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if terms != 1 {
+		t.Fatalf("terms = %d, want 1", terms)
+	}
+	if !strings.Contains(s, "<authority:homosaurus>") {
+		t.Fatalf("output not graph-tagged authority:homosaurus:\n%s", s)
+	}
+	if !strings.Contains(s, `"Aromantic"@en`) || !strings.Contains(s, "homoit0000080") {
+		t.Fatalf("kept concept's prefLabel/broader missing:\n%s", s)
+	}
+	if strings.Contains(s, "identifier") {
+		t.Fatalf("non-SKOS noise kept:\n%s", s)
+	}
+	if strings.Contains(s, `"Lesbians"@en`) || strings.Contains(s, "Q24925") {
+		t.Fatalf("concepts outside the catalog's slice kept without --all:\n%s", s)
+	}
+}
+
+// TestSubsetFromDumpAll covers --dump --all: the entire in-namespace vocabulary
+// is kept (no catalog needed), out-of-namespace subjects are still dropped, and
+// a catalog URI form still wins for concepts the catalog carries.
+func TestSubsetFromDumpAll(t *testing.T) {
+	const ns = "https://homosaurus.org/v3/"
+	// The catalog carries the http form of one concept: its form must win.
+	uris := []string{"http://homosaurus.org/v3/homoit0000556"}
+	out, terms, err := subsetFromDump("homosaurus", ns, uris, true, []byte(homosaurusDump))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	if terms != 3 {
+		t.Fatalf("terms = %d, want 3 (all in-namespace prefLabel-bearing concepts)", terms)
+	}
+	if strings.Contains(s, "Q24925") {
+		t.Fatalf("out-of-namespace subject kept:\n%s", s)
+	}
+	if !strings.Contains(s, "<http://homosaurus.org/v3/homoit0000556>") {
+		t.Fatalf("catalog's URI form did not win for its concept:\n%s", s)
+	}
+	if strings.Contains(s, "<https://homosaurus.org/v3/homoit0000556>") {
+		t.Fatalf("dump's URI form leaked for a catalog-carried concept:\n%s", s)
+	}
+}
+
+// TestSubsetFromDumpEmpty: a dump that yields nothing (corrupt -- the N-Quads
+// parser skips malformed lines rather than erroring -- or a wrong --namespace)
+// is fatal, unlike per-term fetch skips: the dump is the sole input.
+func TestSubsetFromDumpEmpty(t *testing.T) {
+	if _, _, err := subsetFromDump("homosaurus", "https://homosaurus.org/v3/", nil, true, []byte("<not nquads")); err == nil {
+		t.Fatal("want error for a dump keeping no concepts, got nil")
+	}
+	if _, _, err := subsetFromDump("homosaurus", "https://example.org/other/", nil, true, []byte(homosaurusDump)); err == nil {
+		t.Fatal("want error for a namespace matching nothing, got nil")
+	}
+}
