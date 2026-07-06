@@ -82,3 +82,15 @@ other = "Dark mode"
 
 [lightMode]
 other = "Light mode"
+
+# Negative facet filters (tasks/144, opt-in via [params.facets] negatives).
+# excludedTerm/removeExclusion pass through to the client script with .Label
+# = "%s"; the script substitutes the term's display label.
+[excludeTerm]
+other = "Exclude {{ .Label }}"
+
+[excludedTerm]
+other = "Not {{ .Label }}"
+
+[removeExclusion]
+other = "Remove exclusion of {{ .Label }}"

@@ -7,7 +7,22 @@
        work's card is identical everywhere it appears (works list pagers, every term
        page it belongs to), so it renders once per work per language instead of once
        per appearance. Keep the output a function of the work page alone. */ -}}
-<article class="lcat-card">
+{{- /* Negative facet filters (tasks/144): the card carries its term keys as
+       data attributes (pipe-separated, per taxonomy) so lcat-negatives.js can
+       hide cards matching an exclusion. Emitted only when the site opts in --
+       zero HTML weight otherwise. The keys match what the sidebar links/
+       excludes by: adapter slugs for subjects/tags/extra dimensions, capped
+       names for contributors, raw values for the rest. */ -}}
+{{- $negTerms := dict -}}
+{{- if site.Params.facets.negatives -}}
+  {{- $dims := slice "subjects" "tags" "languages" "classifications" "formats" "contributors" -}}
+  {{- range $name, $cfg := (or site.Params.extraFacets dict) -}}{{- $dims = $dims | append $name -}}{{- end -}}
+  {{- range $dims -}}
+    {{- $tax := . -}}
+    {{- with index $.Params $tax -}}{{- $negTerms = merge $negTerms (dict $tax (delimit . "|")) -}}{{- end -}}
+  {{- end -}}
+{{- end -}}
+<article class="lcat-card"{{ range $tax, $terms := $negTerms }} data-lcat-{{ $tax }}="{{ $terms }}"{{ end }}>
   {{- if site.Params.covers }}{{ partial "lcat-cover.html" (dict "url" .Params.cover "title" .Title "variant" "card") }}{{ end }}
   <div class="lcat-card-body">
     {{- /* h2: a result card sits directly under the page h1, so this is the next

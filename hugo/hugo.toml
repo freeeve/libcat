@@ -55,3 +55,13 @@
   #     extra = "sources"           # extras key (default: the entry name)
   #     split = ","                 # omit for single-valued extras
   #     title = "Sources"
+
+  # Negative facet filters (tasks/144), OFF by default: exclusion UI (and
+  # x<taxonomy>=<term> URL state) is not every catalog's call. When enabled,
+  # each facet row gets an exclude button, exclusions render as dismissible
+  # "Not X" chips above the results, and result cards carrying an excluded
+  # term hide client-side (current page only -- plain term pages stay
+  # precomputed HTML). Buttons, not links: exclusion URLs are not crawlable.
+  #
+  #   [params.facets]
+  #     negatives = true

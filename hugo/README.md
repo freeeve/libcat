@@ -136,6 +136,32 @@ param -- lowercase, and not one of the module's reserved param names. Under
 the same-name key, the split slice replaces the raw extras string in page
 params (an overridden `work-extra.html` reading it sees a slice).
 
+## Negative facet filters (tasks/144, opt-in)
+
+Readers can filter works OUT by a facet term ("browse Lesbians, excluding Gay
+men") -- a real discovery need, but not every catalog's call, so it is off
+unless the site opts in:
+
+```toml
+[params.facets]
+  negatives = true
+```
+
+Each facet row then gets a small exclude button; active exclusions render as
+dismissible "Not X" chips above the results, hide the result cards carrying
+the excluded term, and ride the URL as `x<taxonomy>=<term>` (repeatable, the
+qllpoc convention) so a filtered view is shareable. Sidebar and pagination
+links are rewritten client-side to carry active exclusions while browsing.
+Chip and button strings localize via the `excludeTerm` / `excludedTerm` /
+`removeExclusion` i18n keys.
+
+Scope and limits: exclusion is client-side over the rendered page --
+buttons, not links, so exclusion URLs are never crawlable, and only the
+current (paginated) page's cards hide; the result count and plain taxonomy
+term pages stay the precomputed totals. A deployment whose search shadow
+uses the roaringrange wasm reader can apply the same x-params with andnot()
+server-shaped; keep the param convention shared.
+
 ## SEO head (default)
 
 The base template ships the SEO basics for every page (tasks/119), so an adopter

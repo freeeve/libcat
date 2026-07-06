@@ -72,6 +72,16 @@ other = "{{ .Count }} obras"
 [sources]
 other = "Fuentes"
 
+# Negative facet filters (tasks/144).
+[excludeTerm]
+other = "Excluir {{ .Label }}"
+
+[excludedTerm]
+other = "Sin {{ .Label }}"
+
+[removeExclusion]
+other = "Quitar la exclusión de {{ .Label }}"
+
 # Language display names (tasks/142): "lang-<639-2 code>" overrides the
 # module's shipped English name table (data/lcat/languageNames.toml) per
 # code -- translate only the codes the corpus carries.

@@ -48,8 +48,9 @@
       {{- range first $facetLimit $entries }}
       {{- $count := .count }}
       {{- $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
-      {{- $url := partial "lcat-term-url.html" (dict "taxonomy" "subjects" "key" (partial "lcat-subject-key.html" (dict "label" $label "scheme" .scheme))) }}
-      <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span>{{ end }}</li>
+      {{- $key := string (partial "lcat-subject-key.html" (dict "label" $label "scheme" .scheme)) }}
+      {{- $url := partial "lcat-term-url.html" (dict "taxonomy" "subjects" "key" $key) }}
+      <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span>{{ end }}{{ partial "lcat-facet-exclude.html" (dict "taxonomy" "subjects" "term" $key "label" $label) }}</li>
       {{- end }}
     </ul>
   </details>
@@ -82,7 +83,7 @@
                both keep keying/linking on the raw value. */}}
         {{- $display := .value }}{{ if eq $dim.key "languages" }}{{ $display = partial "lcat-lang-name.html" .value }}{{ else if eq $dim.key "classifications" }}{{ $display = or .label .value }}{{ end }}
         {{- $url := partial "lcat-term-url.html" (dict "taxonomy" $dim.key "key" $key) }}
-        <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span>{{ end }}</li>
+        <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span>{{ end }}{{ partial "lcat-facet-exclude.html" (dict "taxonomy" $dim.key "term" (string $key) "label" (string $display)) }}</li>
         {{- end }}
       </ul>
     </details>
@@ -103,9 +104,10 @@
       {{- end }}
       <ul>
         {{- range first $facetLimit .ByCount }}
-        {{- $count := .Count }}
-        {{- with site.GetPage (printf "/%s/%s" $name .Name) }}
-        <li><a href="{{ .RelPermalink }}"><span class="lcat-facet-value">{{ partial "lcat-extra-facet-label.html" . }}</span> <span class="lcat-count">{{ $count }}</span></a></li>
+        {{- $count := .Count }}{{ $key := .Name }}
+        {{- with site.GetPage (printf "/%s/%s" $name $key) }}
+        {{- $label := string (partial "lcat-extra-facet-label.html" .) }}
+        <li><a href="{{ .RelPermalink }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span></a>{{ partial "lcat-facet-exclude.html" (dict "taxonomy" $name "term" $key "label" $label) }}</li>
         {{- end }}
         {{- end }}
       </ul>
@@ -116,4 +118,11 @@
 {{- /* Type-to-filter over the rendered facet entries (tasks/141) -- pure
        client-side, so this partial stays page-invariant (tasks/133). */ -}}
 {{ with resources.Get "lcat-facets.js" }}{{ with . | fingerprint }}<script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>{{ end }}{{ end }}
+{{- /* Negative facet filters (tasks/144, opt-in): the config carries the
+       localized chip strings with "%s" where the script substitutes the
+       term's display label. Also pure client-side and page-invariant. */ -}}
+{{- if site.Params.facets.negatives }}
+<script id="lcat-negatives-config" type="application/json">{{ dict "excluded" (string (i18n "excludedTerm" (dict "Label" "%s"))) "remove" (string (i18n "removeExclusion" (dict "Label" "%s"))) | jsonify | safeJS }}</script>
+{{ with resources.Get "lcat-negatives.js" }}{{ with . | fingerprint }}<script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>{{ end }}{{ end }}
+{{- end }}
 {{- end -}}

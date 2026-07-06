@@ -276,7 +276,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border-radius: 4px;
 }
 .lcat-facets ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.lcat-facets li { display: flex; align-items: center; gap: 0.3rem; }
 .lcat-facets li a {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   justify-content: space-between;
   gap: 0.5rem;
@@ -284,6 +287,48 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   text-decoration: none;
 }
 .lcat-facets li a:hover .lcat-facet-value { text-decoration: underline; }
+/* Negative facet filters (tasks/144): the per-row exclude button, the "Not X"
+   chips above the results, and the class lcat-negatives.js hides cards with.
+   The exclusion state borrows the availability "none" red. */
+.lcat-facet-not {
+  flex: none;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  color: var(--lcat-muted);
+  background: none;
+  border: 1px solid var(--lcat-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.lcat-facet-not:hover,
+.lcat-facet-not[aria-pressed="true"] {
+  color: var(--lcat-avail-none);
+  border-color: currentColor;
+}
+.lcat-excluded { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.75rem; padding: 0; }
+.lcat-excluded[hidden] { display: none; }
+.lcat-excluded li {
+  font-size: 0.8rem;
+  color: var(--lcat-avail-none);
+  background: var(--lcat-surface-alt);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.1rem 0.35rem 0.1rem 0.6rem;
+}
+.lcat-excluded li button {
+  font: inherit;
+  line-height: 1;
+  padding: 0 0.15rem;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.lcat-neg-hidden { display: none; }
 .lcat-results { list-style: none; margin: 0; padding: 0; }
 .lcat-results > li { padding: 0.9rem 0; border-bottom: 1px solid var(--lcat-border); }
 /* Card is a flex row so an optional cover sits beside the text block; with covers off
