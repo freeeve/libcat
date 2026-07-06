@@ -1,0 +1,14 @@
+{{- /*
+  Resolves a taxonomy term's URL from the term page Hugo actually minted, via
+  site.GetPage -- never reconstructed from the value (tasks/128). Reconstruction
+  (lcat-slug | urlize) and Hugo's own term slugging disagree on periods ("Kuang,
+  R.F." links as kuang-r-f but mints at kuang-r.f.), so every dotted term 404'd.
+
+  Input dict: "taxonomy" (plural key, e.g. "contributors") and "key" -- the value
+  the content adapter indexed: the lcat-slug for subjects/tags (tasks/023), the
+  raw value for contributors/formats/languages/classifications.
+
+  Output: the term page's RelPermalink (language-scoped), or empty when no term
+  page exists -- callers wrap in `with` and fall back to unlinked text.
+*/ -}}
+{{- with site.GetPage (printf "/%s/%s" .taxonomy .key) }}{{ .RelPermalink }}{{ end -}}
