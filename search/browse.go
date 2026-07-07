@@ -29,6 +29,7 @@ import (
 
 // Browse artifact filenames.
 const (
+	BrowseIndexName  = "browse-index.rrs"
 	BrowseRecordsBin = "browse-records.bin"
 	BrowseRecordsIdx = "browse-records.idx"
 	BrowseFacetsName = "browse-facets.rrsf"
@@ -82,9 +83,16 @@ func BuildBrowse(cat *project.Catalog, sink storage.Sink) error {
 		bm.Add(doc)
 	}
 
+	// A single global trigram index over all Works, in the same doc order as the
+	// records and facets, so RrsCatalog.openAll ties search + facets + records
+	// into one doc space (language-agnostic; the per-language stemmed indexes in
+	// search.go remain for a future stemmed-search refinement).
+	tri := rr.NewTrigramMonolithBuilder(trigramGramSize, 0)
+
 	for i, w := range cat.Works {
 		doc := uint32(i)
 		docIDs[i] = w.ID
+		tri.AddText(searchText(w))
 		card := browseCard{ID: w.ID, Title: w.Title, Subtitle: w.Subtitle, Formats: w.Formats, Held: w.Held, Cover: w.Extra["cover"]}
 		for _, c := range w.Contributors {
 			card.Contributors = append(card.Contributors, c.Name)
@@ -112,6 +120,9 @@ func BuildBrowse(cat *project.Catalog, sink storage.Sink) error {
 		}
 	}
 
+	if err := writeTrigram(sink, BrowseIndexName, tri); err != nil {
+		return err
+	}
 	if err := writeRecords(sink, records); err != nil {
 		return err
 	}

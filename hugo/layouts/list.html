@@ -7,7 +7,7 @@
 {{ $pages := .RegularPagesRecursive }}
 {{ $paginator := .Paginate $pages }}
 <p class="lcat-resultcount" role="status">{{ i18n "workCount" (len $pages) }}</p>
-<ol class="lcat-results" id="lcat-results">
+<ol class="lcat-results" id="lcat-results"{{ if eq (site.Params.search.engine | default "") "roaringrange" }} data-lcat-browse="{{ site.Params.search.base | default "/search" }}"{{ end }}>
   {{ range $paginator.Pages }}
   <li>{{ partialCached "work-card.html" . .RelPermalink }}</li>
   {{ end }}

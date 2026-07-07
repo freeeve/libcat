@@ -51,16 +51,26 @@ cross-repo blocker**:
    bridge into this space and cards link to `/works/<id>`). The per-language
    search indexes keep their own doc spaces; the client bridges via the Work id.
    (RRIL identifier lookup deferred -- not needed for browse/facets/details.)
-2. **Wire the WASM reader in Hugo.** Ship `roaringrange_reader` (wasm + JS glue)
-   as a Hugo asset; boot `RrsCatalog.openAll(...)` (or `RrtIndex` +
-   `RrfFacets` + `RrsRecords` for the term path) in the browse shell; render
-   search results, facet counts, pagination (`RrsCursor`), and detail cards from
-   the record store -- replacing the interim substring filter (`lcat-search.js`,
-   an explicit stopgap) and reusing the existing facet UI (`lcat-facets.js`).
-   The `<noscript>`/full-list path stays as progressive-enhancement fallback.
-3. **Term vs trigram:** the reader supports both; keep the build's per-language
-   routing (RRTI term for segmented, RRS trigram for unsegmented) and open the
-   matching reader class per the manifest.
+2. **[PARTIAL] Wire the WASM reader in Hugo.** Done: the build also emits a
+   global trigram index `browse-index.rrs` (aligned with the global facets +
+   records doc space) so `RrsCatalog.openAll` ties all three together in one
+   space; `roaringrange_reader` (wasm + JS glue) is vendored at
+   `hugo/static/lcat/`; `hugo/assets/lcat-browse.js` (loaded as a module when
+   `[params.search] engine = "roaringrange"`) boots `RrsCatalog.openAll(...)` and
+   replaces the results list with ranked search over the reader, restoring the
+   static list when the query clears and falling back silently if the reader or
+   artifacts are missing. Verified: Hugo builds (default byte-identical;
+   roaringrange wires the module + publishes the reader), JS syntax, existing JS
+   tests, a11y. **Not yet done:** facet *filtering* (pass `filters_json` from the
+   sidebar) and facet-only browse -- these ride the facet-sidebar rework in
+   task 157, and the reader already returns `facetCounts` for when it lands. The
+   deployment publishes the `lcat index` artifacts at `[params.search] base`
+   (default `/search`). **Browser verification pending** (jsdom cannot run ES
+   modules/WASM; needs a real browser).
+3. **Term vs trigram:** the client browse uses the global trigram index (language
+   -agnostic, one doc space with facets/records). The per-language RRTI/RRS
+   indexes (search.go) stay for a future stemmed-search refinement, bridged via
+   `browse-docs.json` (doc id -> Work id).
 
 ## Verify
 

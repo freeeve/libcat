@@ -30,7 +30,7 @@ func TestBuildBrowse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, f := range []string{BrowseRecordsBin, BrowseRecordsIdx, BrowseFacetsName, BrowseDocsName} {
+	for _, f := range []string{BrowseIndexName, BrowseRecordsBin, BrowseRecordsIdx, BrowseFacetsName, BrowseDocsName} {
 		if _, ok := sink.files[f]; !ok {
 			t.Fatalf("missing artifact %s", f)
 		}
