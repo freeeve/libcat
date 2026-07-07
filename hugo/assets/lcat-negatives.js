@@ -13,16 +13,43 @@
  */
 (function () {
   "use strict";
-  var buttons = Array.prototype.slice.call(document.querySelectorAll("[data-lcat-exclude]"));
-  if (buttons.length === 0) return;
   var results = document.getElementById("lcat-results");
-  var strings = { excluded: "Not %s", remove: "Remove exclusion of %s" };
+  var strings = { exclude: "Exclude %s", excluded: "Not %s", remove: "Remove exclusion of %s" };
   var cfgEl = document.getElementById("lcat-negatives-config");
   if (cfgEl) {
     try { strings = JSON.parse(cfgEl.textContent); } catch (e) { /* defaults */ }
   }
+
+  // The buttons ship hidden and nearly attribute-free (tasks/148: at catalog
+  // scale, repeated attributes cost gigabytes of built HTML). Everything
+  // hydrates from the row's anchor: the taxonomy is the term URL's
+  // second-to-last path segment (language prefixes and subpath deploys both
+  // precede it), the term key its last segment, the label the anchor's
+  // facet-value text. Rows whose indexed key differs from the URL slug
+  // (contributors "Byron, Grace" -> byron-grace, classifications lowercase)
+  // ship data-lcat-term with the exact key x-params and card attributes use.
+  // A row without a link (no term page) keeps its button hidden.
+  var buttons = [];
   var taxonomies = {};
-  buttons.forEach(function (b) { taxonomies[b.getAttribute("data-lcat-taxonomy")] = true; });
+  Array.prototype.forEach.call(document.querySelectorAll("button.lcat-facet-not"), function (el) {
+    var a = el.parentElement && el.parentElement.querySelector("a[href]");
+    if (!a) return;
+    var segs = new URL(a.getAttribute("href"), window.location.href).pathname.split("/").filter(Boolean);
+    if (segs.length < 2) return;
+    var label = a.querySelector(".lcat-facet-value");
+    var b = {
+      el: el,
+      taxonomy: segs[segs.length - 2],
+      term: el.getAttribute("data-lcat-term") || segs[segs.length - 1],
+      label: (label ? label.textContent : a.textContent).trim(),
+    };
+    el.setAttribute("aria-label", strings.exclude.replace("%s", b.label));
+    el.title = strings.exclude.replace("%s", b.label);
+    el.hidden = false;
+    buttons.push(b);
+    taxonomies[b.taxonomy] = true;
+  });
+  if (buttons.length === 0) return;
 
   function exclusions() {
     var out = [];
@@ -41,8 +68,8 @@
   function labelFor(ex) {
     var label = ex.term;
     buttons.forEach(function (b) {
-      if (b.getAttribute("data-lcat-taxonomy") === ex.taxonomy && b.getAttribute("data-lcat-term") === ex.term) {
-        label = b.getAttribute("data-lcat-label") || ex.term;
+      if (b.taxonomy === ex.taxonomy && b.term === ex.term) {
+        label = b.label || ex.term;
       }
     });
     return label;
@@ -113,8 +140,7 @@
     hideCards(xs);
     rewriteLinks(xs);
     buttons.forEach(function (b) {
-      var on = isExcluded(xs, b.getAttribute("data-lcat-taxonomy"), b.getAttribute("data-lcat-term"));
-      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.el.setAttribute("aria-pressed", isExcluded(xs, b.taxonomy, b.term) ? "true" : "false");
     });
   }
 
@@ -131,10 +157,8 @@
   }
 
   buttons.forEach(function (b) {
-    b.addEventListener("click", function () {
-      var taxonomy = b.getAttribute("data-lcat-taxonomy");
-      var term = b.getAttribute("data-lcat-term");
-      toggle(taxonomy, term, !isExcluded(exclusions(), taxonomy, term));
+    b.el.addEventListener("click", function () {
+      toggle(b.taxonomy, b.term, !isExcluded(exclusions(), b.taxonomy, b.term));
     });
   });
   apply();

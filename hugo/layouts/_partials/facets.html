@@ -50,7 +50,7 @@
       {{- $label := .id }}{{ with .labels }}{{ $label = or (index . $lang) (index . "en") $label }}{{ end }}
       {{- $key := string (partial "lcat-subject-key.html" (dict "label" $label "scheme" .scheme)) }}
       {{- $url := partial "lcat-term-url.html" (dict "taxonomy" "subjects" "key" $key) }}
-      <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span>{{ end }}{{ partial "lcat-facet-exclude.html" (dict "taxonomy" "subjects" "term" $key "label" $label) }}</li>
+      <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span>{{ end }}{{ partial "lcat-facet-exclude.html" (dict "term" $key "url" (string $url)) }}</li>
       {{- end }}
     </ul>
   </details>
@@ -83,7 +83,7 @@
                both keep keying/linking on the raw value. */}}
         {{- $display := .value }}{{ if eq $dim.key "languages" }}{{ $display = partial "lcat-lang-name.html" .value }}{{ else if eq $dim.key "classifications" }}{{ $display = or .label .value }}{{ end }}
         {{- $url := partial "lcat-term-url.html" (dict "taxonomy" $dim.key "key" $key) }}
-        <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span>{{ end }}{{ partial "lcat-facet-exclude.html" (dict "taxonomy" $dim.key "term" (string $key) "label" (string $display)) }}</li>
+        <li>{{ if $url }}<a href="{{ $url }}"><span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span></a>{{ else }}<span class="lcat-facet-value">{{ $display }}</span> <span class="lcat-count">{{ .count }}</span>{{ end }}{{ partial "lcat-facet-exclude.html" (dict "term" (string $key) "url" (string $url)) }}</li>
         {{- end }}
       </ul>
     </details>
@@ -107,7 +107,7 @@
         {{- $count := .Count }}{{ $key := .Name }}
         {{- with site.GetPage (printf "/%s/%s" $name $key) }}
         {{- $label := string (partial "lcat-extra-facet-label.html" .) }}
-        <li><a href="{{ .RelPermalink }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span></a>{{ partial "lcat-facet-exclude.html" (dict "taxonomy" $name "term" $key "label" $label) }}</li>
+        <li><a href="{{ .RelPermalink }}"><span class="lcat-facet-value">{{ $label }}</span> <span class="lcat-count">{{ $count }}</span></a>{{ partial "lcat-facet-exclude.html" (dict "term" $key "url" .RelPermalink) }}</li>
         {{- end }}
         {{- end }}
       </ul>
@@ -122,7 +122,7 @@
        localized chip strings with "%s" where the script substitutes the
        term's display label. Also pure client-side and page-invariant. */ -}}
 {{- if site.Params.facets.negatives }}
-<script id="lcat-negatives-config" type="application/json">{{ dict "excluded" (string (i18n "excludedTerm" (dict "Label" "%s"))) "remove" (string (i18n "removeExclusion" (dict "Label" "%s"))) | jsonify | safeJS }}</script>
+<script id="lcat-negatives-config" type="application/json">{{ dict "exclude" (string (i18n "excludeTerm" (dict "Label" "%s"))) "excluded" (string (i18n "excludedTerm" (dict "Label" "%s"))) "remove" (string (i18n "removeExclusion" (dict "Label" "%s"))) | jsonify | safeJS }}</script>
 {{ with resources.Get "lcat-negatives.js" }}{{ with . | fingerprint }}<script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>{{ end }}{{ end }}
 {{- end }}
 {{- end -}}

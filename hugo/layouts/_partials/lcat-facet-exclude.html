@@ -2,11 +2,28 @@
   Exclude affordance for one facet term row (tasks/144) -- rendered only when
   the site opts in ([params.facets] negatives = true). A button, not a link:
   exclusion URLs must not be crawlable, and lcat-negatives.js owns the URL
-  state (x<taxonomy>=<term>, repeatable). data-lcat-term is the taxonomy key
-  the work cards carry; data-lcat-label the display text for the "Not X" chip.
+  state (x<taxonomy>=<term>, repeatable).
 
-  Input dict: "taxonomy" (plural key), "term" (indexed key), "label" (display).
+  Deliberately minimal markup (tasks/148: at catalog scale every sidebar row
+  repeats on every page, and redundant attributes cost gigabytes of built
+  HTML): the button ships hidden and nameless; lcat-negatives.js derives the
+  taxonomy, term, and display label from the row's anchor, sets
+  aria-label/title/aria-pressed, and unhides it. No JS = no button, which is
+  honest (it does nothing without JS). data-lcat-term is emitted ONLY when
+  the indexed key differs from the term URL's last segment (Hugo slugs the
+  segment: contributors "Byron, Grace" -> byron-grace, classifications
+  lowercase) -- x-params and the cards' data attributes carry the exact key,
+  so those rows must ship it; slug-keyed dimensions (subjects, tags,
+  languages, extra facets) derive it from the href for free.
+
+  Input dict: "term" (the indexed taxonomy key), "url" (the row's term-page
+  URL, "" when unlinked -- unlinked rows keep their button hidden).
 */ -}}
 {{- if site.Params.facets.negatives -}}
-<button type="button" class="lcat-facet-not" data-lcat-exclude data-lcat-taxonomy="{{ .taxonomy }}" data-lcat-term="{{ .term }}" data-lcat-label="{{ .label }}" aria-pressed="false" aria-label="{{ i18n "excludeTerm" (dict "Label" .label) }}" title="{{ i18n "excludeTerm" (dict "Label" .label) }}">&#x2212;</button>
+{{- $seg := "" -}}
+{{- with string .url -}}
+  {{- $parts := split (strings.Trim . "/") "/" -}}
+  {{- $seg = index $parts (sub (len $parts) 1) -}}
+{{- end -}}
+<button type="button" class="lcat-facet-not"{{ if ne $seg .term }} data-lcat-term="{{ .term }}"{{ end }} hidden>&#x2212;</button>
 {{- end -}}
