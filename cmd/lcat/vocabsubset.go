@@ -51,7 +51,7 @@ func runVocabSubset(args []string) error {
 	concurrency := fs.Int("concurrency", 6, "parallel authority fetches")
 	suffix := fs.String("fetch-suffix", ".skos.nt",
 		"suffix appended to each concept URI for per-term fetching (id.loc.gov convention; Homosaurus serves plain .nt)")
-	dump := fs.String("dump", "", "whole-vocabulary N-Triples/N-Quads dump (file path or URL, e.g. https://homosaurus.org/v3.nt) filtered locally instead of per-term fetching")
+	dump := fs.String("dump", "", "whole-vocabulary N-Triples/N-Quads dump (file path or URL, e.g. https://homosaurus.org/v5.nt) filtered locally instead of per-term fetching")
 	all := fs.Bool("all", false, "with --dump: keep the entire in-namespace vocabulary, not just the catalog's used slice")
 	fromCatalog := fs.Bool("from-catalog", false,
 		"emit the snapshot purely from catalog.json's subject labels and broader links -- no network (tasks/137); covers exactly the catalog's used slice")

@@ -31,7 +31,7 @@
       scheme: "homosaurus",
       license: "CC-BY-4.0",
       homepage: "https://homosaurus.org",
-      snapshotUrl: "https://homosaurus.org/v4.nt",
+      snapshotUrl: "https://homosaurus.org/v5.nt",
       blurb: "Homosaurus (LGBTQ+ vocabulary)",
     },
     {
