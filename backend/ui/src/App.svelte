@@ -4,7 +4,7 @@
   // land on #/login.
   import { onMount } from "svelte";
   import { loadConfig } from "./lib/config";
-  import { canAdmin, getToken, handleOidcCallback, logout, session } from "./lib/auth";
+  import { CALLBACK_PATH, canAdmin, getToken, handleOidcCallback, logout, session } from "./lib/auth";
   import { initTheme, toggleTheme, type Theme } from "./lib/theme";
   import { resolve, navigate, type RouteDef } from "./lib/router";
   import { configStore, sessionStore } from "./lib/stores";
@@ -102,7 +102,14 @@
 
   async function boot(): Promise<void> {
     configStore.set(await loadConfig());
-    if (route.name === "callback") {
+    if (location.pathname === CALLBACK_PATH) {
+      // Real-path OIDC redirect: the issuer returns to /_auth/callback?code=...
+      // with an empty hash, so the hash router never reaches the callback
+      // route. Complete the exchange here, then restore the hash root so
+      // normal routing (and the auth gate) takes over.
+      await handleOidcCallback();
+      history.replaceState(null, "", location.origin + "/#/");
+    } else if (route.name === "callback") {
       await handleOidcCallback();
     } else {
       await getToken(); // resume a refreshable session if one exists

@@ -2,7 +2,7 @@
 // tokens, refresh is single-flight and rotates the stored refresh token, a
 // definitive refresh failure clears the session. No network.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getToken, invalidateAccess, loginLocal, session } from "./auth";
+import { getToken, handleOidcCallback, invalidateAccess, loginLocal, session, startOidcLogin } from "./auth";
 import { setConfig } from "./config";
 
 const REFRESH_KEY = "lcat-refresh";
@@ -97,5 +97,53 @@ describe("refresh", () => {
     await loginLocal("a@b.co", "pw");
     await expect(getToken()).resolves.toBe("");
     expect(localStorage.getItem(REFRESH_KEY)).toBe("r1");
+  });
+});
+
+describe("oidc redirect_uri", () => {
+  const STATE_KEY = "lcat-state";
+  const VERIFIER_KEY = "lcat-pkce";
+
+  beforeEach(() => {
+    setConfig({ apiBase: "", localAuth: false, provider: "test", oidc: { issuer: "https://issuer.example", clientId: "cid" } });
+    sessionStorage.clear();
+    history.replaceState(null, "", "/");
+  });
+
+  afterEach(() => {
+    history.replaceState(null, "", "/");
+  });
+
+  it("sends a fragment-free redirect_uri to /authorize", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { origin: window.location.origin, assign });
+
+    await startOidcLogin();
+
+    expect(assign).toHaveBeenCalledOnce();
+    const url = new URL(assign.mock.calls[0][0] as string);
+    expect(url.origin + url.pathname).toBe("https://issuer.example/authorize");
+    const redirect = url.searchParams.get("redirect_uri");
+    expect(redirect).toBe(location.origin + "/_auth/callback");
+    expect(redirect).not.toContain("#");
+  });
+
+  it("completes a real-path callback and cleans the URL to the hash root", async () => {
+    sessionStorage.setItem(STATE_KEY, "st8");
+    sessionStorage.setItem(VERIFIER_KEY, "vfy");
+    history.replaceState(null, "", "/_auth/callback?code=abc&state=st8");
+    const fetchMock = vi.fn().mockResolvedValue(tokenResponse(staffJwt, "r1", 900));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(handleOidcCallback()).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledWith("/v1/auth/exchange", expect.objectContaining({ method: "POST" }));
+    const grant = new URLSearchParams(fetchMock.mock.calls[0][1].body as string);
+    expect(grant.get("code")).toBe("abc");
+    expect(grant.get("code_verifier")).toBe("vfy");
+    expect(grant.get("redirect_uri")).toBe(location.origin + "/_auth/callback");
+    expect(location.pathname).toBe("/");
+    expect(location.hash).toBe("#/");
+    expect(session()?.roles).toEqual(["librarian"]);
   });
 });

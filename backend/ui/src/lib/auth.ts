@@ -32,8 +32,15 @@ function randomString(): string {
   return b64url(bytes);
 }
 
+// A fragment-free redirect_uri (RFC 6749 3.1.2): conformant issuers reject a
+// URI with a "#", and the provider appends ?code=...&state=... before any
+// fragment anyway, so a hash route would never receive the code. This path is
+// the exact-match value registered for every client; ui.go's history-API
+// fallback serves the SPA here with no server change.
+export const CALLBACK_PATH = "/_auth/callback";
+
 function redirectUri(): string {
-  return location.origin + "/#/callback";
+  return location.origin + CALLBACK_PATH;
 }
 
 interface TokenPayload {
@@ -119,7 +126,9 @@ export async function handleOidcCallback(): Promise<boolean> {
   });
   if (!res.ok) return false;
   adopt(await res.json(), "oidc");
-  history.replaceState(null, "", location.pathname + "#/");
+  // Land back at the hash root; the callback path (or ?code query) has served
+  // its purpose and should not linger in the address bar.
+  history.replaceState(null, "", location.origin + "/#/");
   return true;
 }
 
