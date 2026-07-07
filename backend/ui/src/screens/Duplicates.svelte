@@ -13,6 +13,8 @@
   import Modal from "../components/Modal.svelte";
   import RowList from "../components/RowList.svelte";
   import { isReadOnly } from "../lib/config";
+  import { languageTerm } from "../lib/languages";
+  import { rdaTerm } from "../lib/rdaterms";
   import type { DuplicateGroup, WorkDoc } from "../lib/types";
 
   const SCOPE = "duplicates";
@@ -132,10 +134,11 @@
   }
 
   /** Display values: an IRI whose grain carries a name (the doc annotation,
-   *  tasks/140) shows the name; the raw value stays in the title tooltip. */
+   *  tasks/140) or that names a known closed-list term (RDA media/carrier,
+   *  MARC language) shows the name; the raw value stays in the title tooltip. */
   function values(workId: string, path: string): { text: string; raw: string }[] {
     return (st.docs[workId]?.work.fields[path] ?? []).map((v) => ({
-      text: v.iri && v.annotation ? v.annotation : v.v,
+      text: (v.iri && (v.annotation ?? rdaTerm(v.v)?.label ?? languageTerm(v.v)?.label)) || v.v,
       raw: v.v,
     }));
   }
