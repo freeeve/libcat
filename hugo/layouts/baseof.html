@@ -33,7 +33,11 @@
          "roaringrange" loads the WASM reader module for ranked client-side
          search; otherwise the interim substring filter. */ -}}
   {{- $engine := site.Params.search.engine | default "" -}}
-  {{ if eq $engine "roaringrange" }}{{ with resources.Get "lcat-browse.js" }}{{ with . | fingerprint }}<script type="module" src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}"></script>{{ end }}{{ end }}{{ else if ne $engine "pagefind" }}{{ with resources.Get "lcat-search.js" }}{{ with . | fingerprint }}<script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>{{ end }}{{ end }}{{ end }}
+  {{- /* The reader ships as assets so a site that has not opted in never
+         publishes the ~1.7MB wasm. Referencing .RelPermalink is what publishes
+         them; both stay unfingerprinted and co-located under /lcat/ because the
+         glue resolves its wasm relative to its own URL (import.meta.url). */ -}}
+  {{ if eq $engine "roaringrange" }}{{ $glue := resources.Get "lcat/roaringrange.js" }}{{ $wasm := resources.Get "lcat/roaringrange_bg.wasm" }}{{ if and $glue $wasm }}{{ $noop := $glue.RelPermalink }}{{ $noop = $wasm.RelPermalink }}{{ with resources.Get "lcat-browse.js" }}{{ with . | fingerprint }}<script type="module" src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}"></script>{{ end }}{{ end }}{{ end }}{{ else if ne $engine "pagefind" }}{{ with resources.Get "lcat-search.js" }}{{ with . | fingerprint }}<script src="{{ .RelPermalink }}" integrity="{{ .Data.Integrity }}" defer></script>{{ end }}{{ end }}{{ end }}
   {{- /* Client-side live availability (tasks/004), enabled only when the site
          configures [params.availability]. The config (library slug etc.) is emitted
          as JSON for the adapter; no availability data is in the static build. */ -}}

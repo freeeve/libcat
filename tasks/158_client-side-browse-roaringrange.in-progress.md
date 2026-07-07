@@ -65,8 +65,13 @@ cross-repo blocker**:
    sidebar) and facet-only browse -- these ride the facet-sidebar rework in
    task 157, and the reader already returns `facetCounts` for when it lands. The
    deployment publishes the `lcat index` artifacts at `[params.search] base`
-   (default `/search`). **Browser verification pending** (jsdom cannot run ES
-   modules/WASM; needs a real browser).
+   (default `/search`). Vendored build: the **full** `roaringrange` reader
+   (RrsCatalog + RrfFacets + records; the slim `roaringrange_reader` lacks the
+   facet API). **Browser-verified with Playwright/Chromium**: typing a query
+   boots the reader, searches, and renders record cards linking to the static
+   detail pages; clearing restores the static list; no console errors. (Trigram
+   relevance is broad at tiny corpus size -- a ranking-tuning follow-up, and the
+   per-language RRTI indexes remain the better-relevance path.)
 3. **Term vs trigram:** the client browse uses the global trigram index (language
    -agnostic, one doc space with facets/records). The per-language RRTI/RRS
    indexes (search.go) stay for a future stemmed-search refinement, bridged via

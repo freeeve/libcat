@@ -18,7 +18,7 @@
  *
  * Status: NOT yet browser-verified end to end -- landed for review/testing.
  */
-import init, { RrsCatalog } from "/lcat/roaringrange_reader.js";
+import init, { RrsCatalog } from "/lcat/roaringrange.js";
 
 const PAGE = 60;
 
@@ -119,7 +119,7 @@ function start() {
     boot()
       .then((ok) => {
         if (!ok || mine !== seq) return; // reader down, or a newer keystroke won
-        return catalog.search(q, 0, PAGE, 0, null).then((res) => {
+        return catalog.search(q, 0, PAGE, 0, []).then((res) => {
           if (mine === seq) render(res);
         });
       })
