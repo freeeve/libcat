@@ -51,7 +51,7 @@ cross-repo blocker**:
    bridge into this space and cards link to `/works/<id>`). The per-language
    search indexes keep their own doc spaces; the client bridges via the Work id.
    (RRIL identifier lookup deferred -- not needed for browse/facets/details.)
-2. **[PARTIAL] Wire the WASM reader in Hugo.** Done: the build also emits a
+2. **[DONE] Wire the WASM reader in Hugo.** Done: the build also emits a
    global trigram index `browse-index.rrs` (aligned with the global facets +
    records doc space) so `RrsCatalog.openAll` ties all three together in one
    space; `roaringrange_reader` (wasm + JS glue) is vendored at
@@ -72,6 +72,30 @@ cross-repo blocker**:
    detail pages; clearing restores the static list; no console errors. (Trigram
    relevance is broad at tiny corpus size -- a ranking-tuning follow-up, and the
    per-language RRTI indexes remain the better-relevance path.)
+
+   **Facet filtering + facet-only browse: DONE.** `lcat-browse.js` opens
+   `RrfFacets` (meta-only boot) + `RrsRecords` alongside `RrsCatalog`, renders a
+   facet panel (fields + full-corpus counts, top-40 categories by count) into
+   the `#lcat-browse-facets` host `list.html` emits when the engine is on, and
+   serves three read paths over the one shared doc space: query ->
+   `catalog.search(q,...,[])`; query+facets -> `catalog.search(q,...,filters)`;
+   facets-only -> `RrfFacets.filterIds(allIds, filters)` + `records.getMany`.
+   Playwright/Chromium E2E (5/5): panel renders from the sidecar; facet-only
+   ebook returns exactly the right work; query+facet intersects; a facet
+   excludes a matching text hit; clearing query+facets restores the static list
+   byte-for-byte. Default (pagefind) build stays byte-identical; a11y clean
+   (117 pages).
+
+   Verification note: the reader requires an HTTP-Range-capable origin (S3/CDN/
+   nginx/`hugo server` all qualify; **python http.server does not** -- symptoms
+   are "range bytes=0-15 returned N bytes" and a clean fallback to the static
+   list). The Playwright drivers + a Range-capable static server used for the
+   E2E live in the session scratchpad (`pw/drive.mjs`, `pw/drive2.mjs`,
+   `pw/range-server.mjs`); reuse the pattern for future rounds.
+
+   Follow-ups riding later tasks: facet display labels + i18n of field names
+   (157 sidebar rework), pagination beyond the first PAGE=60 (RrsCursor),
+   ranking tuning / per-language stemmed path, splitset delta merge (159).
 3. **Term vs trigram:** the client browse uses the global trigram index (language
    -agnostic, one doc space with facets/records). The per-language RRTI/RRS
    indexes (search.go) stay for a future stemmed-search refinement, bridged via
