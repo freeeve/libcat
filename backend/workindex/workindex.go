@@ -51,9 +51,10 @@ type grainEntry struct {
 // reads that find the index stale pay the refresh inline (ETag-diff List, so
 // an unchanged corpus costs zero Gets).
 type Index struct {
-	bs     blob.Store
-	prefix string
-	ttl    time.Duration
+	bs           blob.Store
+	prefix       string
+	ttl          time.Duration
+	snapshotPath string
 
 	mu     sync.Mutex
 	at     time.Time
@@ -73,8 +74,13 @@ type Index struct {
 // New returns an index over the grains under prefix (normally "data/works/").
 // The first read pays the full corpus scan; subsequent reads are cache hits.
 func New(bs blob.Store, prefix string) *Index {
-	return &Index{bs: bs, prefix: prefix, ttl: DefaultTTL, grains: map[string]*grainEntry{}}
+	return &Index{bs: bs, prefix: prefix, ttl: DefaultTTL, snapshotPath: DefaultSnapshotPath, grains: map[string]*grainEntry{}}
 }
+
+// SetSnapshotPath overrides where Save/LoadSnapshot read and write the persisted
+// projection (default DefaultSnapshotPath). Call it before first use; the
+// offline seed tool uses it to honor an --out flag.
+func (ix *Index) SetSnapshotPath(p string) { ix.snapshotPath = p }
 
 // Refresh makes the index fresh now if its TTL has lapsed -- the boot-time
 // warmer's entry point; reads call it implicitly.

@@ -101,9 +101,23 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	if deps.Blob != nil {
 		widx := workindex.New(deps.Blob, "data/works/")
 		deps.WorkIndex = widx
+		// Prime from the persisted snapshot before serving so a cold start skips
+		// the corpus scan (tasks/155); a missing/corrupt snapshot just leaves the
+		// index empty to warm from the store.
+		if err := widx.LoadSnapshot(ctx); err != nil {
+			logger.Warn("work index snapshot load", "err", err)
+		}
 		go func() {
 			if err := widx.Refresh(ctx); err != nil {
 				logger.Warn("work index warm-up", "err", err)
+				return
+			}
+			// Persist the reconciled projection so the next cold start is cheap.
+			// Skipped read-only: the store rejects writes.
+			if !cfg.ReadOnly {
+				if err := widx.Save(ctx); err != nil {
+					logger.Warn("work index snapshot save", "err", err)
+				}
 			}
 		}()
 	}
