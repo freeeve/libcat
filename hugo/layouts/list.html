@@ -4,7 +4,9 @@
 
 {{ define "main" }}
 <h1>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }}{{ end }}</h1>
-{{ $pages := .RegularPagesRecursive }}
+{{- /* Browse lists show Works only: a site's other regular pages (curated
+       lists (tasks/160), prose pages) must not count or render as work cards. */ -}}
+{{ $pages := where .RegularPagesRecursive "Section" "works" }}
 {{ $paginator := .Paginate $pages }}
 <p class="lcat-resultcount" role="status">{{ i18n "workCount" (len $pages) }}</p>
 {{- /* Host for the client-rendered facet filter panel (tasks/158); populated

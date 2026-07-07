@@ -1,5 +1,26 @@
 # 160 -- Opt-in static generation of curated views for SEO
 
+## Outcome (2026-07-07): shipped
+
+`hugo/layouts/curated.html`: a curated view is a plain content page (`layout:
+curated`, front-matter `works: [id, ...]`, optional intro prose) -- each id
+resolves to its adapter-minted work page and renders the shared work-card
+partial, so curated rows match browse rows; unresolvable ids skip with a build
+warning, never a failed build. Reference page at
+`exampleSite/content/lists/staff-picks.md`; documented in `hugo/README.md`
+next to the minimal static profile. Also fixed `list.html` to browse Works
+only (`where .RegularPagesRecursive "Section" "works"`) so curated/prose pages
+never leak into the works list as pseudo-cards.
+
+Verified: builds under both the default and the minimal profile; front-matter
+order preserved; page in the per-language sitemap; bogus-id skip path warns and
+builds; browse E2E still 5/5; a11y clean; pre-160 default output functionally
+identical (whitespace-only diff). Facet-query-pinned views (a static page for a
+named facet combination) stay a future extension -- explicit work-id lists cover
+the curated-lists ask.
+
+Original framing below.
+
 Plane 2 opt-in of [154]. A deployment may pin specific views -- e.g. curated
 lists -- to hard HTML for SEO, beyond the default single-combination views
 (details + browse shell, task 157). **Opt-in only; never every combination by

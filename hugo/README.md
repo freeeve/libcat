@@ -431,9 +431,28 @@ The facet sidebar degrades cleanly (no dead term links are emitted); drop any
 stay in the per-language sitemaps, so works remain crawlable while browse runs
 client-side. The `/works/` list keeps its static pagination as the no-JS path.
 On the reference corpus this profile cuts the exampleSite from 117 built pages
-to 15; at 48k works it removes ~99% of the page count. To pin a handful of
-curated views back to static HTML for SEO, see the opt-in curated views work
-(`tasks/160`).
+to 15; at 48k works it removes ~99% of the page count.
+
+### Opt-in curated static views (tasks/160)
+
+Editorially important collections can be pinned back to hard HTML -- crawlable,
+in the sitemap -- without reopening the combinatorial surface. A curated view is
+a plain content page with the `curated` layout and an ordered list of work ids:
+
+```markdown
+---
+title: Staff picks
+layout: curated
+works: [w7g3k9abc..., wb2f00def...]
+---
+Optional intro prose renders above the list.
+```
+
+Each id resolves to its work page and renders the shared work-card partial, so
+curated rows match browse rows exactly. An id that no longer resolves
+(withdrawn, merged away) is skipped with a build warning, never a failed build.
+`exampleSite/content/lists/staff-picks.md` is the runnable reference. Pin the
+handful of views worth freezing -- the default stays minimal.
 
 ## Accessibility
 

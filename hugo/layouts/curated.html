@@ -1,0 +1,36 @@
+{{ define "sidebar" }}
+<aside class="lcat-sidebar" aria-label="{{ i18n "facets" }}">{{ partialCached "facets.html" . }}</aside>
+{{ end }}
+
+{{ define "main" }}
+{{- /* Curated static view (tasks/160, opt-in): a site pins an editorial list of
+       works to hard HTML -- crawlable, in the sitemap -- while the combinatorial
+       browse stays client-side (tasks/157/158). The page is plain content:
+
+         ---
+         title: Staff picks
+         layout: curated
+         works: [w7g3k9..., wb2f00...]
+         ---
+         Optional intro prose renders above the list.
+
+       Each id resolves to its adapter-minted work page and renders the shared
+       work-card partial, so curated rows match search/browse rows everywhere.
+       An id that no longer resolves (withdrawn, merged away) is skipped with a
+       build warning rather than failing the build -- editorial lists outlive
+       individual records. */ -}}
+<h1>{{ .Title }}</h1>
+{{ .Content }}
+{{- $works := slice -}}
+{{- range .Params.works -}}
+  {{- $p := site.GetPage (printf "/works/%s" .) -}}
+  {{- if $p -}}{{- $works = $works | append $p -}}
+  {{- else -}}{{- warnf "curated %q: work %q not found, skipped" $.RelPermalink . -}}{{- end -}}
+{{- end }}
+<p class="lcat-resultcount" role="status">{{ i18n "workCount" (len $works) }}</p>
+<ol class="lcat-results">
+  {{ range $works }}
+  <li>{{ partialCached "work-card.html" . .RelPermalink }}</li>
+  {{ end }}
+</ol>
+{{ end }}
