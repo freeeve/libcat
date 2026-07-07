@@ -12,7 +12,16 @@
   `extra` passthrough) becomes the og:image; [params] ogImage is the site fallback.
 */ -}}
 {{- $isWork := and (eq .Kind "page") (eq .Section "works") -}}
-<title>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }} · {{ site.Title }}{{ end }}</title>
+{{- /* Term pages: .Title is Hugo's humanized term key (a slug for subjects),
+       so resolve the display label the same way term.html renders its h1,
+       with the subject scheme in parens (tasks/149). */ -}}
+{{- $title := .Title -}}
+{{- if eq .Kind "term" -}}
+  {{- $t := partial "lcat-term-title.html" . -}}
+  {{- $title = $t.label -}}
+  {{- with $t.scheme }}{{ $title = printf "%s (%s)" $title . }}{{ end -}}
+{{- end -}}
+<title>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ $title }} · {{ site.Title }}{{ end }}</title>
 {{- $disabled := false }}{{ with site.Params.seo }}{{ $disabled = .disable | default false }}{{ end }}
 {{- if not $disabled }}
 {{- $siteDesc := site.Params.description | default site.Title -}}
@@ -34,7 +43,7 @@
 {{- $image := .Params.cover | default "" -}}
 {{- if and (not $image) site.Params.ogImage }}{{ $image = (site.Params.ogImage | absURL) }}{{ end }}
 <meta property="og:site_name" content="{{ site.Title }}">
-<meta property="og:title" content="{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }}{{ end }}">
+<meta property="og:title" content="{{ if .IsHome }}{{ site.Title }}{{ else }}{{ $title }}{{ end }}">
 <meta property="og:description" content="{{ $metaDesc }}">
 <meta property="og:url" content="{{ .Permalink }}">
 <meta property="og:type" content="{{ if $isWork }}book{{ else }}website{{ end }}">
@@ -42,7 +51,7 @@
 <meta property="og:image" content="{{ . }}">
 {{- end }}
 <meta name="twitter:card" content="{{ if $image }}summary_large_image{{ else }}summary{{ end }}">
-<meta name="twitter:title" content="{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }}{{ end }}">
+<meta name="twitter:title" content="{{ if .IsHome }}{{ site.Title }}{{ else }}{{ $title }}{{ end }}">
 <meta name="twitter:description" content="{{ $metaDesc }}">
 {{- with $image }}
 <meta name="twitter:image" content="{{ . }}">

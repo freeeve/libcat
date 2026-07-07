@@ -1,0 +1,27 @@
+{{- /*
+  Resolved display title for a taxonomy term page (tasks/149), shared by
+  term.html and head-seo.html so the h1 and the head <title>/og:title agree.
+  Subject terms key by scheme-prefixed slug (tasks/141), so the human label
+  (and its vocabulary) comes from the cached facets.json lookup; languages map
+  their 639-2 code to a name and classifications show their projected label
+  (tasks/142); deployment-defined dimensions resolve their raw label
+  (tasks/143); other taxonomies keep the term key as the title.
+
+  Context: a term page. Returns a dict of "label" and "scheme" ("" except for
+  subjects) so term.html can mark up the scheme separately.
+*/ -}}
+{{- $label := .Title -}}{{- $scheme := "" -}}
+{{- if eq .Data.Plural "subjects" -}}
+  {{- with index (partialCached "lcat-subject-labels.html" .) .Data.Term -}}
+    {{- $label = .label -}}{{- $scheme = .scheme -}}
+  {{- end -}}
+{{- else if eq .Data.Plural "languages" -}}
+  {{- $label = partial "lcat-lang-name.html" .Data.Term -}}
+{{- else if eq .Data.Plural "classifications" -}}
+  {{- with index (partialCached "lcat-classification-labels.html" .) .Data.Term -}}
+    {{- $label = . -}}
+  {{- end -}}
+{{- else if index (or site.Params.extraFacets dict) .Data.Plural -}}
+  {{- $label = partial "lcat-extra-facet-label.html" . -}}
+{{- end -}}
+{{- return (dict "label" $label "scheme" $scheme) -}}

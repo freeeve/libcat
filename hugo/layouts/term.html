@@ -3,27 +3,10 @@
 {{ end }}
 
 {{ define "main" }}
-{{- /* Subject terms key by scheme-prefixed slug (tasks/141), so the human
-       label (and its vocabulary) comes from the cached facets.json lookup;
-       languages map their 639-2 code to a name and classifications show
-       their projected label (tasks/142); other taxonomies keep the term key
-       as the title. */ -}}
-{{- $title := .Title -}}{{- $scheme := "" -}}
-{{- if eq .Data.Plural "subjects" -}}
-  {{- with index (partialCached "lcat-subject-labels.html" .) .Data.Term -}}
-    {{- $title = .label -}}{{- $scheme = .scheme -}}
-  {{- end -}}
-{{- else if eq .Data.Plural "languages" -}}
-  {{- $title = partial "lcat-lang-name.html" .Data.Term -}}
-{{- else if eq .Data.Plural "classifications" -}}
-  {{- with index (partialCached "lcat-classification-labels.html" .) .Data.Term -}}
-    {{- $title = . -}}
-  {{- end -}}
-{{- else if index (or site.Params.extraFacets dict) .Data.Plural -}}
-  {{- /* Deployment-defined dimension (tasks/143): slug key -> raw label. */ -}}
-  {{- $title = partial "lcat-extra-facet-label.html" . -}}
-{{- end -}}
-<h1><span class="lcat-facet-dim">{{ .Data.Singular | humanize }}:</span> {{ $title }}{{ with $scheme }} <span class="lcat-term-scheme">({{ . }})</span>{{ end }}</h1>
+{{- /* Display title resolution lives in lcat-term-title.html (tasks/149),
+       shared with head-seo.html so the head <title>/og:title match the h1. */ -}}
+{{- $t := partial "lcat-term-title.html" . -}}
+<h1><span class="lcat-facet-dim">{{ .Data.Singular | humanize }}:</span> {{ $t.label }}{{ with $t.scheme }} <span class="lcat-term-scheme">({{ . }})</span>{{ end }}</h1>
 {{ $paginator := .Paginate .Pages }}
 <p class="lcat-resultcount" role="status">{{ i18n "workCount" (len .Pages) }}</p>
 <ol class="lcat-results" id="lcat-results">
