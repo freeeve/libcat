@@ -162,6 +162,34 @@ term pages stay the precomputed totals. A deployment whose search shadow
 uses the roaringrange wasm reader can apply the same x-params with andnot()
 server-shaped; keep the param convention shared.
 
+## Shared facet sidebar (tasks/150, opt-in)
+
+The facet sidebar is page-invariant per language, but by default its HTML is
+inlined into every list/term page -- at catalog scale that multiplication
+dominates the deploy (a 48.5k-work bilingual site measured the sidebar at 87%
+of every term page and ~8GB of a 9.1GB build). Large catalogs can opt in to
+publishing it once per language instead:
+
+```toml
+[params.facets]
+  shared = true
+```
+
+The sidebar body then builds as a fingerprinted fragment asset
+(`/lcat/facets.<lang>.<hash>.html`) -- serve it like the other fingerprinted
+assets with `max-age=31536000,immutable`, so readers fetch it once per visit.
+Each sidebar-bearing page ships only a small host element plus the
+`lcat-sidebar.js` loader, which fetches the fragment, inserts it, and
+re-activates its scripts -- the type-to-filter box and the negative-filter
+hydration compose unchanged, since both already run client-side over the
+rendered rows. Without JS (or if the fetch fails), the host shows a fallback
+list linking each facet dimension's taxonomy landing page.
+
+Trade-offs: the sidebar leaves the crawled page HTML (term pages remain fully
+indexable -- facet terms have their own landing/term pages, which the fallback
+links) and appears one fetch after first paint. Small catalogs should keep
+the inlined default.
+
 ## SEO head (default)
 
 The base template ships the SEO basics for every page (tasks/119), so an adopter

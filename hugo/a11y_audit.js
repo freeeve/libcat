@@ -22,13 +22,16 @@ if (!root) {
   process.exit(2);
 }
 
-// walk collects every .html file under dir, relative to it.
+// walk collects every .html file under dir, relative to it. Fragment assets
+// under /lcat/ (the shared facet sidebar, tasks/150) are not documents --
+// they are injected into an audited page -- so they are skipped, not audited
+// for document-level rules they can never satisfy.
 function walk(dir, base, out) {
   for (const name of fs.readdirSync(dir)) {
     const full = path.join(dir, name);
     const st = fs.statSync(full);
     if (st.isDirectory()) walk(full, base, out);
-    else if (name.endsWith(".html")) out.push(path.relative(base, full));
+    else if (name.endsWith(".html") && path.relative(base, dir) !== "lcat") out.push(path.relative(base, full));
   }
   return out;
 }

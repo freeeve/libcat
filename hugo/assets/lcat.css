@@ -287,6 +287,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   text-decoration: none;
 }
 .lcat-facets li a:hover .lcat-facet-value { text-decoration: underline; }
+/* Shared-sidebar fallback (tasks/150): taxonomy landing links shown before the
+   fragment loads, without JS, or when the fetch fails. */
+.lcat-facets-fallback { list-style: none; margin: 0; padding: 0; }
+.lcat-facets-fallback li a { display: block; padding: 0.15rem 0; text-decoration: none; }
+.lcat-facets-fallback li a:hover { text-decoration: underline; }
 /* Negative facet filters (tasks/144): the per-row exclude button, the "Not X"
    chips above the results, and the class lcat-negatives.js hides cards with.
    The exclusion state borrows the availability "none" red. */

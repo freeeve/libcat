@@ -65,3 +65,15 @@
   #
   #   [params.facets]
   #     negatives = true
+
+  # Shared facet sidebar (tasks/150), OFF by default: the sidebar is
+  # page-invariant per language, and inlining it multiplies its bytes by
+  # every list/term page -- at catalog scale it dominates the deploy. When
+  # enabled, the sidebar publishes once per language as a fingerprinted
+  # fragment (/lcat/facets.<lang>.<hash>.html, immutable-cacheable) that
+  # lcat-sidebar.js fetches and inserts; pages ship only a small host with
+  # no-JS fallback links to the facet taxonomy landing pages. Small catalogs
+  # should keep the inlined default (no fetch, sidebar in the crawled HTML).
+  #
+  #   [params.facets]
+  #     shared = true
