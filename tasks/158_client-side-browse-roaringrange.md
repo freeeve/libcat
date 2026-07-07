@@ -24,13 +24,42 @@ Wire the browse shell (task 157) to the RoaringRange reader for:
 Live availability stays client-side (already is -- keyed by Reserve ID, never in
 the graph), so it composes here.
 
-## Cross-repo dependency
+## Dependency status: READY (verified 2026-07-07) -- this is libcatalog-only
 
-Confirm the RoaringRange **reader** (Rust/WASM) exposes facet + search + record
-query APIs to JS -- the build side (`facets.go`, `records.go`, `lookup.go`) is
-present; verify the reader surface. If a reader API is missing, file a
-roaringrange task (leave it uncommitted there per the cross-repo convention) and
-note the version bump here.
+Both sides of the RoaringRange toolchain already exist, so 158 has **no
+cross-repo blocker**:
+
+- **Reader (WASM/JS, `rust/pkg/roaringrange.d.ts`):** `RrtIndex`/`RrtHits`
+  (term/RRTI -- the build's default path), `RrsIndex`/`RrsCatalog` (trigram),
+  `RrfFacets`, `RrsRecords` (`get`/`getMany`/`getText`), `RrssIndex` (splitset,
+  for task 159), `RrsLookup`, `RrsCursor` (paged + `facetCountsJson`). The
+  combined `RrsCatalog.openAll(index_url, facets_url, records_idx_url,
+  records_bin_url)` + `search(query, offset, len, max_missing, filters_json)`
+  returns `{ ids, records, facetCounts }` in one call -- search + facet counts +
+  record details over HTTP Range.
+- **Go builders (roaringrange):** `WriteFacets` (RRSF), `WriteRecords` /
+  `WriteRecordsZstd` (RRSR), `WriteLookup` (RRIL) -- present.
+
+### The gap 158 must close (all in libcatalog)
+
+1. **Build must emit the reader's inputs.** `search/search.go` today emits only
+   the search index (`.rrt`/`.rrb`/`.rrs` + manifest) -- **not** the RRSF facet
+   sidecar or the RRSR record store `RrsCatalog.openAll` needs. Add, from
+   `catalog.json` (`project/`): the facet sidecar (`WriteFacets` over the same
+   facet dimensions the Hugo taxonomies use -- tasks 141-144) and the record
+   store (`WriteRecords` over the per-work card/detail JSON, doc-id = search
+   rank), plus optionally RRIL (ISBN/identifier -> work). Keep doc IDs aligned
+   across the search index, facet sidecar, and record store.
+2. **Wire the WASM reader in Hugo.** Ship `roaringrange_reader` (wasm + JS glue)
+   as a Hugo asset; boot `RrsCatalog.openAll(...)` (or `RrtIndex` +
+   `RrfFacets` + `RrsRecords` for the term path) in the browse shell; render
+   search results, facet counts, pagination (`RrsCursor`), and detail cards from
+   the record store -- replacing the interim substring filter (`lcat-search.js`,
+   an explicit stopgap) and reusing the existing facet UI (`lcat-facets.js`).
+   The `<noscript>`/full-list path stays as progressive-enhancement fallback.
+3. **Term vs trigram:** the reader supports both; keep the build's per-language
+   routing (RRTI term for segmented, RRS trigram for unsegmented) and open the
+   matching reader class per the manifest.
 
 ## Verify
 
