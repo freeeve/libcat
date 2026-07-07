@@ -121,6 +121,9 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			return
 		}
 		ix.Apply(bibframe.GrainPath(workID), newTag, updated)
+		// Publish the change to the feed so other containers read-their-writes
+		// without a corpus List; best-effort, the refresh backstop covers it.
+		_ = ix.AppendFeed(r.Context(), bibframe.GrainPath(workID))
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
@@ -201,6 +204,9 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			return
 		}
 		ix.Apply(bibframe.GrainPath(workID), newTag, updated)
+		// Publish the change to the feed so other containers read-their-writes
+		// without a corpus List; best-effort, the refresh backstop covers it.
+		_ = ix.AppendFeed(r.Context(), bibframe.GrainPath(workID))
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
@@ -410,6 +416,7 @@ func mutateWorkGrain(r *http.Request, bs blob.Store, ix *workindex.Index, workID
 			return "", fmt.Errorf("%w: %v", errGrainStore, err)
 		}
 		ix.Apply(path, newTag, updated)
+		_ = ix.AppendFeed(r.Context(), path)
 		return newTag, nil
 	}
 	return "", errors.New("write kept conflicting")

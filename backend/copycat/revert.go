@@ -200,6 +200,7 @@ func (s *Service) Revert(ctx context.Context, id, actor string) (RevertResult, e
 		if err := ix.Update(ctx, changed...); err != nil {
 			return result, err
 		}
+		_ = ix.AppendFeed(ctx, changed...)
 	}
 	b.Status = StatusReverted
 	b.Reverted = result.Reverted

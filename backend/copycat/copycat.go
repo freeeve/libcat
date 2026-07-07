@@ -413,6 +413,9 @@ func (s *Service) Commit(ctx context.Context, id, actor string) (Batch, error) {
 			if err := ix.Update(ctx, changed...); err != nil {
 				return Batch{}, err
 			}
+			// One batched feed append for the whole commit (not one per grain),
+			// so other containers see it without a List; best-effort.
+			_ = ix.AppendFeed(ctx, changed...)
 		}
 	}
 	if err := s.writeRevertSet(ctx, b.ID, changed, existed, priors); err != nil {

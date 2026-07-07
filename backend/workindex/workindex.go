@@ -56,9 +56,21 @@ type Index struct {
 	ttl          time.Duration
 	snapshotPath string
 
-	mu     sync.Mutex
-	at     time.Time
-	grains map[string]*grainEntry
+	// Change feed (tasks/156): a best-effort accelerator for cross-container
+	// read-your-writes. The List-diff refresh above stays the correctness
+	// backstop, so any feed error is logged and ignored, never fatal.
+	feedPath      string
+	feedTTL       time.Duration
+	foldThreshold int
+
+	mu          sync.Mutex
+	at          time.Time
+	epoch       uint64    // fold generation; shared by snapshot and feed
+	feedActive  bool      // poll the feed only once a snapshot base exists
+	feedAt      time.Time // feed-poll clock
+	feedApplied int       // records applied from the current epoch's feed
+	feedETag    string    // last-seen feed ETag, for conditional GETs
+	grains      map[string]*grainEntry
 
 	// Derived views, rebuilt lazily after any grain change. Rebuild is
 	// O(corpus) in memory but does no I/O; per-key incremental maintenance is
@@ -74,7 +86,14 @@ type Index struct {
 // New returns an index over the grains under prefix (normally "data/works/").
 // The first read pays the full corpus scan; subsequent reads are cache hits.
 func New(bs blob.Store, prefix string) *Index {
-	return &Index{bs: bs, prefix: prefix, ttl: DefaultTTL, snapshotPath: DefaultSnapshotPath, grains: map[string]*grainEntry{}}
+	return &Index{
+		bs: bs, prefix: prefix, ttl: DefaultTTL,
+		snapshotPath:  DefaultSnapshotPath,
+		feedPath:      DefaultFeedPath,
+		feedTTL:       DefaultFeedTTL,
+		foldThreshold: DefaultFoldThreshold,
+		grains:        map[string]*grainEntry{},
+	}
 }
 
 // SetSnapshotPath overrides where Save/LoadSnapshot read and write the persisted
@@ -265,6 +284,9 @@ func (ix *Index) Barcodes(ctx context.Context) (map[string]bool, error) {
 // freshenLocked refreshes on TTL lapse and rebuilds the derived views if any
 // grain changed.
 func (ix *Index) freshenLocked(ctx context.Context) error {
+	// The feed is the fast path for reads-your-writes; failures fall through to
+	// the List-diff refresh, which is the correctness backstop.
+	ix.pollFeedLocked(ctx)
 	if err := ix.refreshLocked(ctx); err != nil {
 		return err
 	}

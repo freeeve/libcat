@@ -41,11 +41,40 @@ type snapshotEntry struct {
 	Summaries []ingest.WorkSummary   `json:"summaries,omitempty"`
 }
 
-// snapshotFile is the whole persisted projection: a version tag and the grain
+// snapshotFile is the whole persisted projection: a version tag, the fold epoch
+// it was taken at (shared with the change feed, tasks/156), and the grain
 // entries in path order.
 type snapshotFile struct {
 	Version int             `json:"version"`
+	Epoch   uint64          `json:"epoch,omitempty"`
 	Entries []snapshotEntry `json:"entries"`
+}
+
+// entryToSnapshot projects one in-memory grain entry to its serializable form.
+func entryToSnapshot(path string, e *grainEntry) snapshotEntry {
+	return snapshotEntry{
+		Path:      path,
+		ETag:      e.etag,
+		Identity:  e.identity,
+		Merges:    e.merges,
+		Barcodes:  e.barcodes,
+		Summaries: e.summaries,
+	}
+}
+
+// buildSnapshotLocked captures the current projection into a serializable file,
+// entries in path order for determinism. The caller holds ix.mu.
+func (ix *Index) buildSnapshotLocked() snapshotFile {
+	paths := make([]string, 0, len(ix.grains))
+	for p := range ix.grains {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	file := snapshotFile{Version: snapshotVersion, Epoch: ix.epoch, Entries: make([]snapshotEntry, 0, len(paths))}
+	for _, p := range paths {
+		file.Entries = append(file.Entries, entryToSnapshot(p, ix.grains[p]))
+	}
+	return file
 }
 
 // Save serializes the current projection to the snapshot blob (gzipped JSON). It
@@ -54,23 +83,7 @@ type snapshotFile struct {
 // deterministic.
 func (ix *Index) Save(ctx context.Context) error {
 	ix.mu.Lock()
-	paths := make([]string, 0, len(ix.grains))
-	for p := range ix.grains {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	file := snapshotFile{Version: snapshotVersion, Entries: make([]snapshotEntry, 0, len(paths))}
-	for _, p := range paths {
-		e := ix.grains[p]
-		file.Entries = append(file.Entries, snapshotEntry{
-			Path:      p,
-			ETag:      e.etag,
-			Identity:  e.identity,
-			Merges:    e.merges,
-			Barcodes:  e.barcodes,
-			Summaries: e.summaries,
-		})
-	}
+	file := ix.buildSnapshotLocked()
 	ix.mu.Unlock()
 
 	var buf bytes.Buffer
@@ -84,6 +97,9 @@ func (ix *Index) Save(ctx context.Context) error {
 	if _, err := ix.bs.Put(ctx, ix.snapshotPath, buf.Bytes(), blob.PutOptions{ContentType: "application/gzip"}); err != nil {
 		return fmt.Errorf("workindex: put snapshot: %w", err)
 	}
+	ix.mu.Lock()
+	ix.feedActive = true
+	ix.mu.Unlock()
 	return nil
 }
 
@@ -94,6 +110,14 @@ func (ix *Index) Save(ctx context.Context) error {
 // (first boot). A corrupt or wrong-version one returns an error so the caller
 // can log and fall back to the full scan.
 func (ix *Index) LoadSnapshot(ctx context.Context) error {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.loadSnapshotLocked(ctx)
+}
+
+// loadSnapshotLocked is LoadSnapshot with ix.mu held -- the fold-reload path
+// (pollFeedLocked) reuses it when a reader sees the epoch advance.
+func (ix *Index) loadSnapshotLocked(ctx context.Context) error {
 	data, _, err := ix.bs.Get(ctx, ix.snapshotPath)
 	if errors.Is(err, blob.ErrNotFound) {
 		return nil
@@ -113,8 +137,6 @@ func (ix *Index) LoadSnapshot(ctx context.Context) error {
 	if file.Version != snapshotVersion {
 		return fmt.Errorf("workindex: snapshot version %d, want %d", file.Version, snapshotVersion)
 	}
-	ix.mu.Lock()
-	defer ix.mu.Unlock()
 	ix.grains = make(map[string]*grainEntry, len(file.Entries))
 	for _, e := range file.Entries {
 		ix.grains[e.Path] = &grainEntry{
@@ -127,5 +149,10 @@ func (ix *Index) LoadSnapshot(ctx context.Context) error {
 	}
 	ix.dirty = true
 	ix.at = time.Time{} // force the next refresh to reconcile the delta
+	// Align to the snapshot's fold generation; the feed carries the delta on top.
+	ix.epoch = file.Epoch
+	ix.feedApplied = 0
+	ix.feedETag = ""
+	ix.feedActive = true
 	return nil
 }

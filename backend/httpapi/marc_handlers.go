@@ -146,6 +146,9 @@ func registerMARC(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue 
 			return
 		}
 		ix.Apply(bibframe.GrainPath(workID), newTag, updated)
+		// Publish the change to the feed so other containers read-their-writes
+		// without a corpus List; best-effort, the refresh backstop covers it.
+		_ = ix.AppendFeed(r.Context(), bibframe.GrainPath(workID))
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "MARC_EDIT", Actor: id.Email, ETag: newTag,

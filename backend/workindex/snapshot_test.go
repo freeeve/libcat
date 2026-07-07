@@ -27,6 +27,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	if err := dst.LoadSnapshot(ctx); err != nil {
 		t.Fatal(err)
 	}
+	dst.feedActive = false // isolate snapshot load; the feed has its own tests
 	cs.gets.Store(0)
 	cs.lists.Store(0)
 	got, err := dst.Summaries(ctx)
@@ -77,6 +78,7 @@ func TestSnapshotStaleReconciles(t *testing.T) {
 	if err := dst.LoadSnapshot(ctx); err != nil {
 		t.Fatal(err)
 	}
+	dst.feedActive = false // isolate snapshot reconcile; the feed has its own tests
 	cs.gets.Store(0)
 	sums, err := dst.Summaries(ctx)
 	if err != nil {
