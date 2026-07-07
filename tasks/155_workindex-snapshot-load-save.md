@@ -45,9 +45,12 @@ already a dependency via `search/`). This buys **compression + range access, not
 sharded writes**: `splitset` shards RRS/RRTI *search* bodies, not RRSR records, so
 it does not apply to the snapshot. The admin plane's incremental-write mechanism is
 snapshot(base) + feed(delta) + fold (task 156); `splitset` base+delta is the
-*public* search index's job (tasks 158/159). Because the snapshot is a disposable,
-rebuildable-from-scan cache, JSON-blob -> RRSR is a `Save`/`Load` change plus a
-re-seed, not a data migration -- no lock-in from starting simple.
+*public* search index's job (tasks 158/159). A first-class **sharded-write record
+store** that would replace the hand-rolled snapshot+feed is requested in
+roaringrange task 075 (base+delta over `RRSR`); adopt it when it lands. Because
+the snapshot is a disposable, rebuildable-from-scan cache, JSON-blob -> RRSR is a
+`Save`/`Load` change plus a re-seed, not a data migration -- no lock-in from
+starting simple.
 
 ## Why not catalog.nq
 

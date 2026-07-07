@@ -17,7 +17,9 @@ The snapshot ([155]) is the periodic checkpoint; the feed is the tail of changes
 since it. Both carry the **projection**, so neither needs a grain rescan. This is
 the admin plane's base+delta -- distinct from the public search index's
 `splitset` base+delta (tasks 158/159), which shards RRS/RRTI search bodies, not
-this projection.
+this projection. roaringrange task 075 requests a first-class sharded-write
+record store (base+delta over `RRSR`) that would subsume this snapshot+feed+fold;
+adopt it when it lands.
 
 1. **Append on write.** A publish/commit PUTs its grain(s) then appends their
    projected entries (`{path, etag, entry}`, plus tombstones for deletes) to the
