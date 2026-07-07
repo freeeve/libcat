@@ -19,6 +19,8 @@ since it. Both carry the **projection**, so neither needs a grain rescan.
 1. **Append on write.** A publish/commit PUTs its grain(s) then appends their
    projected entries (`{path, etag, entry}`, plus tombstones for deletes) to the
    feed, durably, before returning. A multi-grain op batches into one append.
+   Entries use the **same JSON record encoding as the snapshot** ([155]) so
+   replay and snapshot load share code.
 2. **Replay on read.** A container serves reads from `snapshot + feed replay`.
    The feed is small and bounded; fetch it with a conditional GET (304 when
    unchanged) on a short TTL, or per-read for strict read-your-writes.

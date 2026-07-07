@@ -27,12 +27,26 @@ only `grainEntry{etag, identity, merges, barcodes, summaries}` per grain
 
 ## Encoding
 
-gob for v1: zero new deps (matches "prefer fewer dependencies"), self-describing,
-tolerant of added fields; version the header. Forward path is RoaringRange RRSR +
-`splitset` sharding when object size / compression / sharded-incremental-write
-start to matter (roaringrange is already a dependency via `search/`). Do not use
-`catalog.nq` as the load source -- it is full RDF the backend cannot cheaply
-produce, and it belongs to the public plane (see [154], task 157).
+**Record encoding: JSON**, shared with the change feed (task 156) -- one
+projected-entry shape, one encode/decode + test surface across snapshot and feed.
+**v1 container: a single gzipped-JSON blob** (array of `{path, ...entry}`,
+version-tagged header). Rationale over gob: portable and inspectable (the offline
+seed tool and a broken-snapshot post-mortem stay debuggable; the Rust/WASM side
+can read it), stdlib, zero new deps, forgiving schema evolution (unknown fields
+ignored, missing zero) -- gob is a Go-only, opaque stream meant for ephemeral RPC,
+not durable storage that must survive binary upgrades. Give the projection types
+(`GrainIdentity`/`WorkIdentity`/`InstanceIdentity`/`Merge`) explicit json tags so
+a Go field rename is a deliberate, visible schema change.
+
+**Forward path (container only): RoaringRange RRSR + `splitset` sharding**,
+wrapping the *same* JSON record payloads with a zstd shared dictionary, adopted
+when object size / compression / sharded-incremental-write / range access start to
+matter (roaringrange is already a dependency via `search/`). Because the snapshot
+is a disposable, rebuildable-from-scan cache, JSON-blob -> RRSR is a `Save`/`Load`
+change plus a re-seed, not a data migration -- no lock-in from starting simple.
+
+Do not use `catalog.nq` as the load source -- it is full RDF the backend cannot
+cheaply produce, and it belongs to the public plane (see [154], task 157).
 
 ## Guard rails
 
