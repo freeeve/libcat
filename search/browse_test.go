@@ -124,10 +124,13 @@ func TestBuildBrowseSubjectAncestry(t *testing.T) {
 	if s := subjects["s:child"]; s.Scheme != "homosaurus" || s.Labels["en"] != "Trans women" || len(s.Broader) != 1 || s.Broader[0] != "s:parent" {
 		t.Fatalf("child meta = %+v", s)
 	}
-	if s := subjects["s:grand"]; s.Scheme != "homosaurus" || len(s.Labels) != 0 {
+	if s := subjects["s:grand"]; s.Scheme != "homosaurus" || len(s.Labels) != 0 || !s.Minted {
 		t.Fatalf("minted ancestor meta = %+v", s)
 	}
-	if s := subjects["f:flat"]; s.Scheme != "fast" || len(s.Broader) != 0 {
+	if s := subjects["f:flat"]; s.Scheme != "fast" || len(s.Broader) != 0 || s.Minted {
 		t.Fatalf("flat meta = %+v", s)
+	}
+	if s := subjects["s:parent"]; s.Minted {
+		t.Fatalf("direct subject flagged minted: %+v", s)
 	}
 }

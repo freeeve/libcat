@@ -60,6 +60,12 @@ type browseSubject struct {
 	Labels  map[string]string `json:"labels,omitempty"`
 	Scheme  string            `json:"scheme,omitempty"`
 	Broader []string          `json:"broader,omitempty"`
+	// Minted marks an entry created only to close an ancestry hole
+	// (expandSubjectAncestry): no Work carries it directly and no feed
+	// described it. While it stays label-less the facet UI keeps its
+	// rolled-up postings out of the rendered tree instead of showing a raw
+	// authority URI as a top-level concept (tasks/176).
+	Minted bool `json:"minted,omitempty"`
 }
 
 // browseCard is the compact per-Work payload stored in the record store -- what a
@@ -166,8 +172,9 @@ const ancestryDepthCap = 12
 // the parent -- include or exclude -- covers works tagged anywhere below it,
 // with no per-node queries client-side. Ancestors named by broader edges but
 // never used as a direct subject are minted into both the postings and the
-// metadata map (scheme inherited from the child; label falls back to the id
-// until some feed carries one), so the tree has no holes.
+// metadata map (scheme inherited from the child, flagged Minted so the UI
+// can keep label-less plumbing nodes out of the rendered tree), so the
+// postings have no holes.
 func expandSubjectAncestry(cats map[string]*roaring.Bitmap, subjects map[string]browseSubject) {
 	if len(cats) == 0 {
 		return
@@ -184,7 +191,7 @@ func expandSubjectAncestry(cats map[string]*roaring.Bitmap, subjects map[string]
 				}
 				seen[a] = true
 				if _, ok := subjects[a]; !ok {
-					subjects[a] = browseSubject{Scheme: subjects[id].Scheme}
+					subjects[a] = browseSubject{Scheme: subjects[id].Scheme, Minted: true}
 				}
 				abm := cats[a]
 				if abm == nil {
