@@ -66,6 +66,10 @@ add ~EUR 5/mo fixed (flexible IPv4 EUR 0.004/h + ~20GB block storage OS disk).
 
 ## Open questions
 
+- The sizing table's ~57KB/work is the projection stage's peak RSS
+  (tasks/085), used as a proxy -- lcatd's actual resident footprint is
+  unmeasured. Filed as queerbooks-demo tasks/017 (48.5k-work corpus);
+  fold the measured number back into the table here.
 - Latency: if users/QLL are US-based, EU-only providers may be a real cost;
   Hetzner US is the compromise (with self-hosted object storage).
 - Verify Alternator against the store contract: run `store/storetest` against
