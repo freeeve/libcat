@@ -302,12 +302,16 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	if ui.IsPlaceholder() {
 		logger.Warn("cataloging SPA not built into this binary; the browser UI shows a build notice (run 'npm run build' in backend/ui before 'go build'). The JSON API is unaffected.")
 	}
+	deps.ExtraFacets = cfg.ExtraFacets
 	clientCfg := map[string]any{
 		"apiBase":   "", // same-origin
 		"localAuth": cfg.LocalAuth,
 		"provider":  cfg.Provider,
 		"readOnly":  cfg.ReadOnly,
 		"sandbox":   cfg.Sandbox,
+	}
+	if len(cfg.ExtraFacets) > 0 {
+		clientCfg["extraFacets"] = cfg.ExtraFacets
 	}
 	if cfg.OIDCIssuer != "" {
 		clientCfg["oidc"] = map[string]string{"issuer": cfg.OIDCIssuer, "clientId": cfg.OIDCClientID}

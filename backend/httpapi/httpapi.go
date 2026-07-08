@@ -94,6 +94,9 @@ type Deps struct {
 	// modes, issuers, vocab schemes, provider -- deployment facts, never
 	// secrets.
 	ClientConfig map[string]any
+	// ExtraFacets lists the extras keys the works view facets on
+	// (tasks/171), e.g. "sources" for provenance triage.
+	ExtraFacets []string
 	// ReadOnly puts the instance in demo mode: editorial and config writes are
 	// rejected (paired with a read-only blob store), while authentication,
 	// reads, search, and dry-run previews still work.
@@ -146,7 +149,7 @@ func New(deps Deps) http.Handler {
 		registerRecords(mux, deps.Blob, ix, deps.DB, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier, hook)
 		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier)
 		registerMaintenance(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
-		wl := registerWorksList(mux, ix, deps.Verifier)
+		wl := registerWorksList(mux, ix, deps.Verifier, deps.ExtraFacets)
 		registerTags(mux, wl, deps.Verifier)
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {

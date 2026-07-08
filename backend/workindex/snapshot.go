@@ -28,8 +28,10 @@ import (
 const DefaultSnapshotPath = "data/workindex.snapshot"
 
 // snapshotVersion is the on-disk schema version; a mismatch falls back to a full
-// scan rather than risk decoding an incompatible layout.
-const snapshotVersion = 1
+// scan rather than risk decoding an incompatible layout. v2: summaries carry
+// Extras (tasks/171) -- a v1 snapshot would silently serve extras-less
+// summaries for every unchanged grain, so it must rebuild.
+const snapshotVersion = 2
 
 // snapshotEntry is one grain's projected state, the JSON-portable mirror of the
 // unexported grainEntry. Shared shape with the change feed (tasks/156).

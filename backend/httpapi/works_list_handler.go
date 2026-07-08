@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,9 @@ import (
 // publish, not per-keystroke scans).
 type worksList struct {
 	ix *workindex.Index
+	// extraFacets are the extras keys served as facet groups (tasks/171),
+	// reserved parameter names already filtered out.
+	extraFacets []string
 }
 
 func (wl *worksList) summaries(r *http.Request) ([]ingest.WorkSummary, error) {
@@ -26,8 +30,18 @@ func (wl *worksList) summaries(r *http.Request) ([]ingest.WorkSummary, error) {
 // returns the shared summary source for sibling endpoints (tags typeahead).
 // The response carries total (whole catalog) and matched (query hits) so
 // the SPA can page: works is the [offset, offset+limit) window of matches.
-func registerWorksList(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenVerifier) *worksList {
+// extraFacets names the extras keys served as additional facet groups
+// (tasks/171); a key shadowing a built-in parameter is dropped with a
+// warning rather than silently swallowing that parameter.
+func registerWorksList(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenVerifier, extraFacets []string) *worksList {
 	wl := &worksList{ix: ix}
+	for _, key := range extraFacets {
+		if reservedWorkParams[key] {
+			slog.Warn("httpapi: extras facet shadows a built-in works parameter; skipping", "key", key)
+			continue
+		}
+		wl.extraFacets = append(wl.extraFacets, key)
+	}
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 	mux.Handle("GET /v1/works", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		all, err := wl.summaries(r)
@@ -51,15 +65,15 @@ func registerWorksList(mux *http.ServeMux, ix *workindex.Index, verifier auth.To
 		}
 		// Facets (tasks/168): filters AND across groups, OR within one;
 		// counts are self-excluding over the query-matched set.
-		filters := parseWorkFilters(params)
-		counter := newFacetCounter()
+		groups := workFacetGroups(params, wl.extraFacets)
+		counter := newFacetCounter(groups)
 		matched := 0
 		matches := make([]ingest.WorkSummary, 0, limit)
 		for _, s := range all {
 			if q != "" && !s.Matches(q) {
 				continue
 			}
-			m := filters.groupMatches(s)
+			m := groupMatches(groups, s)
 			counter.add(s, m)
 			pass := true
 			for _, ok := range m {

@@ -39,6 +39,12 @@ type WorkSummary struct {
 	// holding as long as the Work is not withdrawn).
 	Items           int  `json:",omitempty"`
 	HasAvailability bool `json:",omitempty"`
+	// Extras carries the Work's lcat:extra/* literals -- deployment-defined
+	// key/value metadata the feed graph attaches (bibframe.addWorkExtras),
+	// e.g. sources: "loc, mombian". The admin works view facets provenance
+	// on configured keys (tasks/171); multi-valued keys are comma-joined by
+	// convention and split at facet time.
+	Extras map[string]string `json:",omitempty"`
 }
 
 // Matches reports whether the summary matches a lowercased search query --
@@ -332,13 +338,28 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 			merged.Add(tr.S, tr.P, tr.O)
 		}
 	}
+	// lcat:extra/* literals by subject, one pass: deployment-defined Work
+	// metadata the feed graph carries (tasks/171).
+	extras := map[string]map[string]string{}
+	for _, tr := range merged.Triples {
+		key, ok := strings.CutPrefix(tr.P.Value, bibframe.ExtraPred)
+		if !ok || key == "" || !tr.O.IsLiteral() {
+			continue
+		}
+		m := extras[tr.S.Value]
+		if m == nil {
+			m = map[string]string{}
+			extras[tr.S.Value] = m
+		}
+		m[key] = tr.O.Value
+	}
 	var out []WorkSummary
 	for _, work := range merged.SubjectsOfType(bfNS + "Work") {
 		id := strings.TrimSuffix(strings.TrimPrefix(work.Value, "#"), "Work")
 		if !strings.HasPrefix(work.Value, "#") || id == "" {
 			continue
 		}
-		s := WorkSummary{WorkID: id}
+		s := WorkSummary{WorkID: id, Extras: extras[work.Value]}
 		if title, ok := merged.Object(work, bfNS+"title"); ok {
 			if main, ok := merged.Literal(title, bfNS+"mainTitle"); ok {
 				s.Title = main

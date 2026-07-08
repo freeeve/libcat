@@ -73,6 +73,10 @@ type Config struct {
 	// VocabSchemes lists the controlled vocabularies to load from the blob
 	// store's authorities tree (comma-separated; empty = all found).
 	VocabSchemes []string
+	// ExtraFacets lists the lcat:extra/* keys the admin works view facets
+	// on (LCATD_EXTRA_FACETS, comma-separated). Defaults to "sources" --
+	// the provenance dimension (tasks/171); set it empty to disable.
+	ExtraFacets []string
 	// VocabUploadCapMB bounds hand-uploaded vocabulary dumps (0 = the 512MB
 	// default). Synchronous in-memory installs need some ceiling; size it
 	// to the deployment's RAM.
@@ -180,6 +184,15 @@ func FromEnv() (Config, error) {
 		for s := range strings.SplitSeq(raw, ",") {
 			if s = strings.TrimSpace(s); s != "" {
 				cfg.VocabSchemes = append(cfg.VocabSchemes, s)
+			}
+		}
+	}
+	cfg.ExtraFacets = []string{"sources"}
+	if raw, ok := os.LookupEnv("LCATD_EXTRA_FACETS"); ok {
+		cfg.ExtraFacets = nil
+		for s := range strings.SplitSeq(raw, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				cfg.ExtraFacets = append(cfg.ExtraFacets, s)
 			}
 		}
 	}

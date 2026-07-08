@@ -39,6 +39,8 @@ func enrichFixture(t *testing.T) blob.Store {
 	ds.Add(inst, rdf.NewIRI(bfNS+"identifiedBy"), isbn, feed)
 	ds.Add(isbn, rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), rdf.NewIRI(bfNS+"Isbn"), feed)
 	ds.Add(isbn, rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#value"), rdf.NewLiteral("9781250313195", "", ""), feed)
+	ds.Add(work, rdf.NewIRI(bibframe.ExtraPred+"sources"), rdf.NewLiteral("overdrive queer scan, loc", "", ""), feed)
+	ds.Add(work, rdf.NewIRI(bibframe.ExtraPred+"cover"), rdf.NewLiteral("https://img.example/g9.jpg", "", ""), feed)
 	nq, err := ds.Canonical()
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +83,10 @@ func TestScanSummaries(t *testing.T) {
 	}
 	if len(s.Subjects) != 0 {
 		t.Fatalf("blank-node-only fixture should carry no controlled subjects: %v", s.Subjects)
+	}
+	// lcat:extra/* literals surface raw, keyed without the prefix (tasks/171).
+	if len(s.Extras) != 2 || s.Extras["sources"] != "overdrive queer scan, loc" || s.Extras["cover"] != "https://img.example/g9.jpg" {
+		t.Fatalf("extras = %v", s.Extras)
 	}
 	if paths[s.WorkID] == "" {
 		t.Fatalf("paths = %v", paths)

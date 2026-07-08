@@ -11,6 +11,9 @@ import (
 	"github.com/freeeve/libcat/bibframe"
 	"github.com/freeeve/libcat/ingest"
 	"github.com/freeeve/libcat/storage/blob"
+
+	"github.com/freeeve/libcat/backend/auth"
+	"github.com/freeeve/libcat/backend/store"
 )
 
 func sum(mod func(*ingest.WorkSummary)) ingest.WorkSummary {
@@ -76,11 +79,11 @@ func TestFacetSelfExclusion(t *testing.T) {
 		sum(func(s *ingest.WorkSummary) { s.WorkID = "w2"; s.Suppressed = true }),                   // suppressed, physical
 		sum(func(s *ingest.WorkSummary) { s.WorkID = "w3"; s.Items = 0; s.HasAvailability = true }), // public, digital
 	}
-	f := parseWorkFilters(url.Values{"visibility": {"public"}})
-	c := newFacetCounter()
+	groups := workFacetGroups(url.Values{"visibility": {"public"}}, nil)
+	c := newFacetCounter(groups)
 	pass := 0
 	for _, s := range works {
-		m := f.groupMatches(s)
+		m := groupMatches(groups, s)
 		c.add(s, m)
 		ok := true
 		for _, v := range m {
@@ -118,8 +121,9 @@ func equalFacet(a, b []facetCount) bool {
 }
 
 // seedFacetWork writes a grain carrying a controlled subject, an
-// uncontrolled tag, and optionally the suppression marker.
-func seedFacetWork(t *testing.T, bs blob.Store, workID, title, subjectIRI, tag string, suppressed bool) {
+// uncontrolled tag, a comma-joined sources extra, and optionally the
+// suppression marker.
+func seedFacetWork(t *testing.T, bs blob.Store, workID, title, subjectIRI, tag, sources string, suppressed bool) {
 	t.Helper()
 	const (
 		bfNS    = "http://id.loc.gov/ontologies/bibframe/"
@@ -138,6 +142,9 @@ func seedFacetWork(t *testing.T, bs blob.Store, workID, title, subjectIRI, tag s
 	if tag != "" {
 		ds.Add(work, rdf.NewIRI(bibframe.PredTag), rdf.NewLiteral(tag, "", ""), feed)
 	}
+	if sources != "" {
+		ds.Add(work, rdf.NewIRI(bibframe.ExtraPred+"sources"), rdf.NewLiteral(sources, "", ""), feed)
+	}
 	if suppressed {
 		ds.Add(work, rdf.NewIRI(bibframe.PredSuppressed), rdf.NewLiteral("true", "", ""), bibframe.EditorialGraph())
 	}
@@ -151,13 +158,16 @@ func seedFacetWork(t *testing.T, bs blob.Store, workID, title, subjectIRI, tag s
 }
 
 // TestWorksListFacets drives the HTTP surface: filter params narrow the
-// list and the response carries self-excluding counts.
+// list and the response carries self-excluding counts, including the
+// configured sources extras dimension (tasks/171).
 func TestWorksListFacets(t *testing.T) {
-	h, bs := newRecordsAPI(t)
-	seedFacetWork(t, bs, "wsubj000001", "Subject Rich", "http://id.loc.gov/authorities/subjects/sh1", "space opera", false)
-	seedFacetWork(t, bs, "wsubj000002", "Also Rich", "http://id.loc.gov/authorities/subjects/sh1", "", false)
-	seedFacetWork(t, bs, "wbare000001", "Bare", "", "", false)
-	seedFacetWork(t, bs, "whide000001", "Hidden", "", "", true)
+	bs := blob.NewMem()
+	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Verifier: verifier, ExtraFacets: []string{"sources"}})
+	seedFacetWork(t, bs, "wsubj000001", "Subject Rich", "http://id.loc.gov/authorities/subjects/sh1", "space opera", "overdrive queer scan, loc", false)
+	seedFacetWork(t, bs, "wsubj000002", "Also Rich", "http://id.loc.gov/authorities/subjects/sh1", "", "overdrive queer scan", false)
+	seedFacetWork(t, bs, "wbare000001", "Bare", "", "", "mombian", false)
+	seedFacetWork(t, bs, "whide000001", "Hidden", "", "", "", true)
 
 	type facetsPage struct {
 		worksPage
@@ -189,6 +199,27 @@ func TestWorksListFacets(t *testing.T) {
 	}
 	if !equalFacet(page.Facets["tag"], []facetCount{{"space opera", 1}}) {
 		t.Fatalf("tag = %v", page.Facets["tag"])
+	}
+	// The sources extra splits on commas and trims (tasks/171).
+	if !equalFacet(page.Facets["sources"], []facetCount{{"overdrive queer scan", 2}, {"loc", 1}, {"mombian", 1}}) {
+		t.Fatalf("sources = %v", page.Facets["sources"])
+	}
+
+	// A sources filter narrows the works; its own counts keep the full
+	// picture (self-exclusion), and it composes with other groups.
+	page = get("sources=" + url.QueryEscape("overdrive queer scan"))
+	if page.Matched != 2 {
+		t.Fatalf("sources filter matched %d, want 2", page.Matched)
+	}
+	if !equalFacet(page.Facets["sources"], []facetCount{{"overdrive queer scan", 2}, {"loc", 1}, {"mombian", 1}}) {
+		t.Fatalf("sources counts under own filter = %v", page.Facets["sources"])
+	}
+	if !equalFacet(page.Facets["tag"], []facetCount{{"space opera", 1}}) {
+		t.Fatalf("tag counts under sources filter = %v", page.Facets["tag"])
+	}
+	page = get("sources=" + url.QueryEscape("overdrive queer scan") + "&needs=isbn&tag=" + url.QueryEscape("Space Opera"))
+	if page.Matched != 1 || page.Works[0].WorkID != "wsubj000001" {
+		t.Fatalf("sources+tag composed = %+v", page.Works)
 	}
 
 	// A subject filter narrows the works and the needs counts, but its own

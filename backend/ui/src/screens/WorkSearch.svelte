@@ -6,6 +6,7 @@
   // and re-finds the selected work by id.
   import { onMount } from "svelte";
   import { fetchWorks, resolveTermURIs, ApiError, type WorkFilters } from "../lib/api";
+  import { getConfig } from "../lib/config";
   import { bindKeys, pushScope, popScope } from "../lib/keyboard";
   import { navigate } from "../lib/router";
   import { screenState } from "../lib/screenState.svelte";
@@ -31,13 +32,20 @@
   }));
 
   // Facet rail copy (tasks/168): fixed groups get cataloger-shaped labels;
-  // subject values are IRIs resolved to term labels below.
+  // subject values are IRIs resolved to term labels below. The deployment's
+  // extras dimensions (tasks/171, e.g. sources/provenance) follow, humanized
+  // from their config key -- their values are the raw extras strings.
   const FACET_GROUPS: { key: string; title: string; label: (v: string) => string }[] = [
     { key: "visibility", title: "Visibility", label: (v) => v },
     { key: "holdings", title: "Holdings", label: (v) => ({ physical: "physical items", digital: "live availability", none: "no holdings" })[v] ?? v },
     { key: "needs", title: "Needs", label: (v) => ({ subjects: "missing subjects", contributors: "missing contributors", isbn: "missing ISBN" })[v] ?? v },
     { key: "subject", title: "Subject", label: (v) => subjectLabels[v] ?? v.split("/").pop() ?? v },
     { key: "tag", title: "Tag", label: (v) => v },
+    ...(getConfig().extraFacets ?? []).map((key) => ({
+      key,
+      title: key.charAt(0).toUpperCase() + key.slice(1),
+      label: (v: string) => v,
+    })),
   ];
 
   let subjectLabels = $state<Record<string, string>>({});

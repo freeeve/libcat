@@ -1,10 +1,10 @@
 // Faceted filters over the works list (tasks/168): cataloger-shaped slices
 // of the workindex summaries -- visibility, holdings, completeness gaps,
-// controlled subjects, and raw tags. Filters AND across groups and OR
-// within one; each group's counts are computed with every other group's
-// filters applied (self-excluding), the standard facet UX. Everything
-// derives from fields the summary already carries -- no grain reads and no
-// summary-format change (the persisted snapshot stays compatible).
+// controlled subjects, raw tags, and configured extras dimensions like
+// provenance sources (tasks/171). Filters AND across groups and OR within
+// one; each group's counts are computed with every other group's filters
+// applied (self-excluding), the standard facet UX. Everything derives from
+// fields the summary already carries -- no grain reads.
 package httpapi
 
 import (
@@ -22,23 +22,57 @@ type facetCount struct {
 	Count int    `json:"count"`
 }
 
-// workFilters carries one request's facet selections, keyed by group.
-type workFilters struct {
-	visibility []string
-	holdings   []string
-	needs      []string
-	subjects   []string
-	tags       []string
+// facetGroup is one facet dimension of a request: its response key (also the
+// query parameter it filters by), the requested filter values, and how a
+// summary buckets into it.
+type facetGroup struct {
+	name     string
+	selected []string
+	valuesOf func(ingest.WorkSummary) []string
+	fold     bool // case-insensitive value matching (tags)
+	capped   bool // top-N response cap for open-ended vocabularies
 }
 
-func parseWorkFilters(q url.Values) workFilters {
-	return workFilters{
-		visibility: q["visibility"],
-		holdings:   q["holdings"],
-		needs:      q["needs"],
-		subjects:   q["subject"],
-		tags:       q["tag"],
+// reservedWorkParams are the works-list query parameters extras facets may
+// not shadow: the built-in groups plus the paging/search params.
+var reservedWorkParams = map[string]bool{
+	"visibility": true, "holdings": true, "needs": true, "subject": true,
+	"tag": true, "q": true, "limit": true, "offset": true,
+}
+
+// workFacetGroups assembles one request's facet groups: the five built-ins,
+// then one group per configured extras key (tasks/171) bucketing on the
+// summary's comma-split extras value.
+func workFacetGroups(q url.Values, extras []string) []facetGroup {
+	groups := []facetGroup{
+		{name: "visibility", selected: q["visibility"], valuesOf: func(s ingest.WorkSummary) []string { return []string{visibilityOf(s)} }},
+		{name: "holdings", selected: q["holdings"], valuesOf: holdingsOf},
+		{name: "needs", selected: q["needs"], valuesOf: needsOf},
+		{name: "subject", selected: q["subject"], valuesOf: func(s ingest.WorkSummary) []string { return s.Subjects }, capped: true},
+		{name: "tag", selected: q["tag"], valuesOf: func(s ingest.WorkSummary) []string { return s.Tags }, fold: true, capped: true},
 	}
+	for _, key := range extras {
+		groups = append(groups, facetGroup{
+			name:     key,
+			selected: q[key],
+			valuesOf: func(s ingest.WorkSummary) []string { return splitExtra(s.Extras[key]) },
+			capped:   true,
+		})
+	}
+	return groups
+}
+
+// splitExtra splits a comma-joined extras value into trimmed facet values --
+// the lcat convention for multi-valued extras (the hugo module's extraFacets
+// split), a single-valued extra passing through unchanged.
+func splitExtra(v string) []string {
+	var out []string
+	for p := range strings.SplitSeq(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // visibilityOf buckets a summary into exactly one visibility value: what
@@ -88,34 +122,26 @@ func needsOf(s ingest.WorkSummary) []string {
 	return out
 }
 
-// facetGroups is the group evaluation order; index positions match the
-// membership arrays below.
-var facetGroups = []string{"visibility", "holdings", "needs", "subject", "tag"}
-
 // groupMatches reports, per group, whether the summary passes that group's
 // filter (an empty selection always passes).
-func (f workFilters) groupMatches(s ingest.WorkSummary) [5]bool {
-	anyOf := func(have []string, want []string) bool {
-		if len(want) == 0 {
-			return true
+func groupMatches(groups []facetGroup, s ingest.WorkSummary) []bool {
+	m := make([]bool, len(groups))
+	for i, g := range groups {
+		if len(g.selected) == 0 {
+			m[i] = true
+			continue
+		}
+		have, want := g.valuesOf(s), g.selected
+		if g.fold {
+			have, want = lowerAll(have), lowerAll(want)
 		}
 		for _, w := range want {
 			if slices.Contains(have, w) {
-				return true
+				m[i] = true
+				break
 			}
 		}
-		return false
 	}
-	var m [5]bool
-	m[0] = anyOf([]string{visibilityOf(s)}, f.visibility)
-	m[1] = anyOf(holdingsOf(s), f.holdings)
-	m[2] = anyOf(needsOf(s), f.needs)
-	m[3] = anyOf(s.Subjects, f.subjects)
-	tags := make([]string, len(s.Tags))
-	for i, t := range s.Tags {
-		tags[i] = strings.ToLower(t)
-	}
-	m[4] = anyOf(tags, lowerAll(f.tags))
 	return m
 }
 
@@ -129,11 +155,12 @@ func lowerAll(vs []string) []string {
 
 // facetCounter accumulates self-excluding counts across one scan.
 type facetCounter struct {
-	counts [5]map[string]int
+	groups []facetGroup
+	counts []map[string]int
 }
 
-func newFacetCounter() *facetCounter {
-	c := &facetCounter{}
+func newFacetCounter(groups []facetGroup) *facetCounter {
+	c := &facetCounter{groups: groups, counts: make([]map[string]int, len(groups))}
 	for i := range c.counts {
 		c.counts[i] = map[string]int{}
 	}
@@ -142,48 +169,36 @@ func newFacetCounter() *facetCounter {
 
 // add folds one q-matched summary in: a group counts the work when every
 // OTHER group's filter passes it.
-func (c *facetCounter) add(s ingest.WorkSummary, m [5]bool) {
-	othersPass := func(g int) bool {
+func (c *facetCounter) add(s ingest.WorkSummary, m []bool) {
+	for g, group := range c.groups {
+		othersPass := true
 		for i, ok := range m {
 			if i != g && !ok {
-				return false
+				othersPass = false
+				break
 			}
 		}
-		return true
-	}
-	if othersPass(0) {
-		c.counts[0][visibilityOf(s)]++
-	}
-	if othersPass(1) {
-		for _, v := range holdingsOf(s) {
-			c.counts[1][v]++
+		if !othersPass {
+			continue
 		}
-	}
-	if othersPass(2) {
-		for _, v := range needsOf(s) {
-			c.counts[2][v]++
-		}
-	}
-	if othersPass(3) {
-		for _, v := range s.Subjects {
-			c.counts[3][v]++
-		}
-	}
-	if othersPass(4) {
-		for _, v := range s.Tags {
-			c.counts[4][strings.ToLower(v)]++
+		for _, v := range group.valuesOf(s) {
+			if group.fold {
+				v = strings.ToLower(v)
+			}
+			c.counts[g][v]++
 		}
 	}
 }
 
-// facetTopN bounds the open-ended groups (subjects, tags) in the response.
+// facetTopN bounds the open-ended groups (subjects, tags, extras) in the
+// response.
 const facetTopN = 20
 
 // result renders the counts: fixed-vocabulary groups list every nonzero
-// value; subjects and tags list the top facetTopN by count then value.
+// value; open-ended groups list the top facetTopN by count then value.
 func (c *facetCounter) result() map[string][]facetCount {
 	out := map[string][]facetCount{}
-	for i, group := range facetGroups {
+	for i, group := range c.groups {
 		list := make([]facetCount, 0, len(c.counts[i]))
 		for v, n := range c.counts[i] {
 			list = append(list, facetCount{Value: v, Count: n})
@@ -194,10 +209,10 @@ func (c *facetCounter) result() map[string][]facetCount {
 			}
 			return list[a].Value < list[b].Value
 		})
-		if (group == "subject" || group == "tag") && len(list) > facetTopN {
+		if group.capped && len(list) > facetTopN {
 			list = list[:facetTopN]
 		}
-		out[group] = list
+		out[group.name] = list
 	}
 	return out
 }

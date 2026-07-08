@@ -15,6 +15,9 @@ export interface ClientConfig {
   /** Sandbox demo: read-only, but the editor shows Save and renders edits as
    *  if committed (wiped on refresh). */
   sandbox?: boolean;
+  /** Extras keys the works view facets on (LCATD_EXTRA_FACETS, tasks/171);
+   *  each is a facet-rail group and its own query parameter. */
+  extraFacets?: string[];
 }
 
 /** One row from GET /v1/works (ingest.WorkSummary, untagged Go fields). */
