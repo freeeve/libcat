@@ -102,6 +102,18 @@ type SubjectEnricher interface {
 	ControlledSubjects() []AuthoritySubject
 }
 
+// TermDescriber is an optional capability a Record may implement to carry
+// standalone vocabulary term descriptions -- typically the skos:broader
+// ancestor chains of its ControlledSubjects (tasks/180). Run emits each as
+// the term's skos:prefLabel/broader statements in the feed graph with NO
+// bf:subject link to the Work, so hierarchy nodes above the asserted
+// subjects stay labeled in the projection's term sideband (tasks/178) even
+// though no Work carries them directly. For a clustered Work the first
+// record's terms win, matching ControlledSubjects.
+type TermDescriber interface {
+	DescribedTerms() []AuthoritySubject
+}
+
 // Config carries a provider's build-time configuration into its Factory. Feed
 // overrides the provenance graph name (default: the registry key); Source is the
 // primary input (a cache directory, a file, a URL); Params holds provider-specific

@@ -113,6 +113,11 @@ func cluster(recs []Record, prior bibframe.Prior) ([]bibframe.WorkGroup, Result,
 			if se, ok := rec.(SubjectEnricher); ok {
 				wg.Subjects = se.ControlledSubjects()
 			}
+			// And its standalone term descriptions (ancestor chains): labels +
+			// hierarchy only, no subject link (tasks/180).
+			if td, ok := rec.(TermDescriber); ok {
+				wg.Terms = td.DescribedTerms()
+			}
 			byWork[a.WorkID] = wg
 		}
 		if seenInstance[a.InstanceID] {

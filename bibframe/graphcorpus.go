@@ -34,6 +34,12 @@ type WorkGroup struct {
 	// so the projector resolves them as controlled subjects (tasks/012/015). Empty
 	// when the provider supplies none.
 	Subjects []AuthoritySubject
+	// Terms are standalone vocabulary term descriptions -- typically the
+	// skos:broader ancestor chains of Subjects (tasks/180). They are emitted
+	// into the feed graph as the term's prefLabel/broader statements with no
+	// bf:subject link, so ancestor concepts stay labeled in the projection's
+	// term sideband (tasks/178). Empty when the provider supplies none.
+	Terms []AuthoritySubject
 }
 
 // AuthoritySubject is one controlled-vocabulary subject a provider asserts for a Work: a
@@ -71,24 +77,50 @@ func addControlledSubjects(g *rdf.Graph, workID string, subs []AuthoritySubject)
 			continue
 		}
 		seen[s.URI] = true
-		uri := rdf.NewIRI(s.URI)
-		g.Add(w, rdf.NewIRI(predSubject), uri)
-		langs := make([]string, 0, len(s.Labels))
-		for lang := range s.Labels {
-			langs = append(langs, lang)
+		g.Add(w, rdf.NewIRI(predSubject), rdf.NewIRI(s.URI))
+		addTermDescription(g, s)
+	}
+}
+
+// addDescribedTerms attaches standalone term descriptions to the feed graph
+// (tasks/180): prefLabel/broader statements only, no bf:subject link -- the
+// terms describe vocabulary structure (ancestor chains), not what the Work
+// is about. Deterministic order; a no-op for an empty slice.
+func addDescribedTerms(g *rdf.Graph, terms []AuthoritySubject) {
+	if len(terms) == 0 {
+		return
+	}
+	ordered := append([]AuthoritySubject(nil), terms...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].URI < ordered[j].URI })
+	seen := map[string]bool{}
+	for _, s := range ordered {
+		if s.URI == "" || seen[s.URI] {
+			continue
 		}
-		sort.Strings(langs)
-		for _, lang := range langs {
-			if label := s.Labels[lang]; label != "" {
-				g.Add(uri, rdf.NewIRI(predPrefLabel), rdf.NewLiteral(label, lang, ""))
-			}
+		seen[s.URI] = true
+		addTermDescription(g, s)
+	}
+}
+
+// addTermDescription emits one term's own statements: skos:prefLabel per
+// language and skos:broader per parent, in deterministic order.
+func addTermDescription(g *rdf.Graph, s AuthoritySubject) {
+	uri := rdf.NewIRI(s.URI)
+	langs := make([]string, 0, len(s.Labels))
+	for lang := range s.Labels {
+		langs = append(langs, lang)
+	}
+	sort.Strings(langs)
+	for _, lang := range langs {
+		if label := s.Labels[lang]; label != "" {
+			g.Add(uri, rdf.NewIRI(predPrefLabel), rdf.NewLiteral(label, lang, ""))
 		}
-		parents := append([]string(nil), s.Broader...)
-		sort.Strings(parents)
-		for _, p := range parents {
-			if p != "" {
-				g.Add(uri, rdf.NewIRI(predBroader), rdf.NewIRI(p))
-			}
+	}
+	parents := append([]string(nil), s.Broader...)
+	sort.Strings(parents)
+	for _, p := range parents {
+		if p != "" {
+			g.Add(uri, rdf.NewIRI(predBroader), rdf.NewIRI(p))
 		}
 	}
 }
@@ -155,6 +187,7 @@ func (wg WorkGroup) graph() *rdf.Graph {
 	g := wi.Graph(wg.WorkID, bases)
 	addWorkExtras(g, wg.WorkID, wg.Extras)
 	addControlledSubjects(g, wg.WorkID, wg.Subjects)
+	addDescribedTerms(g, wg.Terms)
 	for _, gi := range wg.Instances {
 		addInstanceVerbatim(g, gi.InstanceID, gi.Verbatim)
 	}

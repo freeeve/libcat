@@ -162,6 +162,64 @@ type extraStub struct {
 
 func (r extraStub) Extras() map[string]string { return r.extras }
 
+type termStub struct {
+	stubRecord
+	subjects []ingest.AuthoritySubject
+	terms    []ingest.AuthoritySubject
+}
+
+func (r termStub) ControlledSubjects() []ingest.AuthoritySubject { return r.subjects }
+func (r termStub) DescribedTerms() []ingest.AuthoritySubject     { return r.terms }
+
+// TestRunDescribedTerms proves a Record implementing TermDescriber has its
+// standalone term descriptions (ancestor-chain labels + hierarchy) emitted
+// into the feed graph WITHOUT a bf:subject link (tasks/180) -- the projection's
+// term sideband (tasks/178) then labels hierarchy nodes no Work carries.
+func TestRunDescribedTerms(t *testing.T) {
+	recs := []ingest.Record{
+		termStub{
+			stubRecord: stubRecord{id: "t1", author: "Doe, Jane", title: "Alpha", lang: "eng", isbn: "9780000000001"},
+			subjects: []ingest.AuthoritySubject{{
+				URI:     "https://vocab.example.org/child",
+				Labels:  map[string]string{"en": "Trans women"},
+				Broader: []string{"https://vocab.example.org/parent"},
+			}},
+			terms: []ingest.AuthoritySubject{{
+				URI:     "https://vocab.example.org/parent",
+				Labels:  map[string]string{"en": "Gender minorities"},
+				Broader: []string{"https://vocab.example.org/grand"},
+			}},
+		},
+	}
+	reg := ingest.NewRegistry()
+	if err := reg.Register("acme", stubFactory(recs)); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	prov, err := reg.New("acme", ingest.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ingest.Run(prov, out); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	nq := readNQuads(t, out)
+	for _, want := range []string{
+		"bibframe/subject> <https://vocab.example.org/child>",
+		`<https://vocab.example.org/parent> <http://www.w3.org/2004/02/skos/core#prefLabel> "Gender minorities"@en <feed:acme>`,
+		"<https://vocab.example.org/parent> <http://www.w3.org/2004/02/skos/core#broader> <https://vocab.example.org/grand>",
+	} {
+		if !strings.Contains(nq, want) {
+			t.Errorf("grains missing %q:\n%s", want, nq)
+		}
+	}
+	// Description only: the ancestor is never linked as a work subject.
+	if strings.Contains(nq, "bibframe/subject> <https://vocab.example.org/parent>") {
+		t.Errorf("described term linked as a work subject:\n%s", nq)
+	}
+}
+
 // TestRunWorkExtras proves a Record implementing ExtraProvider has its non-BIBFRAME
 // display fields emitted into the Work's feed provenance graph under bibframe.ExtraPred,
 // so the projector can surface them as catalog.json's `extra` (tasks/026). A record that
