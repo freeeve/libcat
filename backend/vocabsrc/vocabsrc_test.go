@@ -63,6 +63,44 @@ func TestBuiltinsListed(t *testing.T) {
 	}
 }
 
+// TestViewsListsOrphanInstalls: a snapshot installed without a registered
+// source (an offline vocab-install, tasks/163, or a mem registry that reset)
+// still gets a Vocabularies-screen row, synthesized from its sidecar.
+func TestViewsListsOrphanInstalls(t *testing.T) {
+	s := newService(t)
+	ctx := t.Context()
+	if err := s.PutSource(ctx, Source{Name: "homosaurus", Scheme: "homosaurus"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InstallUpload(ctx, "homosaurus", strings.NewReader(zinesNT)); err != nil {
+		t.Fatal(err)
+	}
+	// The registry forgets the source; the blob-side install remains.
+	if err := s.DeleteSource(ctx, "homosaurus"); err != nil {
+		t.Fatal(err)
+	}
+	views, err := s.Views(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var orphan *SourceView
+	for i := range views {
+		if views[i].Name == "homosaurus" {
+			orphan = &views[i]
+		}
+	}
+	if orphan == nil {
+		t.Fatal("orphan install missing from views")
+	}
+	if orphan.Scheme != "homosaurus" || orphan.Installed == nil || orphan.Installed.Terms == 0 {
+		t.Fatalf("orphan view = %+v", orphan)
+	}
+	// Still removable through the normal path.
+	if err := s.RemoveSnapshot(ctx, "homosaurus"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPutSourceOverridesAndValidates(t *testing.T) {
 	s := newService(t)
 	ctx := t.Context()

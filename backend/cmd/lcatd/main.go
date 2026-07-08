@@ -55,6 +55,16 @@ func main() {
 		}
 		return
 	}
+	// "lcatd vocab-install --name <source> --url <dump>" -- install a vocabulary
+	// snapshot into a blob store offline, for deployments whose async download
+	// worker never runs (Lambda, tasks/163).
+	if len(os.Args) > 1 && os.Args[1] == "vocab-install" {
+		if err := runVocabInstall(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	cfg, err := config.FromEnv()
 	if err != nil {
 		logger.Error("config", "err", err)

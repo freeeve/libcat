@@ -385,7 +385,9 @@ func (s *Service) Views(ctx context.Context) ([]SourceView, error) {
 		}
 	}
 	views := make([]SourceView, 0, len(sources))
+	registered := map[string]bool{}
 	for _, src := range sources {
+		registered[src.Name] = true
 		v := SourceView{Source: src}
 		if info, ok := byName[src.Name]; ok {
 			v.Installed = &info
@@ -395,5 +397,15 @@ func (s *Service) Views(ctx context.Context) ([]SourceView, error) {
 		}
 		views = append(views, v)
 	}
+	// Orphan installs -- a snapshot present without a registered source (an
+	// offline vocab-install, tasks/163, or a registry that reset because the
+	// deployment has no document store). Synthesized from the sidecar so the
+	// vocabulary stays visible and removable.
+	for name, info := range byName {
+		if !registered[name] {
+			views = append(views, SourceView{Source: Source{Name: name, Scheme: info.Scheme}, Installed: &info})
+		}
+	}
+	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
 	return views, nil
 }
