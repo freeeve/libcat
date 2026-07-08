@@ -42,6 +42,40 @@ func TestMergeEmpty(t *testing.T) {
 	}
 }
 
+// TestMergeTermSideband covers tasks/180: Merge carries Catalog.Terms
+// (dropping it hid every sideband-labeled ancestor from CLI-built
+// deployments, since lcat project always routes through Merge). Shared term
+// ids merge field-wise -- labels fill per language with earlier catalogs
+// winning, broader edges union, first non-empty scheme sticks -- the inputs
+// stay unmutated, and the output is sorted by id.
+func TestMergeTermSideband(t *testing.T) {
+	primary := &Catalog{Version: SchemaVersion, Terms: []Term{
+		{ID: "t:b", Labels: map[string]string{"en": "Primary EN"}, Broader: []string{"t:z"}},
+		{ID: "t:a", Labels: map[string]string{"en": "Alpha"}, Scheme: "homosaurus"},
+	}}
+	sidecar := &Catalog{Version: SchemaVersion, Terms: []Term{
+		{ID: "t:b", Labels: map[string]string{"en": "Sidecar EN", "es": "Sidecar ES"}, Broader: []string{"t:y"}, Scheme: "fast"},
+	}}
+	merged := Merge([]*Catalog{primary, sidecar})
+	if len(merged.Terms) != 2 || merged.Terms[0].ID != "t:a" || merged.Terms[1].ID != "t:b" {
+		t.Fatalf("terms = %+v", merged.Terms)
+	}
+	b := merged.Terms[1]
+	if b.Labels["en"] != "Primary EN" || b.Labels["es"] != "Sidecar ES" {
+		t.Fatalf("labels = %+v, want primary en + sidecar es", b.Labels)
+	}
+	if !reflect.DeepEqual(b.Broader, []string{"t:y", "t:z"}) {
+		t.Fatalf("broader = %v, want sorted union", b.Broader)
+	}
+	if b.Scheme != "fast" {
+		t.Fatalf("scheme = %q, want the first non-empty", b.Scheme)
+	}
+	// Inputs untouched: the merge filled es/y into its own copies.
+	if _, ok := primary.Terms[0].Labels["es"]; ok || len(primary.Terms[0].Broader) != 1 {
+		t.Fatalf("primary input mutated: %+v", primary.Terms[0])
+	}
+}
+
 // TestSanitizeSources checks allowlist rewriting: disallowed names are
 // stripped and counted, values compare trimmed, kept values re-join ", ",
 // the key is deleted when nothing public remains, and works without the
