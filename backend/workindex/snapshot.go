@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/freeeve/libcatalog/identity"
@@ -115,6 +116,137 @@ func (ix *Index) LoadSnapshot(ctx context.Context) error {
 	return ix.loadSnapshotLocked(ctx)
 }
 
+// SnapshotDrift reports how the first reconcile after a snapshot load treated
+// the primed entries: primed is the entry count the snapshot supplied,
+// refetched how many of those the ETag diff re-read anyway. refetched near
+// primed means the snapshot was built against a store with a different ETag
+// scheme (a dir-built seed copied into S3, tasks/162) -- correctness holds,
+// but the boot degrades to the full corpus scan the snapshot was meant to
+// avoid. Both are zero until a load-then-reconcile cycle completes.
+func (ix *Index) SnapshotDrift() (primed, refetched int) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	if ix.primePending {
+		return 0, 0
+	}
+	return ix.primeEntries, ix.primeRefetched
+}
+
+// WarmScan reconciles against a fresh listing like RefreshNow, but fetches
+// changed grains with workers concurrent GETs and reports progress after each
+// -- the offline seed tool's path (tasks/162), where a sequential reconcile
+// over a high-latency store takes hours. Not for concurrent use with writers:
+// a grain written between the List and the final merge may be recorded stale
+// until the next refresh. progress may be nil.
+func (ix *Index) WarmScan(ctx context.Context, workers int, progress func(fetched, total int)) error {
+	if workers < 1 {
+		workers = 1
+	}
+	ix.mu.Lock()
+	known := make(map[string]string, len(ix.grains))
+	for p, e := range ix.grains {
+		known[p] = e.etag
+	}
+	primePending := ix.primePending
+	ix.mu.Unlock()
+
+	seen := map[string]bool{}
+	var stale []string
+	refetched := 0
+	for entry, err := range ix.bs.List(ctx, ix.prefix) {
+		if err != nil {
+			return err
+		}
+		if !isGrainPath(entry.Path) {
+			continue
+		}
+		seen[entry.Path] = true
+		cur, ok := known[entry.Path]
+		if ok && cur == entry.ETag {
+			continue
+		}
+		if ok && primePending {
+			refetched++
+		}
+		stale = append(stale, entry.Path)
+	}
+
+	var (
+		resMu    sync.Mutex
+		firstErr error
+		fetched  = make(map[string]*grainEntry, len(stale))
+		gone     = map[string]bool{}
+		done     int
+	)
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, p := range stale {
+		resMu.Lock()
+		failed := firstErr != nil
+		resMu.Unlock()
+		if failed {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(p string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			grain, etag, err := ix.bs.Get(ctx, p)
+			var scanned *grainEntry
+			notFound := errors.Is(err, blob.ErrNotFound)
+			if err == nil {
+				if scanned, err = scanEntry(etag, grain); err != nil {
+					err = fmt.Errorf("workindex: %s: %w", p, err)
+				}
+			}
+			resMu.Lock()
+			defer resMu.Unlock()
+			switch {
+			case notFound:
+				gone[p] = true // deleted between List and Get
+			case err != nil:
+				if firstErr == nil {
+					firstErr = err
+				}
+				return
+			default:
+				fetched[p] = scanned
+			}
+			done++
+			if progress != nil {
+				progress(done, len(stale))
+			}
+		}(p)
+	}
+	wg.Wait()
+	if firstErr != nil {
+		return firstErr
+	}
+
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	for p, e := range fetched {
+		ix.grains[p] = e
+		ix.dirty = true
+	}
+	for p := range gone {
+		delete(seen, p)
+	}
+	for p := range ix.grains {
+		if !seen[p] {
+			delete(ix.grains, p)
+			ix.dirty = true
+		}
+	}
+	if ix.primePending {
+		ix.primePending = false
+		ix.primeRefetched = refetched
+	}
+	ix.at = time.Now()
+	return nil
+}
+
 // loadSnapshotLocked is LoadSnapshot with ix.mu held -- the fold-reload path
 // (pollFeedLocked) reuses it when a reader sees the epoch advance.
 func (ix *Index) loadSnapshotLocked(ctx context.Context) error {
@@ -149,6 +281,11 @@ func (ix *Index) loadSnapshotLocked(ctx context.Context) error {
 	}
 	ix.dirty = true
 	ix.at = time.Time{} // force the next refresh to reconcile the delta
+	// Arm the drift counter (tasks/162): the next reconcile measures how many
+	// primed entries its ETag diff re-fetches anyway.
+	ix.primePending = true
+	ix.primeEntries = len(file.Entries)
+	ix.primeRefetched = 0
 	// Align to the snapshot's fold generation; the feed carries the delta on top.
 	ix.epoch = file.Epoch
 	ix.feedApplied = 0

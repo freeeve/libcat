@@ -44,9 +44,10 @@ func main() {
 		fmt.Printf("%d profiles valid: %s\n", len(ids), strings.Join(ids, ", "))
 		return
 	}
-	// "lcatd workindex-snapshot --blob-dir <dir>" -- build the work-index
-	// snapshot offline so a fresh deployment's first cold start skips the corpus
-	// scan (tasks/155).
+	// "lcatd workindex-snapshot (--blob-dir <dir> | --s3-bucket <bucket>)" --
+	// build the work-index snapshot offline so a fresh deployment's first cold
+	// start skips the corpus scan (tasks/155). Must run against the store the
+	// snapshot will serve; ETag schemes differ per backend (tasks/162).
 	if len(os.Args) > 1 && os.Args[1] == "workindex-snapshot" {
 		if err := runWorkindexSnapshot(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, err)

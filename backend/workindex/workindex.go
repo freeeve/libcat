@@ -81,6 +81,14 @@ type Index struct {
 	barcodes   map[string]bool
 	summaries  []ingest.WorkSummary
 	paths      map[string]string
+
+	// Snapshot prime drift (tasks/162): after a snapshot load, the first
+	// reconcile counts how many primed entries the ETag diff re-fetched
+	// anyway. refetched near primed means the snapshot was built against a
+	// store with a different ETag scheme, so priming bought nothing.
+	primePending   bool
+	primeEntries   int
+	primeRefetched int
 }
 
 // New returns an index over the grains under prefix (normally "data/works/").
@@ -302,17 +310,19 @@ func (ix *Index) refreshLocked(ctx context.Context) error {
 		return nil
 	}
 	seen := map[string]bool{}
+	refetched := 0
 	for entry, err := range ix.bs.List(ctx, ix.prefix) {
 		if err != nil {
 			return err
 		}
-		base := path.Base(entry.Path)
-		if !strings.HasSuffix(base, ".nq") || base == "catalog.nq" {
+		if !isGrainPath(entry.Path) {
 			continue
 		}
 		seen[entry.Path] = true
 		if cur, ok := ix.grains[entry.Path]; ok && cur.etag == entry.ETag {
 			continue
+		} else if ok && ix.primePending {
+			refetched++
 		}
 		grain, etag, err := ix.bs.Get(ctx, entry.Path)
 		if errors.Is(err, blob.ErrNotFound) {
@@ -337,8 +347,19 @@ func (ix *Index) refreshLocked(ctx context.Context) error {
 			ix.dirty = true
 		}
 	}
+	if ix.primePending {
+		ix.primePending = false
+		ix.primeRefetched = refetched
+	}
 	ix.at = time.Now()
 	return nil
+}
+
+// isGrainPath reports whether a listed path is a work grain: an .nq file that
+// is not the assembled catalog.nq.
+func isGrainPath(p string) bool {
+	base := path.Base(p)
+	return strings.HasSuffix(base, ".nq") && base != "catalog.nq"
 }
 
 // rebuildLocked rederives the lookup views from the grain entries, in grain

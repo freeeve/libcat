@@ -112,6 +112,12 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 				logger.Warn("work index warm-up", "err", err)
 				return
 			}
+			// A snapshot whose ETags mostly missed bought nothing: it was
+			// likely built against a different store backend (tasks/162).
+			if primed, refetched := widx.SnapshotDrift(); primed > 0 && refetched*2 >= primed {
+				logger.Warn("work index snapshot etag drift -- snapshot likely built against a different store backend; rebuild with lcatd workindex-snapshot against this store",
+					"primed", primed, "refetched", refetched)
+			}
 			// Persist the reconciled projection so the next cold start is cheap.
 			// Skipped read-only: the store rejects writes.
 			if !cfg.ReadOnly {

@@ -1,6 +1,9 @@
 package workindex
 
 import (
+	"context"
+	"fmt"
+	"iter"
 	"testing"
 
 	"github.com/freeeve/libcatalog/bibframe"
@@ -126,5 +129,145 @@ func TestSnapshotCorruptFallsBack(t *testing.T) {
 	sums, err := ix.Summaries(ctx)
 	if err != nil || len(sums) != 1 || sums[0].WorkID != "w1" {
 		t.Fatalf("scan after corrupt snapshot = %+v, %v", sums, err)
+	}
+}
+
+// etagRewriter presents the wrapped store's content under a different ETag
+// scheme -- the tasks/162 failure: a snapshot built via one backend (dir,
+// sha256 ETags) serving a store with another (S3, MD5-based ETags).
+type etagRewriter struct {
+	blob.Store
+}
+
+func (r *etagRewriter) Get(ctx context.Context, path string) ([]byte, string, error) {
+	data, etag, err := r.Store.Get(ctx, path)
+	return data, "other-" + etag, err
+}
+
+func (r *etagRewriter) List(ctx context.Context, prefix string) iter.Seq2[blob.Entry, error] {
+	return func(yield func(blob.Entry, error) bool) {
+		for entry, err := range r.Store.List(ctx, prefix) {
+			entry.ETag = "other-" + entry.ETag
+			if !yield(entry, err) {
+				return
+			}
+		}
+	}
+}
+
+// TestSnapshotDriftForeignETagScheme: a snapshot built against a store with a
+// different ETag scheme re-fetches everything on the first reconcile, and
+// SnapshotDrift reports it so boot can warn. A matching snapshot reports zero.
+func TestSnapshotDriftForeignETagScheme(t *testing.T) {
+	ctx := t.Context()
+	mem := blob.NewMem()
+	seed(t, mem, "w1", grain("w1", "A Wizard of Earthsea", "Le Guin, Ursula K.", "9780547773742", ""))
+	seed(t, mem, "w2", grain("w2", "The Tombs of Atuan", "Le Guin, Ursula K.", "9780689845369", ""))
+	builder := New(mem, "data/works/")
+	if _, err := builder.Summaries(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := builder.Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Same bytes, different ETag scheme: every primed entry misses.
+	foreign := New(&etagRewriter{Store: mem}, "data/works/")
+	if err := foreign.LoadSnapshot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if p, r := foreign.SnapshotDrift(); p != 0 || r != 0 {
+		t.Fatalf("drift before reconcile = %d/%d, want 0/0", r, p)
+	}
+	if err := foreign.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if p, r := foreign.SnapshotDrift(); p != 2 || r != 2 {
+		t.Fatalf("foreign-scheme drift = refetched %d of primed %d, want 2 of 2", r, p)
+	}
+
+	// The matched-store control: priming costs zero re-fetches.
+	native := New(mem, "data/works/")
+	if err := native.LoadSnapshot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := native.Refresh(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if p, r := native.SnapshotDrift(); p != 2 || r != 0 {
+		t.Fatalf("native drift = refetched %d of primed %d, want 0 of 2", r, p)
+	}
+}
+
+// TestWarmScan: the concurrent reconcile matches refreshLocked's semantics --
+// unchanged ETags are skipped, changed and new grains re-read, deletions
+// dropped -- and a snapshot saved from it primes a zero-Get boot.
+func TestWarmScan(t *testing.T) {
+	ctx := t.Context()
+	cs := &countingStore{Store: blob.NewMem()}
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("w%d", i)
+		seed(t, cs, id, grain(id, "Title "+id, "Author", fmt.Sprintf("978000000000%d", i), ""))
+	}
+	ix := New(cs, "data/works/")
+	var calls, total int
+	if err := ix.WarmScan(ctx, 4, func(done, n int) { calls++; total = n }); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 5 || total != 5 {
+		t.Fatalf("progress calls = %d (total %d), want 5 (total 5)", calls, total)
+	}
+	sums, err := ix.Summaries(ctx)
+	if err != nil || len(sums) != 5 {
+		t.Fatalf("after warm scan: %d summaries, err %v", len(sums), err)
+	}
+	if err := ix.Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mutate: change w1, delete w2, add w6. The second scan re-reads only the
+	// changed and new grains.
+	seed(t, cs, "w1", grain("w1", "Title w1 revised", "Author", "9780000000001", ""))
+	if err := cs.Delete(ctx, bibframe.GrainPath("w2")); err != nil {
+		t.Fatal(err)
+	}
+	seed(t, cs, "w6", grain("w6", "Title w6", "Author", "9780000000006", ""))
+	cs.gets.Store(0)
+	if err := ix.WarmScan(ctx, 4, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := cs.gets.Load(); got != 2 {
+		t.Fatalf("second warm scan gets = %d, want 2 (changed + new only)", got)
+	}
+	sums, err = ix.Summaries(ctx)
+	if err != nil || len(sums) != 5 {
+		t.Fatalf("after mutate + warm scan: %d summaries, err %v", len(sums), err)
+	}
+	for _, s := range sums {
+		if s.WorkID == "w2" {
+			t.Fatal("deleted grain w2 still indexed")
+		}
+		if s.WorkID == "w1" && s.Title != "Title w1 revised" {
+			t.Fatalf("w1 title = %q, want the revised one", s.Title)
+		}
+	}
+
+	// A snapshot saved from the scanned state primes a fresh index with zero
+	// grain reads.
+	if err := ix.Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fresh := New(cs, "data/works/")
+	if err := fresh.LoadSnapshot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fresh.feedActive = false
+	cs.gets.Store(0)
+	sums, err = fresh.Summaries(ctx)
+	if err != nil || len(sums) != 5 {
+		t.Fatalf("primed boot: %d summaries, err %v", len(sums), err)
+	}
+	if got := cs.gets.Load(); got != 0 {
+		t.Fatalf("primed boot grain gets = %d, want 0", got)
 	}
 }
