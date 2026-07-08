@@ -76,6 +76,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat vocab-subset:", err)
 			os.Exit(1)
 		}
+	case "serve":
+		if err := runServe(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat serve:", err)
+			os.Exit(1)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -96,6 +101,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "              (downloads: catalog.nq.gz + catalog.mrc.gz + catalog.xml.gz + integrity manifest)")
 	fmt.Fprintln(os.Stderr, "  lcat serialize --dir <grains>   (regenerate catalog.nq from committed grains)")
 	fmt.Fprintln(os.Stderr, "  lcat index --catalog <catalog.json> [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "  lcat serve [--dir public] [--addr 127.0.0.1:8500]   (Range-capable preview of a built site)")
 	fmt.Fprintln(os.Stderr, "  lcat rebuild --store <blob-root> --out <dir> [--index-out <dir>] [--cursor <file>] [--full]")
 	fmt.Fprintln(os.Stderr, "               (feed-driven incremental: re-projects only grains changed since the cursor)")
 	fmt.Fprintln(os.Stderr, "  lcat vocab-subset --catalog <catalog.json> --out <lcsh.nq> [--scheme lcsh] [--namespace <uri-prefix>]")
