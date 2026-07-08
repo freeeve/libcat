@@ -28,8 +28,11 @@ if [[ "$branch" != "main" ]]; then
   echo "release.sh: on branch $branch, releases cut from main" >&2
   exit 1
 fi
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "release.sh: working tree not clean" >&2
+# Tracked changes only: cross-session task files under tasks/ are left
+# untracked by convention (the filing session leaves them; the owning side
+# adopts) and must not block a release.
+if [[ -n "$(git status --porcelain -uno)" ]]; then
+  echo "release.sh: working tree has uncommitted tracked changes" >&2
   exit 1
 fi
 
