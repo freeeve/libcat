@@ -49,6 +49,10 @@
   ];
 
   let subjectLabels = $state<Record<string, string>>({});
+  // Scheme code -> whether any resolved term of it carries skos:broader/
+  // narrower edges. Drives the rail-group parenthetical (tasks/176): calling
+  // a hierarchy-less vocabulary "SKOS" implied structure it does not show.
+  let schemeHierarchy = $state<Record<string, boolean>>({});
 
   // Per-group type-to-filter over the rail's rendered values (tasks/174):
   // keyed by rail-group key, matched against display labels.
@@ -57,10 +61,13 @@
   type RailGroup = { key: string; filterKey: string; title: string; label: (v: string) => string; counts: FacetCount[] };
 
   /** Names one subject vocabulary group so catalogers see what authority
-      they're filtering by (tasks/174). */
+      they're filtering by (tasks/174). The parenthetical says "SKOS" only
+      when the scheme's terms actually carry hierarchy links; a flat
+      authority reads "controlled vocabulary" instead (tasks/176). */
   function schemeTitle(scheme: string): string {
     if (!scheme) return "Subject";
-    return scheme.charAt(0).toUpperCase() + scheme.slice(1) + " (SKOS vocabulary)";
+    const kind = schemeHierarchy[scheme] ? "SKOS Vocabulary" : "Controlled Vocabulary";
+    return scheme.charAt(0).toUpperCase() + scheme.slice(1) + ` (${kind})`;
   }
 
   // The rendered rail: FACET_GROUPS with the subject group split into one
@@ -103,8 +110,13 @@
     try {
       const { terms } = await resolveTermURIs(iris);
       const next = { ...subjectLabels };
-      for (const [iri, term] of Object.entries(terms ?? {})) next[iri] = bestLabel(term);
+      const hier = { ...schemeHierarchy };
+      for (const [iri, term] of Object.entries(terms ?? {})) {
+        next[iri] = bestLabel(term);
+        if (term.scheme && ((term.broader?.length ?? 0) > 0 || (term.narrower?.length ?? 0) > 0)) hier[term.scheme] = true;
+      }
       subjectLabels = next;
+      schemeHierarchy = hier;
     } catch {
       // IRIs render as their tail segment until a later resolve succeeds.
     }
