@@ -9,8 +9,23 @@ import (
 	"github.com/freeeve/libcat/ingest"
 
 	"github.com/freeeve/libcat/backend/auth"
+	"github.com/freeeve/libcat/backend/vocab"
 	"github.com/freeeve/libcat/backend/workindex"
 )
+
+// schemeResolver adapts the vocab index (nil-safe) into the facet counter's
+// IRI -> scheme hook (tasks/174).
+func schemeResolver(vx *vocab.Index) func(string) string {
+	if vx == nil {
+		return nil
+	}
+	return func(iri string) string {
+		if t, ok := vx.Resolve(iri); ok {
+			return t.Scheme
+		}
+		return ""
+	}
+}
 
 // worksList serves the SPA's work search off the shared work index, which
 // carries the freshness contract this cache used to own (fresh after a
@@ -32,8 +47,10 @@ func (wl *worksList) summaries(r *http.Request) ([]ingest.WorkSummary, error) {
 // the SPA can page: works is the [offset, offset+limit) window of matches.
 // extraFacets names the extras keys served as additional facet groups
 // (tasks/171); a key shadowing a built-in parameter is dropped with a
-// warning rather than silently swallowing that parameter.
-func registerWorksList(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenVerifier, extraFacets []string) *worksList {
+// warning rather than silently swallowing that parameter. vx (nil when no
+// vocabularies are installed) resolves subject IRIs to their vocabulary
+// scheme, so the rail can group subjects per authority (tasks/174).
+func registerWorksList(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenVerifier, extraFacets []string, vx *vocab.Index) *worksList {
 	wl := &worksList{ix: ix}
 	for _, key := range extraFacets {
 		if reservedWorkParams[key] {
@@ -65,7 +82,7 @@ func registerWorksList(mux *http.ServeMux, ix *workindex.Index, verifier auth.To
 		}
 		// Facets (tasks/168): filters AND across groups, OR within one;
 		// counts are self-excluding over the query-matched set.
-		groups := workFacetGroups(params, wl.extraFacets)
+		groups := workFacetGroups(params, wl.extraFacets, schemeResolver(vx))
 		counter := newFacetCounter(groups)
 		matched := 0
 		matches := make([]ingest.WorkSummary, 0, limit)

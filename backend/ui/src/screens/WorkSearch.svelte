@@ -50,6 +50,52 @@
 
   let subjectLabels = $state<Record<string, string>>({});
 
+  // Per-group type-to-filter over the rail's rendered values (tasks/174):
+  // keyed by rail-group key, matched against display labels.
+  let railFilter = $state<Record<string, string>>({});
+
+  type RailGroup = { key: string; filterKey: string; title: string; label: (v: string) => string; counts: FacetCount[] };
+
+  /** Names one subject vocabulary group so catalogers see what authority
+      they're filtering by (tasks/174). */
+  function schemeTitle(scheme: string): string {
+    if (!scheme) return "Subject";
+    return scheme.charAt(0).toUpperCase() + scheme.slice(1) + " (SKOS vocabulary)";
+  }
+
+  // The rendered rail: FACET_GROUPS with the subject group split into one
+  // group per vocabulary scheme (tasks/174). All subject groups filter
+  // through the same `subject` query parameter -- only display grouping
+  // changes; scheme order follows the server's count-ranked value order.
+  const railGroups = $derived.by<RailGroup[]>(() => {
+    const out: RailGroup[] = [];
+    for (const g of FACET_GROUPS) {
+      const counts = st.facets[g.key] ?? [];
+      if (counts.length === 0) continue;
+      if (g.key !== "subject") {
+        out.push({ key: g.key, filterKey: g.key, title: g.title, label: g.label, counts });
+        continue;
+      }
+      const bySch = new Map<string, FacetCount[]>();
+      for (const fcv of counts) {
+        const s = fcv.scheme ?? "";
+        if (!bySch.has(s)) bySch.set(s, []);
+        bySch.get(s)!.push(fcv);
+      }
+      for (const [scheme, list] of bySch) {
+        out.push({ key: "subject:" + scheme, filterKey: "subject", title: schemeTitle(scheme), label: g.label, counts: list });
+      }
+    }
+    return out;
+  });
+
+  /** Applies the group's type-to-filter to its values. */
+  function visibleCounts(group: RailGroup): FacetCount[] {
+    const q = (railFilter[group.key] ?? "").trim().toLowerCase();
+    if (q === "") return group.counts;
+    return group.counts.filter((fcv) => group.label(fcv.value).toLowerCase().includes(q) || filterActive(group.filterKey, fcv.value));
+  }
+
   /** Resolves the subject facet's IRIs to display labels, best-effort. */
   async function labelSubjects(facets: Record<string, FacetCount[]>): Promise<void> {
     const iris = (facets.subject ?? []).map((f) => f.value).filter((v) => !(v in subjectLabels));
@@ -188,20 +234,20 @@
 
   <div class="results-layout">
     <aside class="facet-rail" aria-label="Filter results">
-      {#each FACET_GROUPS as group (group.key)}
-        {@const counts = st.facets[group.key] ?? []}
-        {#if counts.length > 0}
-          <fieldset class="facet-group">
-            <legend>{group.title}</legend>
-            {#each counts as fc (fc.value)}
-              <label class="facet-value" title={group.key === "subject" ? fc.value : undefined}>
-                <input type="checkbox" checked={filterActive(group.key, fc.value)} onchange={() => toggleFilter(group.key, fc.value)} />
-                <span class="facet-label">{group.label(fc.value)}</span>
-                <span class="facet-count muted">{fc.count}</span>
-              </label>
-            {/each}
-          </fieldset>
-        {/if}
+      {#each railGroups as group (group.key)}
+        <fieldset class="facet-group">
+          <legend>{group.title}</legend>
+          {#if group.counts.length > 10}
+            <input type="search" class="facet-filter" placeholder="Filter…" aria-label={"Filter " + group.title} bind:value={railFilter[group.key]} />
+          {/if}
+          {#each visibleCounts(group) as fc (fc.value)}
+            <label class="facet-value" title={group.filterKey === "subject" ? fc.value : undefined}>
+              <input type="checkbox" checked={filterActive(group.filterKey, fc.value)} onchange={() => toggleFilter(group.filterKey, fc.value)} />
+              <span class="facet-label">{group.label(fc.value)}</span>
+              <span class="facet-count muted">{fc.count}</span>
+            </label>
+          {/each}
+        </fieldset>
       {/each}
     </aside>
 
@@ -272,6 +318,12 @@
     gap: 0.4em;
     padding: 0.08rem 0;
     cursor: pointer;
+  }
+  .facet-filter {
+    width: 100%;
+    margin: 0.15rem 0 0.3rem;
+    font: inherit;
+    font-size: 0.78rem;
   }
   .facet-label {
     flex: 1;

@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/freeeve/libcodex/rdf"
@@ -79,7 +81,7 @@ func TestFacetSelfExclusion(t *testing.T) {
 		sum(func(s *ingest.WorkSummary) { s.WorkID = "w2"; s.Suppressed = true }),                   // suppressed, physical
 		sum(func(s *ingest.WorkSummary) { s.WorkID = "w3"; s.Items = 0; s.HasAvailability = true }), // public, digital
 	}
-	groups := workFacetGroups(url.Values{"visibility": {"public"}}, nil)
+	groups := workFacetGroups(url.Values{"visibility": {"public"}}, nil, nil)
 	c := newFacetCounter(groups)
 	pass := 0
 	for _, s := range works {
@@ -99,14 +101,61 @@ func TestFacetSelfExclusion(t *testing.T) {
 	got := c.result()
 	// Visibility counts ignore the visibility filter: suppressed stays
 	// countable so the user can flip to it.
-	if !equalFacet(got["visibility"], []facetCount{{"public", 2}, {"suppressed", 1}}) {
+	if !equalFacet(got["visibility"], []facetCount{fc("public", 2), fc("suppressed", 1)}) {
 		t.Fatalf("visibility counts = %v", got["visibility"])
 	}
 	// Holdings counts respect the visibility filter: only public works.
-	if !equalFacet(got["holdings"], []facetCount{{"digital", 1}, {"physical", 1}}) {
+	if !equalFacet(got["holdings"], []facetCount{fc("digital", 1), fc("physical", 1)}) {
 		t.Fatalf("holdings counts = %v", got["holdings"])
 	}
 }
+
+// TestFacetSubjectSchemes checks tasks/174: subject values carry their
+// vocabulary scheme and the top-N cap applies per scheme, so a large
+// vocabulary cannot crowd a smaller one out of the rail.
+func TestFacetSubjectSchemes(t *testing.T) {
+	var works []ingest.WorkSummary
+	// facetTopN+5 homosaurus concepts with descending counts, one fast concept
+	// rarer than all of them.
+	for i := 0; i < facetTopN+5; i++ {
+		iri := fmt.Sprintf("h:%03d", i)
+		for j := 0; j <= facetTopN+5-i; j++ {
+			works = append(works, sum(func(s *ingest.WorkSummary) {
+				s.WorkID = fmt.Sprintf("w-%s-%d", iri, j)
+				s.Subjects = []string{iri}
+			}))
+		}
+	}
+	works = append(works, sum(func(s *ingest.WorkSummary) {
+		s.WorkID = "w-fast"
+		s.Subjects = []string{"f:solo"}
+	}))
+	schemeOf := func(iri string) string {
+		if strings.HasPrefix(iri, "h:") {
+			return "homosaurus"
+		}
+		return "fast"
+	}
+	groups := workFacetGroups(url.Values{}, nil, schemeOf)
+	c := newFacetCounter(groups)
+	for _, s := range works {
+		c.add(s, groupMatches(groups, s))
+	}
+	subjects := c.result()["subject"]
+	perScheme := map[string]int{}
+	for _, f := range subjects {
+		perScheme[f.Scheme]++
+	}
+	if perScheme["homosaurus"] != facetTopN || perScheme["fast"] != 1 {
+		t.Fatalf("per-scheme counts = %v, want homosaurus=%d fast=1", perScheme, facetTopN)
+	}
+	if last := subjects[len(subjects)-1]; last.Value != "f:solo" || last.Scheme != "fast" {
+		t.Fatalf("fast value missing or unannotated: %+v", last)
+	}
+}
+
+// fc builds a scheme-less expected facet value.
+func fc(v string, n int) facetCount { return facetCount{Value: v, Count: n} }
 
 func equalFacet(a, b []facetCount) bool {
 	if len(a) != len(b) {
@@ -191,17 +240,17 @@ func TestWorksListFacets(t *testing.T) {
 	if page.Matched != 4 {
 		t.Fatalf("matched = %d, want 4", page.Matched)
 	}
-	if !equalFacet(page.Facets["visibility"], []facetCount{{"public", 3}, {"suppressed", 1}}) {
+	if !equalFacet(page.Facets["visibility"], []facetCount{fc("public", 3), fc("suppressed", 1)}) {
 		t.Fatalf("visibility = %v", page.Facets["visibility"])
 	}
-	if !equalFacet(page.Facets["subject"], []facetCount{{"http://id.loc.gov/authorities/subjects/sh1", 2}}) {
+	if !equalFacet(page.Facets["subject"], []facetCount{fc("http://id.loc.gov/authorities/subjects/sh1", 2)}) {
 		t.Fatalf("subject = %v", page.Facets["subject"])
 	}
-	if !equalFacet(page.Facets["tag"], []facetCount{{"space opera", 1}}) {
+	if !equalFacet(page.Facets["tag"], []facetCount{fc("space opera", 1)}) {
 		t.Fatalf("tag = %v", page.Facets["tag"])
 	}
 	// The sources extra splits on commas and trims (tasks/171).
-	if !equalFacet(page.Facets["sources"], []facetCount{{"overdrive queer scan", 2}, {"loc", 1}, {"mombian", 1}}) {
+	if !equalFacet(page.Facets["sources"], []facetCount{fc("overdrive queer scan", 2), fc("loc", 1), fc("mombian", 1)}) {
 		t.Fatalf("sources = %v", page.Facets["sources"])
 	}
 
@@ -211,10 +260,10 @@ func TestWorksListFacets(t *testing.T) {
 	if page.Matched != 2 {
 		t.Fatalf("sources filter matched %d, want 2", page.Matched)
 	}
-	if !equalFacet(page.Facets["sources"], []facetCount{{"overdrive queer scan", 2}, {"loc", 1}, {"mombian", 1}}) {
+	if !equalFacet(page.Facets["sources"], []facetCount{fc("overdrive queer scan", 2), fc("loc", 1), fc("mombian", 1)}) {
 		t.Fatalf("sources counts under own filter = %v", page.Facets["sources"])
 	}
-	if !equalFacet(page.Facets["tag"], []facetCount{{"space opera", 1}}) {
+	if !equalFacet(page.Facets["tag"], []facetCount{fc("space opera", 1)}) {
 		t.Fatalf("tag counts under sources filter = %v", page.Facets["tag"])
 	}
 	page = get("sources=" + url.QueryEscape("overdrive queer scan") + "&needs=isbn&tag=" + url.QueryEscape("Space Opera"))

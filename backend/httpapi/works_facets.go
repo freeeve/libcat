@@ -16,10 +16,13 @@ import (
 	"github.com/freeeve/libcat/ingest"
 )
 
-// facetCount is one value of one facet group with its work count.
+// facetCount is one value of one facet group with its work count. Scheme is
+// set only on controlled-subject values (tasks/174): the vocabulary the IRI
+// resolves to, so the rail can group per vocabulary and name the authority.
 type facetCount struct {
-	Value string `json:"value"`
-	Count int    `json:"count"`
+	Value  string `json:"value"`
+	Count  int    `json:"count"`
+	Scheme string `json:"scheme,omitempty"`
 }
 
 // facetGroup is one facet dimension of a request: its response key (also the
@@ -31,6 +34,10 @@ type facetGroup struct {
 	valuesOf func(ingest.WorkSummary) []string
 	fold     bool // case-insensitive value matching (tags)
 	capped   bool // top-N response cap for open-ended vocabularies
+	// schemeOf, when set, annotates each value with its vocabulary scheme,
+	// and the top-N cap applies per scheme so a large vocabulary cannot
+	// crowd a smaller one out of the rail (tasks/174).
+	schemeOf func(string) string
 }
 
 // reservedWorkParams are the works-list query parameters extras facets may
@@ -42,13 +49,14 @@ var reservedWorkParams = map[string]bool{
 
 // workFacetGroups assembles one request's facet groups: the five built-ins,
 // then one group per configured extras key (tasks/171) bucketing on the
-// summary's comma-split extras value.
-func workFacetGroups(q url.Values, extras []string) []facetGroup {
+// summary's comma-split extras value. schemeOf (nil-safe) resolves a subject
+// IRI to its vocabulary scheme for per-vocabulary grouping (tasks/174).
+func workFacetGroups(q url.Values, extras []string, schemeOf func(string) string) []facetGroup {
 	groups := []facetGroup{
 		{name: "visibility", selected: q["visibility"], valuesOf: func(s ingest.WorkSummary) []string { return []string{visibilityOf(s)} }},
 		{name: "holdings", selected: q["holdings"], valuesOf: holdingsOf},
 		{name: "needs", selected: q["needs"], valuesOf: needsOf},
-		{name: "subject", selected: q["subject"], valuesOf: func(s ingest.WorkSummary) []string { return s.Subjects }, capped: true},
+		{name: "subject", selected: q["subject"], valuesOf: func(s ingest.WorkSummary) []string { return s.Subjects }, capped: true, schemeOf: schemeOf},
 		{name: "tag", selected: q["tag"], valuesOf: func(s ingest.WorkSummary) []string { return s.Tags }, fold: true, capped: true},
 	}
 	for _, key := range extras {
@@ -195,13 +203,19 @@ func (c *facetCounter) add(s ingest.WorkSummary, m []bool) {
 const facetTopN = 20
 
 // result renders the counts: fixed-vocabulary groups list every nonzero
-// value; open-ended groups list the top facetTopN by count then value.
+// value; open-ended groups list the top facetTopN by count then value. A
+// scheme-annotated group (subjects, tasks/174) caps per scheme instead, so
+// every vocabulary keeps a presence in the rail.
 func (c *facetCounter) result() map[string][]facetCount {
 	out := map[string][]facetCount{}
 	for i, group := range c.groups {
 		list := make([]facetCount, 0, len(c.counts[i]))
 		for v, n := range c.counts[i] {
-			list = append(list, facetCount{Value: v, Count: n})
+			fc := facetCount{Value: v, Count: n}
+			if group.schemeOf != nil {
+				fc.Scheme = group.schemeOf(v)
+			}
+			list = append(list, fc)
 		}
 		sort.Slice(list, func(a, b int) bool {
 			if list[a].Count != list[b].Count {
@@ -209,10 +223,29 @@ func (c *facetCounter) result() map[string][]facetCount {
 			}
 			return list[a].Value < list[b].Value
 		})
-		if group.capped && len(list) > facetTopN {
-			list = list[:facetTopN]
+		if group.capped {
+			if group.schemeOf != nil {
+				list = capPerScheme(list, facetTopN)
+			} else if len(list) > facetTopN {
+				list = list[:facetTopN]
+			}
 		}
 		out[group.name] = list
 	}
 	return out
+}
+
+// capPerScheme keeps the top n values of each scheme, preserving the overall
+// count-then-value order.
+func capPerScheme(list []facetCount, n int) []facetCount {
+	kept := make([]facetCount, 0, len(list))
+	perScheme := map[string]int{}
+	for _, fc := range list {
+		if perScheme[fc.Scheme] >= n {
+			continue
+		}
+		perScheme[fc.Scheme]++
+		kept = append(kept, fc)
+	}
+	return kept
 }

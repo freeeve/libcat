@@ -37,10 +37,12 @@ export interface WorkSummary {
   HasAvailability?: boolean;
 }
 
-/** One facet value with its work count (tasks/168). */
+/** One facet value with its work count (tasks/168). Subject values carry
+ * the vocabulary scheme the IRI resolves to (tasks/174). */
 export interface FacetCount {
   value: string;
   count: number;
+  scheme?: string;
 }
 
 export interface WorksPage {
