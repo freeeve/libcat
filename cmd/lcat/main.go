@@ -6,12 +6,8 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
-
-	"github.com/freeeve/libcat/bibframe"
-	"github.com/freeeve/libcat/storage"
 )
 
 func main() {
@@ -86,37 +82,6 @@ func main() {
 	}
 }
 
-// runBuild ingests a MARC file into canonical grains + catalog.nq under --out. This
-// is the legacy Phase-0 path: one grain per record, keyed on the MARC 001, with no
-// minted two-tier identity or clustering. For the modern clustered path (opaque ids,
-// edition clustering, editorial preservation) use `lcat ingest --provider marc`.
-func runBuild(args []string) error {
-	fs := flag.NewFlagSet("build", flag.ExitOnError)
-	marc := fs.String("marc", "", "path to an ISO 2709 MARC file (e.g. an OverDrive MARC Express export)")
-	out := fs.String("out", ".", "output directory for grains and catalog.nq")
-	provider := fs.String("provider", "overdrive", "provenance graph feed:<provider> for the ingested records")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	if *marc == "" {
-		return fmt.Errorf("--marc is required")
-	}
-
-	f, err := os.Open(*marc)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	stats, err := bibframe.BuildMARC(storage.Dir(*out), f, *provider)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("built %d grains from %d records under %s (feed:%s)\n",
-		stats.Grains, stats.Records, *out, *provider)
-	return nil
-}
-
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>] [--mapping <toml>] [--param k=v]...")
@@ -124,7 +89,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "                 nquads (--source <file.nq> --mapping <toml>), csv (--source <file.csv> --mapping <toml>)")
 	fmt.Fprintln(os.Stderr, "  lcat overdrive --cache <dir> --out <dir> [--marc <file.mrc>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat hardcover --out <dir> [--token <tok>|$HARDCOVER_API_TOKEN] [--limit <n>] [--source <shelf.json>] [--introspect <type>]")
-	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]   (legacy; see `ingest --provider marc`)")
+	fmt.Fprintln(os.Stderr, "  lcat build [--config lcat.toml] [--only step,step]")
+	fmt.Fprintln(os.Stderr, "      whole pipeline from one deployment config: ingest -> serialize -> project -> export -> index -> hugo")
 	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <a,b,...>] [--public-sources <a,b,...>]")
 	fmt.Fprintln(os.Stderr, "  lcat export [--in <dir>] [--out <dir>] [--manifest <file>] [--public-sources <a,b,...>]")
 	fmt.Fprintln(os.Stderr, "              (downloads: catalog.nq.gz + catalog.mrc.gz + catalog.xml.gz + integrity manifest)")

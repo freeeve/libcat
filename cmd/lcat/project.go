@@ -35,28 +35,41 @@ func runProject(args []string) error {
 	if *catalogNQ == "" {
 		return fmt.Errorf("--catalog is required")
 	}
-	if *schemeMap != "" {
-		var extra []project.SchemePrefix
-		for pair := range strings.SplitSeq(*schemeMap, ",") {
-			prefix, code, ok := strings.Cut(strings.TrimSpace(pair), "=")
-			if !ok || prefix == "" || code == "" {
-				return fmt.Errorf("bad --subject-scheme entry %q (want prefix=code)", pair)
-			}
-			extra = append(extra, project.SchemePrefix{Prefix: prefix, Scheme: code})
-		}
-		project.SubjectSchemePrefixes = append(extra, project.SubjectSchemePrefixes...)
+	if err := applySubjectSchemes(splitList(*schemeMap)); err != nil {
+		return err
 	}
+	return projectCatalog(*catalogNQ, splitList(*provider), splitList(*publicSources), *out)
+}
 
-	b, err := os.ReadFile(*catalogNQ)
+// applySubjectSchemes prepends deployment prefix=code entries to the
+// namespace -> scheme table, so they override the built-ins (tasks/141).
+func applySubjectSchemes(pairs []string) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+	var extra []project.SchemePrefix
+	for _, pair := range pairs {
+		prefix, code, ok := strings.Cut(pair, "=")
+		if !ok || prefix == "" || code == "" {
+			return fmt.Errorf("bad subject-scheme entry %q (want prefix=code)", pair)
+		}
+		extra = append(extra, project.SchemePrefix{Prefix: prefix, Scheme: code})
+	}
+	project.SubjectSchemePrefixes = append(extra, project.SubjectSchemePrefixes...)
+	return nil
+}
+
+// projectCatalog is the projection step shared by `lcat project` and `lcat
+// build`: it projects each named feed from the catalog.nq at catalogPath,
+// merges first-feed-wins, applies the public-sources allowlist when one is
+// given, and writes catalog.json + facets.json + redirects.json to out.
+func projectCatalog(catalogPath string, providers, publicSources []string, out string) error {
+	b, err := os.ReadFile(catalogPath)
 	if err != nil {
 		return err
 	}
 	var cats []*project.Catalog
-	for p := range strings.SplitSeq(*provider, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
+	for _, p := range providers {
 		c, err := project.Project(b, p)
 		if err != nil {
 			return fmt.Errorf("project feed %q: %w", p, err)
@@ -64,34 +77,34 @@ func runProject(args []string) error {
 		cats = append(cats, c)
 	}
 	if len(cats) == 0 {
-		return fmt.Errorf("--provider named no feeds")
+		return fmt.Errorf("no feeds to project")
 	}
 	cat := project.Merge(cats)
-	if *publicSources != "" {
-		stripped := project.SanitizeSources(cat, project.SourceSet(*publicSources))
-		if stripped > 0 {
+	if len(publicSources) > 0 {
+		allow := project.SourceSet(strings.Join(publicSources, ","))
+		if stripped := project.SanitizeSources(cat, allow); stripped > 0 {
 			fmt.Fprintf(os.Stderr, "project: stripped %d private source attributions from the public catalog\n", stripped)
 		}
 	}
-	if err := os.MkdirAll(*out, 0o755); err != nil {
+	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
-	if err := writeJSON(filepath.Join(*out, "catalog.json"), cat); err != nil {
+	if err := writeJSON(filepath.Join(out, "catalog.json"), cat); err != nil {
 		return err
 	}
 	facets := cat.Facets()
-	if err := writeJSON(filepath.Join(*out, "facets.json"), facets); err != nil {
+	if err := writeJSON(filepath.Join(out, "facets.json"), facets); err != nil {
 		return err
 	}
 	redirects, err := project.Redirects(b)
 	if err != nil {
 		return err
 	}
-	if err := writeJSON(filepath.Join(*out, "redirects.json"), redirects); err != nil {
+	if err := writeJSON(filepath.Join(out, "redirects.json"), redirects); err != nil {
 		return err
 	}
 	fmt.Printf("projected %d works to %s (schema v%d); facets: %d languages, %d subjects, %d contributors; %d redirects\n",
-		len(cat.Works), *out, project.SchemaVersion,
+		len(cat.Works), out, project.SchemaVersion,
 		len(facets.Languages), len(facets.Subjects), len(facets.Contributors), len(redirects.Redirects))
 	return nil
 }

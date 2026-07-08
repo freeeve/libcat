@@ -24,8 +24,12 @@ func runIndex(args []string) error {
 	if *catalogJSON == "" {
 		return fmt.Errorf("--catalog is required")
 	}
+	return indexCatalog(*catalogJSON, *out)
+}
 
-	b, err := os.ReadFile(*catalogJSON)
+// indexCatalog is the index step shared by `lcat index` and `lcat build`.
+func indexCatalog(catalogJSON, out string) error {
+	b, err := os.ReadFile(catalogJSON)
 	if err != nil {
 		return err
 	}
@@ -33,10 +37,10 @@ func runIndex(args []string) error {
 	if err := json.Unmarshal(b, &cat); err != nil {
 		return fmt.Errorf("parse catalog.json: %w", err)
 	}
-	if err := os.MkdirAll(*out, 0o755); err != nil {
+	if err := os.MkdirAll(out, 0o755); err != nil {
 		return err
 	}
-	sink := storage.Dir(*out)
+	sink := storage.Dir(out)
 	m, err := search.BuildIndexes(&cat, sink)
 	if err != nil {
 		return err
@@ -51,6 +55,6 @@ func runIndex(args []string) error {
 		langs[i] = fmt.Sprintf("%s(%d)", ix.Language, ix.DocCount)
 	}
 	fmt.Printf("built %d language indexes to %s (schema v%d): %v\n",
-		len(m.Indexes), *out, search.SchemaVersion, langs)
+		len(m.Indexes), out, search.SchemaVersion, langs)
 	return nil
 }
