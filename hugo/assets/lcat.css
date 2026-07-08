@@ -124,11 +124,21 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border-bottom: 1px solid var(--lcat-border);
 }
 .lcat-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
   font-family: var(--lcat-display);
   font-weight: 700;
   font-size: 1.25rem;
   color: var(--lcat-accent-ink);
   text-decoration: none;
+}
+/* The default mark (logo.html, tasks/166) inherits currentColor from the anchor,
+   so it tracks the theme -- including a forced data-lcat-theme -- for free. */
+.lcat-logo {
+  height: 1.5em;
+  width: auto;
+  flex: none;
 }
 /* Buttons (tasks/120): the module owns both the tokens and these pairings, so the
    AA contrast of each variant holds in light AND dark mode without per-adopter

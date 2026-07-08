@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="hugo/static/logo-dark.svg">
+    <img src="hugo/static/logo.svg" alt="libcat logo: a cat sitting on a stack of books" width="140">
+  </picture>
+</p>
+
 # libcat
 
 A generic framework for building **library discovery catalogs** as fast, static,
