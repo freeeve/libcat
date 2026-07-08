@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/freeeve/libcat/ingest"
@@ -25,6 +26,9 @@ func runIngestCmd(args []string) error {
 	source := fs.String("source", "", "provider input (e.g. an OverDrive page-cache directory)")
 	out := fs.String("out", "", "output directory for canonical grains and catalog.nq")
 	feed := fs.String("feed", "", "provenance graph feed:<name> (default: the provider name)")
+	mapping := fs.String("mapping", "", "mapping TOML for the generic providers (nquads, csv); shorthand for --param mapping=<path> (tasks/172)")
+	params := paramFlags{}
+	fs.Var(params, "param", "provider parameter key=value, repeatable (ingest.Config.Params)")
 	reconcile := fs.String("reconcile", "", "flag feed-only works this scan no longer lists: review | auto-suppress (tasks/078)")
 	allowEmpty := fs.Bool("reconcile-allow-empty", false, "let a zero-record scan reconcile (withdraws every feed-only work; tasks/103)")
 	if err := fs.Parse(args); err != nil {
@@ -36,8 +40,26 @@ func runIngestCmd(args []string) error {
 	if *out == "" {
 		return fmt.Errorf("--out is required")
 	}
-	cfg := ingest.Config{Feed: *feed, Source: *source}
+	if *mapping != "" {
+		params["mapping"] = *mapping
+	}
+	cfg := ingest.Config{Feed: *feed, Source: *source, Params: params}
 	return runIngest(reg, *provider, cfg, *out, *reconcile, *allowEmpty)
+}
+
+// paramFlags collects repeatable --param key=value pairs into
+// ingest.Config.Params, so a provider option needs no dedicated flag.
+type paramFlags map[string]string
+
+func (p paramFlags) String() string { return fmt.Sprint(map[string]string(p)) }
+
+func (p paramFlags) Set(v string) error {
+	k, val, ok := strings.Cut(v, "=")
+	if !ok || k == "" {
+		return fmt.Errorf("bad --param %q (want key=value)", v)
+	}
+	p[k] = val
+	return nil
 }
 
 // runIngest constructs the named provider from reg and runs the shared ingest

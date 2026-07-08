@@ -119,8 +119,9 @@ func runBuild(args []string) error {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>]")
-	fmt.Fprintln(os.Stderr, "      providers: overdrive (--source <page-cache dir>), marc (--source <file.mrc>)")
+	fmt.Fprintln(os.Stderr, "  lcat ingest --provider <name> --source <input> --out <dir> [--feed <name>] [--mapping <toml>] [--param k=v]...")
+	fmt.Fprintln(os.Stderr, "      providers: overdrive (--source <page-cache dir>), marc (--source <file.mrc>),")
+	fmt.Fprintln(os.Stderr, "                 nquads (--source <file.nq> --mapping <toml>), csv (--source <file.csv> --mapping <toml>)")
 	fmt.Fprintln(os.Stderr, "  lcat overdrive --cache <dir> --out <dir> [--marc <file.mrc>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat hardcover --out <dir> [--token <tok>|$HARDCOVER_API_TOKEN] [--limit <n>] [--source <shelf.json>] [--introspect <type>]")
 	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]   (legacy; see `ingest --provider marc`)")

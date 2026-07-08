@@ -9,6 +9,7 @@ require (
 )
 
 require (
+	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/bits-and-blooms/bitset v1.24.2 // indirect
 	github.com/freeeve/fst-go v0.1.0 // indirect
 	github.com/freeeve/go-ivfpq v0.1.0 // indirect
