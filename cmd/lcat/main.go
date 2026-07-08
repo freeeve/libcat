@@ -45,6 +45,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat project:", err)
 			os.Exit(1)
 		}
+	case "export":
+		if err := runExport(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat export:", err)
+			os.Exit(1)
+		}
 	case "serialize":
 		if err := runSerialize(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "lcat serialize:", err)
@@ -119,7 +124,9 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lcat overdrive --cache <dir> --out <dir> [--marc <file.mrc>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat hardcover --out <dir> [--token <tok>|$HARDCOVER_API_TOKEN] [--limit <n>] [--source <shelf.json>] [--introspect <type>]")
 	fmt.Fprintln(os.Stderr, "  lcat build --marc <file.mrc> [--out <dir>] [--provider <name>]   (legacy; see `ingest --provider marc`)")
-	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <name>]")
+	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <a,b,...>] [--public-sources <a,b,...>]")
+	fmt.Fprintln(os.Stderr, "  lcat export [--in <dir>] [--out <dir>] [--manifest <file>] [--public-sources <a,b,...>]")
+	fmt.Fprintln(os.Stderr, "              (downloads: catalog.nq.gz + catalog.mrc.gz + catalog.xml.gz + integrity manifest)")
 	fmt.Fprintln(os.Stderr, "  lcat serialize --dir <grains>   (regenerate catalog.nq from committed grains)")
 	fmt.Fprintln(os.Stderr, "  lcat index --catalog <catalog.json> [--out <dir>]")
 	fmt.Fprintln(os.Stderr, "  lcat rebuild --store <blob-root> --out <dir> [--index-out <dir>] [--cursor <file>] [--full]")
