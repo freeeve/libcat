@@ -195,7 +195,15 @@ func buildSnapshot(ctx context.Context, st blob.Store, prefix string, schemes []
 	for _, f := range nqs {
 		sourceETags[f.path] = f.etag
 	}
+	// parse indexes one file at most once: pass 3 replays a dirty scheme's
+	// whole source, so two schemes sharing it must not each replay it --
+	// addDataset appends alt labels, and a double parse would duplicate them.
+	parsed := map[string]bool{}
 	parse := func(f nqFile) error {
+		if parsed[f.path] {
+			return nil
+		}
+		parsed[f.path] = true
 		data, _, err := st.Get(ctx, f.path)
 		if err != nil {
 			return fmt.Errorf("vocab: read %s: %w", f.path, err)
@@ -284,6 +292,16 @@ func buildSnapshot(ctx context.Context, st blob.Store, prefix string, schemes []
 			if err := parse(src); err != nil {
 				return nil, err
 			}
+		}
+	}
+	// A dirty scheme's replay parses its whole source file, populating every
+	// co-resident scheme's maps -- including one that already armed under an
+	// earlier iteration order. A scheme serves from exactly one backend, so
+	// the replayed maps win.
+	for scheme := range snap.sidecar {
+		if len(snap.schemes[scheme]) > 0 {
+			slog.Info("vocab: shared source replayed; serving scheme from maps", "scheme", scheme)
+			delete(snap.sidecar, scheme)
 		}
 	}
 	snap.finish()
