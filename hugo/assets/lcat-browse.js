@@ -387,6 +387,24 @@ function start() {
     return engineP;
   }
 
+  /** syncTwins mirrors one tree row's toggle state onto the concept's other
+   * rendered instances: a polyhierarchical concept renders once under each
+   * parent, and selected() reads every rendered input, so a toggle on one
+   * instance must carry to its twins or a "cleared" filter stays active
+   * (tasks/178). */
+  function syncTwins(li) {
+    const id = li.getAttribute("data-lcat-cat");
+    const cb = li.querySelector("input[data-cat]");
+    const not = li.querySelector(".lcat-facet-not");
+    document.querySelectorAll('li[data-lcat-field="subject"]').forEach((twin) => {
+      if (twin === li || twin.getAttribute("data-lcat-cat") !== id) return;
+      const tcb = twin.querySelector("input[data-cat]");
+      if (tcb && cb) tcb.checked = cb.checked;
+      const tnot = twin.querySelector(".lcat-facet-not");
+      if (tnot && not) setNot(twin, tnot, not.getAttribute("aria-pressed") === "true");
+    });
+  }
+
   /** subjectRow builds one toggle row for a subject id: optional expand
    * caret, checkbox label with localized value + rolled-up count, and the
    * exclude toggle when the site opted into negatives. Same wiring contract
@@ -436,11 +454,13 @@ function start() {
         const pressed = not.getAttribute("aria-pressed") !== "true";
         if (pressed) cb.checked = false;
         setNot(li, not, pressed);
+        syncTwins(li);
         refresh();
       });
     }
     li.addEventListener("change", () => {
       if (cb.checked && not) setNot(li, not, false);
+      syncTwins(li);
       refresh();
     });
     return li;

@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 10,
   "works": [
     {
       "id": "wexampleone",
@@ -8,7 +8,7 @@
       "formats": ["book"],
       "contributors": [{ "name": "Foucault, Michel" }],
       "subjects": [
-        { "id": "https://homosaurus.org/v3/homoit0000669", "labels": { "en": "Transgender people" }, "scheme": "homosaurus", "broader": ["https://homosaurus.org/v3/homoit0000282"] },
+        { "id": "https://homosaurus.org/v3/homoit0000669", "labels": { "en": "Transgender people" }, "scheme": "homosaurus", "broader": ["https://homosaurus.org/v3/homoit0000282", "https://homosaurus.org/v3/homoit9999902"] },
         { "id": "http://id.worldcat.org/fast/1735592", "labels": { "en": "Transgender people" }, "scheme": "fast" }
       ],
       "tags": ["memoir"]
@@ -31,8 +31,11 @@
       "formats": ["book"],
       "contributors": [{ "name": "Kawabata, Yasunari" }],
       "subjects": [
-        { "id": "https://homosaurus.org/v3/homoit0000669", "labels": { "en": "Transgender people" }, "scheme": "homosaurus", "broader": ["https://homosaurus.org/v3/homoit0000282"] }
+        { "id": "https://homosaurus.org/v3/homoit0000669", "labels": { "en": "Transgender people" }, "scheme": "homosaurus", "broader": ["https://homosaurus.org/v3/homoit0000282", "https://homosaurus.org/v3/homoit9999902"] }
       ]
     }
+  ],
+  "terms": [
+    { "id": "https://homosaurus.org/v3/homoit9999902", "labels": { "en": "Trans community" }, "scheme": "homosaurus" }
   ]
 }

@@ -43,9 +43,11 @@ check(
   fields.includes("Homosaurus") && fields.includes("FAST") && !fields.includes("subject"),
 );
 
-// 1b. The homosaurus group is a tree (tasks/174): only the root concept
-//     shows, its count rolled up over the subtree (w2 direct + w1/w3 via
-//     the narrower concept = 3).
+// 1b. The homosaurus group is a tree (tasks/174): only root concepts show,
+//     counts rolled up over their subtrees -- "Gender identity" (w2 direct +
+//     w1/w3 via the narrower concept = 3) and "Trans community" (a concept
+//     no work carries, minted from the catalog's terms sideband with a real
+//     label, tasks/178; w1/w3 via the narrower concept = 2).
 await page.$$eval("#lcat-browse-facets details", (ds) => ds.forEach((d) => (d.open = true)));
 await page.waitForSelector("#lcat-browse-facets .lcat-facet-caret", { timeout: 10000 });
 const treeRows = await page.$$eval('#lcat-browse-facets li[data-lcat-field="subject"]', (lis) =>
@@ -57,15 +59,23 @@ const treeRows = await page.$$eval('#lcat-browse-facets li[data-lcat-field="subj
   })),
 );
 check(
-  "homosaurus tree shows only the root with a rolled-up count of 3",
-  treeRows.filter((r) => !r.nested && r.cat.includes("homosaurus")).length === 1 &&
+  "homosaurus tree shows the two roots with rolled-up counts",
+  treeRows.filter((r) => !r.nested && r.cat.includes("homosaurus")).length === 2 &&
     treeRows.some((r) => r.label === "Gender identity" && r.count === "3"),
 );
 
-// 1b'. The fixture gives the root an unlabeled broader ancestor
-//      (homoit9999901): the build mints it into the sidecar for rolled-up
-//      postings, but it must never render -- a label-less concept would show
-//      as a raw authority URI at the top of the tree (tasks/176).
+// 1b'. A minted ancestor with a sideband label renders as a real tree node
+//      (tasks/178) -- here as a root, since no work carries it directly.
+check(
+  "sideband-labeled minted ancestor renders as a root (Trans community, 2)",
+  treeRows.some((r) => !r.nested && r.cat.endsWith("homoit9999902") && r.label === "Trans community" && r.count === "2"),
+);
+
+// 1b''. The fixture also gives "Gender identity" an unlabeled broader
+//       ancestor (homoit9999901) absent from the sideband: the build mints
+//       it for rolled-up postings, but it must never render -- a label-less
+//       concept would show as a raw authority URI at the top of the tree
+//       (tasks/176).
 check(
   "unlabeled minted ancestor never renders (no URI rows)",
   !treeRows.some((r) => r.cat.includes("homoit9999901") || r.label.includes("homosaurus.org")),

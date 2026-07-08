@@ -132,7 +132,9 @@ const staticAgain = await page.$$eval("#lcat-results li", (lis) => lis.length);
 check("clearing after negatives restores static list", staticAgain === staticLis);
 
 // 9. The hydrated homosaurus group upgrades to a vocabulary tree (tasks/174):
-//    only the root concept renders, count rolled up over the subtree.
+//    only root concepts render, counts rolled up over their subtrees -- the
+//    direct root (Gender identity) plus the sideband-labeled minted ancestor
+//    (Trans community, tasks/178).
 await page.waitForSelector(".lcat-facets .lcat-facet-caret", { timeout: 10000 });
 const sidebarTree = await page.$$eval('.lcat-facets li[data-lcat-cat*="homosaurus.org"]', (lis) =>
   lis.map((li) => ({
@@ -142,12 +144,15 @@ const sidebarTree = await page.$$eval('.lcat-facets li[data-lcat-cat*="homosauru
   })),
 );
 check(
-  "sidebar homosaurus group treeifies to the root (Gender identity, 3)",
-  sidebarTree.length === 1 && !sidebarTree[0].nested && sidebarTree[0].label === "Gender identity" && sidebarTree[0].count === "3",
+  "sidebar homosaurus group treeifies to the roots (Gender identity 3, Trans community 2)",
+  sidebarTree.length === 2 &&
+    sidebarTree.every((r) => !r.nested) &&
+    sidebarTree.some((r) => r.label === "Gender identity" && r.count === "3") &&
+    sidebarTree.some((r) => r.label === "Trans community" && r.count === "2"),
 );
-// The root's unlabeled minted ancestor (homoit9999901, fixture) must not have
-// rendered above it as a raw-URI row (tasks/176) -- covered by length === 1
-// above; assert the id is absent anywhere in the sidebar for clarity.
+// Gender identity's unlabeled minted ancestor (homoit9999901, fixture,
+// absent from the terms sideband) must not have rendered above it as a
+// raw-URI row (tasks/176).
 const mintedRows = await page.$$eval('.lcat-facets li[data-lcat-cat$="homoit9999901"]', (lis) => lis.length);
 check("unlabeled minted ancestor never renders in the sidebar", mintedRows === 0);
 
