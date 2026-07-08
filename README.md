@@ -61,6 +61,36 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [Hardcover](https://hardcover.app) reading shelf, see
 [docs/hardcover-provider.md](docs/hardcover-provider.md).
 
+## Deployment styles
+
+The two tiers unbundle into a ladder of shapes; pick by how much of the
+dynamic surface you need. Memory numbers are indicative, from measured
+deployments.
+
+- **Static only (zero server).** The projected site is plain files: host it
+  on any static host, object storage bucket, or CDN. Client-side search
+  (roaringrange or Pagefind) and live availability both run in the browser,
+  so a full faceted catalog needs **no server process at all**. Projection is
+  a batch step, not a resident cost -- run it in CI or on a laptop (peak
+  ~57KB/work), and the feed-driven incremental rebuild keeps publishes from
+  reprojecting the corpus.
+- **Read-only backend (demo/sandbox).** `lcatd` in read-only mode serves the
+  cataloging UI without write workers; container or Lambda
+  (`backend/deploy/terraform/modules/readonly-demo`).
+- **Writable backend.** A single long-lived `lcatd` container with the
+  in-memory store snapshotting to blob storage; the store and blob clients
+  also speak DynamoDB/S3-compatible APIs (`LCATD_AWS_ENDPOINT`), so AWS,
+  MinIO/Garage, or ScyllaDB are interchangeable deployment concerns.
+- **What sets the backend's memory: vocabularies, then catalog size.** The
+  resident work index holds summaries and identity keys (not the graph), so
+  small and mid catalogs are cheap; the controlled-vocabulary term index is
+  the dominant block. Full LCSH+LCSHAC+LCGFT resident is ~1.2GB before the
+  first work -- a comfortable-cataloging shape wants a few GB. To run in
+  ~**1GB or less**, install subset vocabulary snapshots instead: `lcat
+  vocab-subset` scopes a vocabulary to the concepts your catalog actually
+  uses (plus small vocabularies like Homosaurus whole), collapsing the index
+  to tens of MB.
+
 ## Status
 
 Working, with versioned releases. Both tiers are implemented:

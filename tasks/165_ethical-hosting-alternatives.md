@@ -63,6 +63,13 @@ add ~EUR 5/mo fixed (flexible IPv4 EUR 0.004/h + ~20GB block storage OS disk).
   (tasks/154, tasks/162 workindex) is what changes that curve.
 - Serverless Containers are a poor fit: the resident workindex makes cold
   starts expensive; a long-lived instance is the right shape.
+- Measured 2026-07-08 on the playground: lcatd RSS is ~1.25GB with a 31-work
+  catalog and the full LCSH+LCSHAC+LCGFT vocab snapshots (254MB on disk)
+  installed -- at small catalog sizes the vocabulary term index dominates
+  memory, not the workindex. `lcat vocab-subset` snapshots collapse it to
+  tens of MB, which is what makes a ~1GB (PLAY2-PICO/DEV-class) deployment
+  realistic for small libraries; the table above prices the
+  full-LCSH-resident shape.
 
 ## Open questions
 
