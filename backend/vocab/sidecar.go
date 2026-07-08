@@ -1,22 +1,18 @@
 // Sidecar index reader (tasks/167): serves one scheme from the artifacts
 // BuildSidecar wrote, holding only the small structures resident -- the URI
-// and identifier RRILs, the LCVS search arena, and the RRSR offset index --
-// while Term payloads range-fetch from the record store on demand (a
-// bounded cache absorbs the editor's hot set). Reads are lock-free except
-// the cache. Unlike the map path, sidecar reads can fail (the store is
-// remote): failures log and report a miss, never an invented term.
+// and identifier RRILs, the RRTI search router, and the RRSR offset index --
+// while search postings and Term payloads range-fetch from the store on
+// demand (a bounded cache absorbs the editor's hot set). Reads are lock-free
+// except the cache. Unlike the map path, sidecar reads can fail (the store
+// is remote): failures log and report a miss, never an invented term.
 package vocab
 
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"sort"
-	"strings"
 	"sync"
 
 	rr "github.com/freeeve/roaringrange"
@@ -36,12 +32,9 @@ type sidecarScheme struct {
 	uri     *rr.LookupIndex
 	tiers   [identifierTiers]*rr.LookupIndex
 	records *rr.RecordStore
-
-	// search columns, decoded from the LCVS blob.
-	arena []byte
-	ends  []uint32
-	docs  []uint32
-	alt   []byte
+	// searchIdx is the RRTI over normalized labels (posting IDs doc<<1|alt);
+	// only its router FST is resident, postings range-read per query.
+	searchIdx *rr.TermIndex
 
 	mu    sync.Mutex
 	cache map[uint32]*Term
@@ -75,12 +68,12 @@ func openSidecar(ctx context.Context, st blob.Store, prefix string, m *SidecarMa
 			return nil, fmt.Errorf("vocab: sidecar %s id tier %d: %w", m.Scheme, k+1, err)
 		}
 	}
-	searchData, err := resident(".search.bin")
+	searchRA, _, _, err := blob.ReaderAt(ctx, st, sidecarPath(prefix, m.Scheme, ".search.rrt"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("vocab: sidecar %s search: %w", m.Scheme, err)
 	}
-	if err := s.decodeSearch(searchData); err != nil {
-		return nil, err
+	if s.searchIdx, err = rr.OpenTermIndex(searchRA); err != nil {
+		return nil, fmt.Errorf("vocab: sidecar %s search index: %w", m.Scheme, err)
 	}
 	idxData, err := resident(".rrsr.idx")
 	if err != nil {
@@ -95,49 +88,6 @@ func openSidecar(ctx context.Context, st blob.Store, prefix string, m *SidecarMa
 	}
 	return s, nil
 }
-
-func (s *sidecarScheme) decodeSearch(data []byte) error {
-	r := bytes.NewReader(data)
-	magic := make([]byte, 5)
-	if _, err := io.ReadFull(r, magic); err != nil || string(magic[:4]) != searchMagic || magic[4] != sidecarVersion {
-		return fmt.Errorf("vocab: sidecar %s search blob: bad header", s.scheme)
-	}
-	var count uint32
-	var arenaLen uint64
-	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
-		return err
-	}
-	if err := binary.Read(r, binary.LittleEndian, &arenaLen); err != nil {
-		return err
-	}
-	s.arena = make([]byte, arenaLen)
-	if _, err := io.ReadFull(r, s.arena); err != nil {
-		return err
-	}
-	s.ends = make([]uint32, count)
-	s.docs = make([]uint32, count)
-	if err := binary.Read(r, binary.LittleEndian, s.ends); err != nil {
-		return err
-	}
-	if err := binary.Read(r, binary.LittleEndian, s.docs); err != nil {
-		return err
-	}
-	s.alt = make([]byte, (count+7)/8)
-	if _, err := io.ReadFull(r, s.alt); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *sidecarScheme) norm(i int) string {
-	start := uint32(0)
-	if i > 0 {
-		start = s.ends[i-1]
-	}
-	return string(s.arena[start:s.ends[i]])
-}
-
-func (s *sidecarScheme) isAlt(i int) bool { return s.alt[i/8]&(1<<(i%8)) != 0 }
 
 // term materializes one doc, through the cache.
 func (s *sidecarScheme) term(doc uint32) (*Term, bool) {
@@ -236,26 +186,38 @@ func (s *sidecarScheme) tierMatch(tier int, key string) (*Term, bool) {
 	return s.term(docs[0])
 }
 
-// searchRange returns the entry index range [lo, hi) whose norms match
-// pred's prefix ordering: lo is the first norm >= q.
-func (s *sidecarScheme) searchStart(q string) int {
-	return sort.Search(len(s.ends), func(i int) bool { return s.norm(i) >= q })
-}
-
-// search implements prefix search with the map path's semantics: entries in
-// norm order, deduped by term, live terms only (retired terms have no
-// entries by construction).
+// search implements prefix search with the map path's semantics: matched
+// labels in norm order, deduped by term, live terms only (retired terms have
+// no entries by construction). Labels sharing a term can collapse under the
+// dedup, so a truncated term window that underfills the limit grows and
+// retries; each pass range-reads only the dict blocks spanning the prefix
+// plus the matched labels' postings.
 func (s *sidecarScheme) search(q string, limit int) []*Term {
 	var docs []uint32
-	seen := map[uint32]bool{}
-	for i := s.searchStart(q); i < len(s.ends) && strings.HasPrefix(s.norm(i), q); i++ {
-		d := s.docs[i]
-		if seen[d] {
-			continue
+	for termLimit := limit; ; termLimit *= 4 {
+		tps, truncated, err := s.searchIdx.PrefixPostings(q, termLimit)
+		if err != nil {
+			s.miss("search", err)
+			return nil
 		}
-		seen[d] = true
-		docs = append(docs, d)
-		if len(docs) >= limit {
+		docs = docs[:0]
+		seen := map[uint32]bool{}
+	terms:
+		for _, tp := range tps {
+			it := tp.Posting.Iterator()
+			for it.HasNext() {
+				d := it.Next() >> 1
+				if seen[d] {
+					continue
+				}
+				seen[d] = true
+				docs = append(docs, d)
+				if len(docs) >= limit {
+					break terms
+				}
+			}
+		}
+		if len(docs) >= limit || !truncated {
 			break
 		}
 	}
@@ -269,19 +231,31 @@ func (s *sidecarScheme) search(q string, limit int) []*Term {
 	return out
 }
 
-// matchLabel implements the exact-normalized-label gate.
+// matchLabel implements the exact-normalized-label gate. The exact label, if
+// indexed, is byte-lexicographically first among its own prefix matches, so
+// one single-term prefix read resolves it.
 func (s *sidecarScheme) matchLabel(q string) []LabelMatch {
+	tps, _, err := s.searchIdx.PrefixPostings(q, 1)
+	if err != nil {
+		s.miss("label match", err)
+		return nil
+	}
+	if len(tps) == 0 || tps[0].Term != q {
+		return nil
+	}
 	var docs []uint32
 	var alts []bool
 	seen := map[uint32]bool{}
-	for i := s.searchStart(q); i < len(s.ends) && s.norm(i) == q; i++ {
-		d := s.docs[i]
+	it := tps[0].Posting.Iterator()
+	for it.HasNext() {
+		enc := it.Next()
+		d := enc >> 1
 		if seen[d] {
 			continue
 		}
 		seen[d] = true
 		docs = append(docs, d)
-		alts = append(alts, s.isAlt(i))
+		alts = append(alts, enc&1 == 1)
 	}
 	byDoc := s.termsMany(docs)
 	var out []LabelMatch

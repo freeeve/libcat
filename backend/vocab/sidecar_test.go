@@ -172,9 +172,9 @@ func TestSidecarPartialArming(t *testing.T) {
 	}
 }
 
-// TestSidecarSearchArena covers LCVS decode round-tripping through odd
-// sizes (empty-norm exclusion, multi-byte labels) via the public surface.
-func TestSidecarSearchArena(t *testing.T) {
+// TestSidecarSearchIndex covers the RRTI search path through odd inputs
+// (multi-byte labels, no-match prefixes) via the public surface.
+func TestSidecarSearchIndex(t *testing.T) {
 	side, _ := sidecarFixture(t, []string{"homosaurus", "lcsh"})
 	got := side.Search("homosaurus", "personas transg", 5)
 	if len(got) != 1 || got[0].Labels["es"] != "Personas transgénero" {

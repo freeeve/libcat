@@ -6,7 +6,7 @@
 //	<scheme>.uri.rril       term URI -> doc, retired terms included
 //	<scheme>.id1/2/3.rril   canon identifier tiers (own/exactMatch/closeMatch),
 //	                        live terms only -- MatchIdentifier's precedence
-//	<scheme>.search.bin     sorted (normLabel, doc, alt) entries (LCVS format)
+//	<scheme>.search.rrt     RRTI over normalized labels; posting IDs doc<<1|alt
 //	<scheme>.manifest.json  source snapshot path+ETag; presence arms the scheme
 //
 // Doc ids are the scheme's term URIs in sorted order, so RRIL postings for
@@ -16,11 +16,13 @@ package vocab
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 
+	"github.com/RoaringBitmap/roaring/v2"
 	rr "github.com/freeeve/roaringrange"
 
 	"github.com/freeeve/libcodex/rdf"
@@ -47,8 +49,7 @@ type SidecarManifest struct {
 }
 
 const (
-	sidecarVersion  = 1
-	searchMagic     = "LCVS"
+	sidecarVersion  = 2
 	sidecarDirPart  = "sidecar/"
 	manifestSuffix  = ".manifest.json"
 	identifierTiers = 3
@@ -172,12 +173,16 @@ func buildSidecarTerms(ctx context.Context, st blob.Store, prefix, scheme, sourc
 		{".id1.rril", tierBufs[0].Bytes()},
 		{".id2.rril", tierBufs[1].Bytes()},
 		{".id3.rril", tierBufs[2].Bytes()},
-		{".search.bin", searchBuf},
+		{".search.rrt", searchBuf},
 	}
 	for _, p := range puts {
 		if _, err := st.Put(ctx, sidecarPath(prefix, scheme, p.suffix), p.data, blob.PutOptions{}); err != nil {
 			return nil, fmt.Errorf("vocab: put sidecar %s: %w", p.suffix, err)
 		}
+	}
+	// Best-effort removal of the pre-v2 LCVS search blob a rebuild orphans.
+	if err := st.Delete(ctx, sidecarPath(prefix, scheme, ".search.bin")); err != nil && !errors.Is(err, blob.ErrNotFound) {
+		slog.Warn("vocab: could not remove legacy search blob", "scheme", scheme, "err", err)
 	}
 	m := &SidecarManifest{
 		Version:       sidecarVersion,
@@ -199,34 +204,36 @@ func buildSidecarTerms(ctx context.Context, st blob.Store, prefix, scheme, sourc
 	return m, nil
 }
 
-// encodeSearch serializes sorted search entries as the LCVS blob: a shared
-// norm-bytes arena plus parallel end-offset/doc/alt-bit columns, so the
-// reader holds prefix search resident in a fraction of Go-string overhead.
+// encodeSearch serializes search entries as an RRTI term index (tasks/169):
+// each normalized label is a dictionary term whose posting carries doc<<1|alt
+// encoded IDs, so a prefix query range-reads only the dict blocks spanning
+// the prefix plus the matched labels' postings -- nothing but the router FST
+// stays resident. Norms are pre-normalized, so the index is written
+// case-sensitive (no query-side folding) with no language filters; the head
+// boundary clears every encoded ID, so a posting is one head read.
 func encodeSearch(entries []searchEntry, doc map[string]uint32) ([]byte, error) {
-	var arena bytes.Buffer
-	ends := make([]uint32, len(entries))
-	docs := make([]uint32, len(entries))
-	altBits := make([]byte, (len(entries)+7)/8)
-	for i, e := range entries {
-		arena.WriteString(e.norm)
-		ends[i] = uint32(arena.Len())
+	postings := make(map[string]*roaring.Bitmap, len(entries))
+	var maxEnc uint32
+	for _, e := range entries {
 		d, ok := doc[e.uri]
 		if !ok {
 			return nil, fmt.Errorf("vocab: search entry uri %s has no doc", e.uri)
 		}
-		docs[i] = d
+		enc := d << 1
 		if e.alt {
-			altBits[i/8] |= 1 << (i % 8)
+			enc |= 1
 		}
+		bm := postings[e.norm]
+		if bm == nil {
+			bm = roaring.New()
+			postings[e.norm] = bm
+		}
+		bm.Add(enc)
+		maxEnc = max(maxEnc, enc)
 	}
 	out := &bytes.Buffer{}
-	out.WriteString(searchMagic)
-	out.WriteByte(sidecarVersion)
-	binary.Write(out, binary.LittleEndian, uint32(len(entries)))
-	binary.Write(out, binary.LittleEndian, uint64(arena.Len()))
-	out.Write(arena.Bytes())
-	binary.Write(out, binary.LittleEndian, ends)
-	binary.Write(out, binary.LittleEndian, docs)
-	out.Write(altBits)
+	if err := rr.WriteTermIndexFull(out, postings, (maxEnc>>16+1)<<16, rr.TermLanguageNone, false, false, false, 0); err != nil {
+		return nil, fmt.Errorf("vocab: write search index: %w", err)
+	}
 	return out.Bytes(), nil
 }

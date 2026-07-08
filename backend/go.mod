@@ -13,16 +13,16 @@ require (
 )
 
 require (
+	github.com/RoaringBitmap/roaring/v2 v2.14.4
 	github.com/aws/aws-sdk-go-v2/config v1.32.27
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.8
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.2
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.44.2
-	github.com/freeeve/roaringrange v0.29.0
+	github.com/freeeve/roaringrange v0.30.0
 	golang.org/x/text v0.38.0
 )
 
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.14.4 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.26 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.30 // indirect
