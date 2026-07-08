@@ -6,14 +6,46 @@ package awstrigger
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
 	"github.com/freeeve/libcatalog/backend/trigger"
 )
+
+// NewSQS builds an SQS notifier from the standard AWS environment; a
+// non-empty endpoint overrides the service endpoint (LocalStack in dev).
+func NewSQS(ctx context.Context, queueURL, endpoint string) (SQS, error) {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return SQS{}, fmt.Errorf("awstrigger: load aws config: %w", err)
+	}
+	client := sqs.NewFromConfig(cfg, func(o *sqs.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = &endpoint
+		}
+	})
+	return SQS{Client: client, QueueURL: queueURL}, nil
+}
+
+// NewEventBridge builds an EventBridge notifier from the standard AWS
+// environment; a non-empty endpoint overrides the service endpoint.
+func NewEventBridge(ctx context.Context, bus, source, endpoint string) (EventBridge, error) {
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		return EventBridge{}, fmt.Errorf("awstrigger: load aws config: %w", err)
+	}
+	client := eventbridge.NewFromConfig(cfg, func(o *eventbridge.Options) {
+		if endpoint != "" {
+			o.BaseEndpoint = &endpoint
+		}
+	})
+	return EventBridge{Client: client, Bus: bus, Source: source}, nil
+}
 
 // SQS sends each event as one message.
 type SQS struct {

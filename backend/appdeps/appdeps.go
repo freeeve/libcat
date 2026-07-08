@@ -41,6 +41,7 @@ import (
 	"github.com/freeeve/libcatalog/backend/store"
 	"github.com/freeeve/libcatalog/backend/suggest"
 	"github.com/freeeve/libcatalog/backend/trigger"
+	"github.com/freeeve/libcatalog/backend/trigger/awstrigger"
 	"github.com/freeeve/libcatalog/backend/ui"
 	"github.com/freeeve/libcatalog/backend/vocab"
 	"github.com/freeeve/libcatalog/backend/vocabsrc"
@@ -186,9 +187,32 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	if cfg.RebuildCmd != "" {
 		fan = append(fan, &trigger.Command{Cmd: cfg.RebuildCmd, Dir: cfg.RebuildDir, Logger: logger})
 	}
+	// Async job dispatch (tasks/159): a queue worker runs the incremental
+	// rebuild instead of a synchronous local command.
+	if cfg.TriggerSQSURL != "" {
+		q, err := awstrigger.NewSQS(ctx, cfg.TriggerSQSURL, cfg.AWSEndpoint)
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		fan = append(fan, q)
+		logger.Info("trigger", "transport", "sqs", "queue", cfg.TriggerSQSURL)
+	}
+	if cfg.TriggerEventBus != "" {
+		eb, err := awstrigger.NewEventBridge(ctx, cfg.TriggerEventBus, "lcatd", cfg.AWSEndpoint)
+		if err != nil {
+			return httpapi.Deps{}, err
+		}
+		fan = append(fan, eb)
+		logger.Info("trigger", "transport", "eventbridge", "bus", cfg.TriggerEventBus)
+	}
 	var notifier trigger.Notifier = trigger.Noop{}
 	if len(fan) > 0 {
 		notifier = fan
+	}
+	// A publish burst coalesces into one trigger event (tasks/159).
+	if cfg.RebuildDebounce > 0 && len(fan) > 0 {
+		notifier = &trigger.Coalesce{Next: notifier, Window: cfg.RebuildDebounce, Logger: logger}
+		logger.Info("trigger", "debounce", cfg.RebuildDebounce)
 	}
 	if deps.Suggest != nil && deps.Blob != nil {
 		deps.Publisher = &publish.Publisher{

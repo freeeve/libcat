@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the resolved backend configuration.
@@ -98,6 +99,15 @@ type Config struct {
 	// its working directory.
 	RebuildCmd string
 	RebuildDir string
+	// TriggerSQSURL / TriggerEventBus dispatch grains-changed events to AWS
+	// messaging (tasks/159) -- the async job seam: a queue worker (ECS
+	// RunTask, Step Functions) runs the incremental rebuild instead of a
+	// synchronous local command.
+	TriggerSQSURL   string
+	TriggerEventBus string
+	// RebuildDebounce, when positive, coalesces a burst of publishes into one
+	// trigger event delivered after that quiet period (tasks/159).
+	RebuildDebounce time.Duration
 
 	// BrandCSS, when set, is the path of a CSS file that re-brands the SPA
 	// at boot without a rebuild (tasks/135): the server reads it once,
@@ -141,6 +151,8 @@ func FromEnv() (Config, error) {
 		BrandCSS:          os.Getenv("LCATD_BRAND_CSS"),
 		RebuildCmd:        os.Getenv("LCATD_REBUILD_CMD"),
 		RebuildDir:        os.Getenv("LCATD_REBUILD_DIR"),
+		TriggerSQSURL:     os.Getenv("LCATD_TRIGGER_SQS_URL"),
+		TriggerEventBus:   os.Getenv("LCATD_TRIGGER_EVENT_BUS"),
 		Provider:          envOr("LCATD_PROVIDER", "overdrive"),
 		EnrichLocsh:       os.Getenv("LCATD_ENRICH_LOCSH"),
 	}
@@ -170,6 +182,13 @@ func FromEnv() (Config, error) {
 				cfg.VocabSchemes = append(cfg.VocabSchemes, s)
 			}
 		}
+	}
+	if raw := os.Getenv("LCATD_REBUILD_DEBOUNCE"); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			return Config{}, fmt.Errorf("config: LCATD_REBUILD_DEBOUNCE must be a positive duration (e.g. 5s)")
+		}
+		cfg.RebuildDebounce = d
 	}
 	if cfg.ListenAddr == "" {
 		return Config{}, fmt.Errorf("config: empty LCATD_LISTEN_ADDR")

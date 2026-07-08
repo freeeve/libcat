@@ -65,6 +65,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat index:", err)
 			os.Exit(1)
 		}
+	case "rebuild":
+		if err := runRebuild(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat rebuild:", err)
+			os.Exit(1)
+		}
 	case "vocab-subset":
 		if err := runVocabSubset(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "lcat vocab-subset:", err)
@@ -117,6 +122,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  lcat project --catalog <catalog.nq> [--out <dir>] [--provider <name>]")
 	fmt.Fprintln(os.Stderr, "  lcat serialize --dir <grains>   (regenerate catalog.nq from committed grains)")
 	fmt.Fprintln(os.Stderr, "  lcat index --catalog <catalog.json> [--out <dir>]")
+	fmt.Fprintln(os.Stderr, "  lcat rebuild --store <blob-root> --out <dir> [--index-out <dir>] [--cursor <file>] [--full]")
+	fmt.Fprintln(os.Stderr, "               (feed-driven incremental: re-projects only grains changed since the cursor)")
 	fmt.Fprintln(os.Stderr, "  lcat vocab-subset --catalog <catalog.json> --out <lcsh.nq> [--scheme lcsh] [--namespace <uri-prefix>]")
 	fmt.Fprintln(os.Stderr, "                    [--fetch-suffix .nt] [--dump <url-or-file> [--all]]   (non-LoC authorities, e.g. Homosaurus)")
 	fmt.Fprintln(os.Stderr, "                    [--from-catalog]   (no network: snapshot from catalog.json's own labels, e.g. FAST)")

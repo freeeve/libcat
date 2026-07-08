@@ -1,5 +1,44 @@
 # 159 -- Feed-driven incremental public rebuild + async trigger seam
 
+## Outcome (2026-07-07)
+
+Shipped items (1) and (2) of the updated sequencing; (3) splitset base+delta
+is spun out to tasks/164 (deferred until corpus size demands it).
+
+1. **`lcat rebuild`** (cmd/lcat/rebuild.go): feed-cursor consumer.
+   `lcat rebuild --store <blob-root> --out <dir> [--index-out] [--cursor]
+   [--provider] [--full]`. Reads `data/workindex.feed` (decoding the backend's
+   JSON shape directly -- lcat cannot import the backend module), diffs
+   against a persisted cursor {epoch, applied, artifact schema versions},
+   re-projects only the changed grains (per-grain projection is exact because
+   grains are self-contained), patches catalog.json/facets.json/redirects.json
+   in place, and re-emits the search + browse artifacts from the patched
+   catalog (interim monolith rebuild -- in-memory, seconds at current scale).
+   Any doubt -- no feed, no cursor, a fold, a schema bump, unreadable
+   artifacts -- falls back to the full serialize -> project -> index chain.
+   A missing feed on a server-managed store (snapshot present) counts as
+   "no changes since the fold" via the snapshot's epoch. catalog.nq is only
+   refreshed on full runs (nothing downstream reads it once catalog.json is
+   patched directly).
+2. **Trigger seam**: `trigger.Coalesce` debounces a publish burst into one
+   downstream event (union of paths, quiet-window + max-delay, async
+   delivery); appdeps wires it via `LCATD_REBUILD_DEBOUNCE=5s`. The existing
+   awstrigger SQS/EventBridge transports are now configurable
+   (`LCATD_TRIGGER_SQS_URL`, `LCATD_TRIGGER_EVENT_BUS`) -- the async job
+   dispatch. Seam contract for a queue worker: the message body is the
+   trigger.Event JSON ({kind, paths[], at}); the worker syncs the store
+   (e.g. `aws s3 sync`) and runs `lcat rebuild --store ... --out ...`; the
+   cursor makes coalesced/duplicate deliveries idempotent.
+
+Verified: unit tests (edit/delete/add/merge-redirect patch semantics, dedup,
+fold fallback, schema-bump fallback, coalescer batching + max-delay) and an
+end-to-end run against a copy of the playground store -- full rebuild (31
+works, all 16 artifacts), a real editorial publish via /v1/works/{id}/ops,
+rsync, incremental run re-projecting exactly 1 grain with the edit visible in
+catalog.json, and an "up to date" no-op re-run.
+
+Original framing below.
+
 ## Status (2026-07-07): NOT started -- plan updated against the shipped 155-158
 
 What changed under this task since it was written:
