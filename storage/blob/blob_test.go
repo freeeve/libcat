@@ -3,6 +3,7 @@ package blob
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 )
@@ -31,7 +32,62 @@ func TestStoreConformance(t *testing.T) {
 			t.Run("InvalidPaths", func(t *testing.T) { testInvalidPaths(t, mk(t)) })
 			t.Run("SinkOf", func(t *testing.T) { testSinkOf(t, mk(t)) })
 			t.Run("PutStream", func(t *testing.T) { testPutStream(t, mk(t)) })
+			t.Run("GetRange", func(t *testing.T) { testGetRange(t, mk(t)) })
+			t.Run("ReaderAt", func(t *testing.T) { testReaderAt(t, mk(t)) })
 		})
+	}
+}
+
+func testGetRange(t *testing.T, s Store) {
+	rr, ok := s.(RangeReader)
+	if !ok {
+		t.Fatal("store does not implement RangeReader")
+	}
+	if _, err := rr.GetRange(t.Context(), "no/such/object", 0, 4); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetRange missing: err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.Put(t.Context(), "data/r/blob", []byte("0123456789"), PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		off, n int64
+		want   string
+	}{
+		{0, 4, "0123"},
+		{4, 4, "4567"},
+		{8, 10, "89"}, // clamped past the end
+		{10, 4, ""},   // starts at the end
+		{20, 4, ""},   // starts past the end
+		{0, 0, ""},
+	} {
+		got, err := rr.GetRange(t.Context(), "data/r/blob", tc.off, tc.n)
+		if err != nil || string(got) != tc.want {
+			t.Fatalf("GetRange(%d, %d) = %q, %v; want %q", tc.off, tc.n, got, err, tc.want)
+		}
+	}
+}
+
+func testReaderAt(t *testing.T, s Store) {
+	if _, _, _, err := ReaderAt(t.Context(), s, "no/such/object"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("ReaderAt missing: err = %v, want ErrNotFound", err)
+	}
+	if _, err := s.Put(t.Context(), "data/r/blob", []byte("0123456789"), PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ra, size, etag, err := ReaderAt(t.Context(), s, "data/r/blob")
+	if err != nil || size != 10 || etag == "" {
+		t.Fatalf("ReaderAt = size %d etag %q err %v", size, etag, err)
+	}
+	buf := make([]byte, 4)
+	if n, err := ra.ReadAt(buf, 3); err != nil || string(buf[:n]) != "3456" {
+		t.Fatalf("ReadAt(3) = %q, %v", buf[:n], err)
+	}
+	// A short read at the tail reports io.EOF with the available bytes.
+	if n, err := ra.ReadAt(buf, 8); !errors.Is(err, io.EOF) || string(buf[:n]) != "89" {
+		t.Fatalf("ReadAt(8) = %q, %v; want \"89\", io.EOF", buf[:n], err)
+	}
+	if _, err := ra.ReadAt(buf, 12); !errors.Is(err, io.EOF) {
+		t.Fatalf("ReadAt past end: %v, want io.EOF", err)
 	}
 }
 

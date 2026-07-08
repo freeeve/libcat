@@ -65,6 +65,15 @@ func main() {
 		}
 		return
 	}
+	// "lcatd vocab-index --all" -- (re)build the range-served sidecar index
+	// artifacts for installed vocabulary snapshots (tasks/167).
+	if len(os.Args) > 1 && os.Args[1] == "vocab-index" {
+		if err := runVocabIndex(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	cfg, err := config.FromEnv()
 	if err != nil {
 		logger.Error("config", "err", err)

@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"os"
@@ -74,6 +75,37 @@ func (s *Store) Get(ctx context.Context, path string) ([]byte, string, error) {
 		return nil, "", err
 	}
 	return data, unquote(aws.ToString(out.ETag)), nil
+}
+
+// GetRange implements the blob.RangeReader capability with an HTTP Range
+// GET. S3 clamps a range that runs past the object's end and returns 416
+// for one that starts past it; both normalize to short/empty reads so the
+// blob.ReaderAt adapter sees io.ReaderAt semantics.
+func (s *Store) GetRange(ctx context.Context, path string, offset, length int64) ([]byte, error) {
+	if err := blob.ValidatePath(path); err != nil {
+		return nil, err
+	}
+	if offset < 0 || length <= 0 {
+		return nil, nil
+	}
+	rng := fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: &s.bucket,
+		Key:    &path,
+		Range:  &rng,
+	})
+	if err != nil {
+		if isNoSuchKey(err) {
+			return nil, blob.ErrNotFound
+		}
+		var ae smithy.APIError
+		if errors.As(err, &ae) && ae.ErrorCode() == "InvalidRange" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer out.Body.Close()
+	return io.ReadAll(out.Body)
 }
 
 // Put writes the object subject to opts' preconditions.

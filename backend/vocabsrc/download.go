@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/freeeve/libcat/storage/blob"
 
 	"github.com/freeeve/libcat/backend/store"
+	"github.com/freeeve/libcat/backend/vocab"
 )
 
 // Status is the download-job lifecycle (the tasks/038 export shape).
@@ -287,6 +289,14 @@ func (s *Service) installFrom(ctx context.Context, src Source, r io.Reader, prov
 	}
 	if _, err := s.Blob.Put(ctx, s.metaPath(src.Name), meta, blob.PutOptions{ContentType: "application/json"}); err != nil {
 		return 0, err
+	}
+	// Sidecar index artifacts (tasks/167): built per install so big schemes
+	// serve range-fetched instead of as resident maps. A build failure keeps
+	// the install -- the map path serves the scheme until the next rebuild.
+	if m, err := vocab.BuildSidecar(ctx, s.Blob, s.prefix(), src.Scheme, s.snapshotPath(src.Name)); err != nil {
+		slog.Warn("vocabsrc: sidecar index build failed; scheme serves from maps", "scheme", src.Scheme, "err", err)
+	} else {
+		slog.Info("vocabsrc: sidecar index built", "scheme", m.Scheme, "terms", m.Terms)
 	}
 	return terms, s.Reload(ctx)
 }

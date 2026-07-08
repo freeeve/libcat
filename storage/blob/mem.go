@@ -42,6 +42,27 @@ func (m *MemStore) Get(ctx context.Context, path string) ([]byte, string, error)
 	return out, contentETag(data), nil
 }
 
+// GetRange implements the RangeReader capability: [offset, offset+length)
+// of the object, clamped to its end.
+func (m *MemStore) GetRange(ctx context.Context, path string, offset, length int64) ([]byte, error) {
+	if err := ValidatePath(path); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	data, ok := m.objects[path]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if offset < 0 || length < 0 || offset >= int64(len(data)) {
+		return nil, nil
+	}
+	end := min(offset+length, int64(len(data)))
+	out := make([]byte, end-offset)
+	copy(out, data[offset:end])
+	return out, nil
+}
+
 // Put stores the object subject to opts' preconditions.
 func (m *MemStore) Put(ctx context.Context, path string, data []byte, opts PutOptions) (string, error) {
 	if err := ValidatePath(path); err != nil {

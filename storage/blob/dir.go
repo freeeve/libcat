@@ -100,6 +100,31 @@ func (d *DirStore) Get(ctx context.Context, path string) ([]byte, string, error)
 	return data, etag, nil
 }
 
+// GetRange implements the RangeReader capability: [offset, offset+length)
+// of the file, clamped to its end.
+func (d *DirStore) GetRange(ctx context.Context, path string, offset, length int64) ([]byte, error) {
+	if err := ValidatePath(path); err != nil {
+		return nil, err
+	}
+	if offset < 0 || length < 0 {
+		return nil, nil
+	}
+	f, err := os.Open(d.full(path))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	out := make([]byte, length)
+	n, err := f.ReadAt(out, offset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return out[:n], nil
+}
+
 // Put writes the object subject to opts' preconditions, creating parent
 // directories as needed. The write is a temp-file rename, so readers never
 // observe a partial object.

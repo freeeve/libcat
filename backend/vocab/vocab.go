@@ -9,7 +9,9 @@ package vocab
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"sort"
@@ -92,16 +94,21 @@ type Index struct {
 	snap atomic.Pointer[snapshot]
 }
 
-// snapshot is one immutable build of the index.
+// snapshot is one immutable build of the index. A scheme is served either
+// from maps (schemes/search) or from sidecar artifacts (tasks/167) -- never
+// both: any loose quads or a stale manifest bypass the sidecar for that
+// build, so the map path stays the correctness backstop.
 type snapshot struct {
 	schemes map[string]map[string]*Term
 	// search holds, per scheme, entries sorted by normalized label for
 	// prefix search across pref and alt labels in every language.
 	search map[string][]searchEntry
-	// match maps canonicalized identifier URIs (term IDs plus their
-	// skos:exactMatch/closeMatch siblings) to live terms, for
+	// matchTiers maps canonicalized identifier URIs to live terms, one map
+	// per precedence tier (own ID, skos:exactMatch, skos:closeMatch), for
 	// identifier-based reconciliation across schemes.
-	match map[string]*Term
+	matchTiers [identifierTiers]map[string]*Term
+	// sidecar holds the artifact-backed schemes.
+	sidecar map[string]*sidecarScheme
 }
 
 type searchEntry struct {
@@ -148,23 +155,136 @@ func buildSnapshot(ctx context.Context, st blob.Store, prefix string, schemes []
 	for _, s := range schemes {
 		want[s] = true
 	}
-	snap := &snapshot{schemes: map[string]map[string]*Term{}, search: map[string][]searchEntry{}}
+	snap := &snapshot{schemes: map[string]map[string]*Term{}, search: map[string][]searchEntry{}, sidecar: map[string]*sidecarScheme{}}
+
+	// Pass 1: collect the .nq inventory and any sidecar manifests.
+	type nqFile struct {
+		path string
+		etag string
+	}
+	var nqs []nqFile
+	manifests := map[string]*SidecarManifest{}
 	for entry, err := range st.List(ctx, prefix) {
 		if err != nil {
 			return nil, fmt.Errorf("vocab: list authorities: %w", err)
 		}
-		if !strings.HasSuffix(entry.Path, ".nq") {
-			continue
+		switch {
+		case strings.HasSuffix(entry.Path, ".nq"):
+			nqs = append(nqs, nqFile{path: entry.Path, etag: entry.ETag})
+		case strings.HasPrefix(entry.Path, prefix+sidecarDirPart) && strings.HasSuffix(entry.Path, manifestSuffix):
+			data, _, err := st.Get(ctx, entry.Path)
+			if err != nil {
+				return nil, fmt.Errorf("vocab: read %s: %w", entry.Path, err)
+			}
+			m := &SidecarManifest{}
+			if err := json.Unmarshal(data, m); err != nil || m.Version != sidecarVersion || m.Scheme == "" {
+				slog.Warn("vocab: ignoring unreadable sidecar manifest", "path", entry.Path, "err", err)
+				continue
+			}
+			if len(want) > 0 && !want[m.Scheme] {
+				continue
+			}
+			manifests[m.Scheme] = m
 		}
-		data, _, err := st.Get(ctx, entry.Path)
+	}
+
+	// Pass 2: parse every .nq except sources an ETag-matched manifest
+	// covers; the deferred set replays if its scheme turns out dirty.
+	deferred := map[string]nqFile{}
+	sourceETags := map[string]string{}
+	for _, f := range nqs {
+		sourceETags[f.path] = f.etag
+	}
+	parse := func(f nqFile) error {
+		data, _, err := st.Get(ctx, f.path)
 		if err != nil {
-			return nil, fmt.Errorf("vocab: read %s: %w", entry.Path, err)
+			return fmt.Errorf("vocab: read %s: %w", f.path, err)
 		}
 		ds, err := rdf.ParseNQuads(data)
 		if err != nil {
-			return nil, fmt.Errorf("vocab: parse %s: %w", entry.Path, err)
+			return fmt.Errorf("vocab: parse %s: %w", f.path, err)
 		}
 		snap.addDataset(ds, want)
+		return nil
+	}
+	armedFor := func(f nqFile) []*SidecarManifest {
+		var out []*SidecarManifest
+		for _, m := range manifests {
+			if m.Source == f.path && m.SourceETag == f.etag {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	for _, f := range nqs {
+		armed := armedFor(f)
+		// Skippable only when every scheme the file carries is armed on this
+		// exact file version -- a shared source never drops a scheme. A
+		// wanted-schemes filter narrows what "carried" must cover.
+		skippable := len(armed) > 0
+		for _, m := range armed {
+			for _, s := range m.SourceSchemes {
+				if len(want) > 0 && !want[s] {
+					continue
+				}
+				ok := false
+				for _, am := range armed {
+					if am.Scheme == s {
+						ok = true
+						break
+					}
+				}
+				if !ok {
+					skippable = false
+				}
+			}
+		}
+		if skippable {
+			for _, m := range armed {
+				deferred[m.Scheme] = f
+			}
+			continue
+		}
+		if err := parse(f); err != nil {
+			return nil, err
+		}
+	}
+
+	// Pass 3: arm each manifest scheme unless loose quads for it surfaced
+	// elsewhere or its source changed; the bypass replays the source .nq so
+	// the scheme serves from maps exactly as before sidecars existed.
+	for scheme, m := range manifests {
+		src, ok := deferred[scheme]
+		if !ok || m.SourceETag != sourceETags[m.Source] {
+			slog.Info("vocab: sidecar stale; serving scheme from maps", "scheme", scheme, "source", m.Source)
+			continue
+		}
+		if len(snap.schemes[scheme]) > 0 {
+			slog.Info("vocab: loose quads present; serving scheme from maps", "scheme", scheme)
+			if err := parse(src); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		sc, err := openSidecar(ctx, st, prefix, m)
+		if err != nil {
+			slog.Warn("vocab: sidecar open failed; serving scheme from maps", "scheme", scheme, "err", err)
+			if err := parse(src); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		snap.sidecar[scheme] = sc
+	}
+	// A deferred source whose manifest did not arm (dirty-scheme replay
+	// handled above) but whose scheme also never armed -- e.g. manifest
+	// vanished between passes -- must still be parsed.
+	for scheme, src := range deferred {
+		if snap.sidecar[scheme] == nil && len(snap.schemes[scheme]) == 0 {
+			if err := parse(src); err != nil {
+				return nil, err
+			}
+		}
 	}
 	snap.finish()
 	return snap, nil
@@ -250,13 +370,12 @@ func (s *snapshot) term(scheme, uri string) *Term {
 }
 
 // finish sorts relation lists and builds the per-scheme search slices and
-// the identifier match map. Retired (merged) terms stay resolvable but get
+// the identifier match tiers. Retired (merged) terms stay resolvable but get
 // no search or match entries.
 func (s *snapshot) finish() {
-	s.match = map[string]*Term{}
-	s.buildMatch(func(t *Term) []string { return []string{t.ID} })
-	s.buildMatch(func(t *Term) []string { return t.ExactMatch })
-	s.buildMatch(func(t *Term) []string { return t.CloseMatch })
+	s.buildMatch(0, func(t *Term) []string { return []string{t.ID} })
+	s.buildMatch(1, func(t *Term) []string { return t.ExactMatch })
+	s.buildMatch(2, func(t *Term) []string { return t.CloseMatch })
 	for scheme, byURI := range s.schemes {
 		var entries []searchEntry
 		for uri, t := range byURI {
@@ -294,11 +413,12 @@ func (s *snapshot) finish() {
 	}
 }
 
-// buildMatch registers one identifier tier of every live term into the match
-// map. Tiers run strongest first (own ID, then exactMatch, then closeMatch)
-// and never overwrite an earlier tier; within a tier, collisions resolve to
-// the lexicographically smallest scheme then URI for determinism.
-func (s *snapshot) buildMatch(ids func(*Term) []string) {
+// buildMatch registers one identifier tier of every live map-backed term.
+// Tiers run strongest first (own ID, then exactMatch, then closeMatch) and
+// MatchIdentifier checks them in order; within a tier, collisions resolve to
+// the lexicographically smallest scheme then URI for determinism (sidecar
+// schemes join the comparison at query time).
+func (s *snapshot) buildMatch(k int, ids func(*Term) []string) {
 	tier := map[string]*Term{}
 	for _, byURI := range s.schemes {
 		for _, t := range byURI {
@@ -316,11 +436,7 @@ func (s *snapshot) buildMatch(ids func(*Term) []string) {
 			}
 		}
 	}
-	for key, t := range tier {
-		if _, ok := s.match[key]; !ok {
-			s.match[key] = t
-		}
-	}
+	s.matchTiers[k] = tier
 }
 
 // canonIdentifier folds an identifier URI to its match key: scheme prefix
@@ -336,21 +452,58 @@ func canonIdentifier(uri string) string {
 // MatchIdentifier returns the live term a canonicalized identifier URI
 // resolves to: the term's own URI first, then its skos:exactMatch and
 // closeMatch siblings -- the identifier-based reconciliation gate for
-// external headings that carry $0 (tasks/088).
+// external headings that carry $0 (tasks/088). Within a tier, map and
+// sidecar candidates resolve to the smallest scheme then URI.
 func (ix *Index) MatchIdentifier(uri string) (*Term, bool) {
 	key := canonIdentifier(uri)
 	if key == "" {
 		return nil, false
 	}
-	t, ok := ix.load().match[key]
-	return t, ok
+	snap := ix.load()
+	for k := range identifierTiers {
+		best := snap.matchTiers[k][key]
+		for _, sc := range snap.sidecarSorted() {
+			t, ok := sc.tierMatch(k, key)
+			if !ok {
+				continue
+			}
+			if best == nil || t.Scheme < best.Scheme || (t.Scheme == best.Scheme && t.ID < best.ID) {
+				best = t
+			}
+		}
+		if best != nil {
+			return best, true
+		}
+	}
+	return nil, false
+}
+
+// sidecarSorted returns the sidecar schemes in scheme order, for
+// deterministic cross-scheme resolution.
+func (s *snapshot) sidecarSorted() []*sidecarScheme {
+	if len(s.sidecar) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(s.sidecar))
+	for k := range s.sidecar {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]*sidecarScheme, len(keys))
+	for i, k := range keys {
+		out[i] = s.sidecar[k]
+	}
+	return out
 }
 
 // Schemes lists the loaded vocabulary keys, sorted.
 func (ix *Index) Schemes() []string {
 	snap := ix.load()
-	out := make([]string, 0, len(snap.schemes))
+	out := make([]string, 0, len(snap.schemes)+len(snap.sidecar))
 	for s := range snap.schemes {
+		out = append(out, s)
+	}
+	for s := range snap.sidecar {
 		out = append(out, s)
 	}
 	sort.Strings(out)
@@ -360,8 +513,14 @@ func (ix *Index) Schemes() []string {
 // Lookup returns the term by scheme and URI -- the validation gate: only
 // terms that resolve here are accepted into suggestions or subject edits.
 func (ix *Index) Lookup(scheme, id string) (*Term, bool) {
-	t, ok := ix.load().schemes[scheme][id]
-	return t, ok
+	snap := ix.load()
+	if t, ok := snap.schemes[scheme][id]; ok {
+		return t, true
+	}
+	if sc := snap.sidecar[scheme]; sc != nil {
+		return sc.lookup(id)
+	}
+	return nil, false
 }
 
 // LabelResolver adapts the index to the editor's label-companion contract
@@ -385,14 +544,22 @@ func (ix *Index) LabelResolver() func(iri string) (string, map[string]string, bo
 // stored subject references without knowing where they came from (tasks/071).
 func (ix *Index) Resolve(id string) (*Term, bool) {
 	snap := ix.load()
-	schemes := make([]string, 0, len(snap.schemes))
+	schemes := make([]string, 0, len(snap.schemes)+len(snap.sidecar))
 	for s := range snap.schemes {
+		schemes = append(schemes, s)
+	}
+	for s := range snap.sidecar {
 		schemes = append(schemes, s)
 	}
 	sort.Strings(schemes)
 	for _, s := range schemes {
 		if t, ok := snap.schemes[s][id]; ok {
 			return t, true
+		}
+		if sc := snap.sidecar[s]; sc != nil {
+			if t, ok := sc.lookup(id); ok {
+				return t, true
+			}
 		}
 	}
 	return nil, false
@@ -401,10 +568,16 @@ func (ix *Index) Resolve(id string) (*Term, bool) {
 // Terms returns every term of a scheme ordered by label -- the authorities
 // management listing. Retired terms are included (marked by MergedInto).
 func (ix *Index) Terms(scheme string) []*Term {
-	byURI := ix.load().schemes[scheme]
-	out := make([]*Term, 0, len(byURI))
-	for _, t := range byURI {
-		out = append(out, t)
+	snap := ix.load()
+	var out []*Term
+	if sc := snap.sidecar[scheme]; sc != nil {
+		out = sc.all()
+	} else {
+		byURI := snap.schemes[scheme]
+		out = make([]*Term, 0, len(byURI))
+		for _, t := range byURI {
+			out = append(out, t)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		li, lj := normLabel(out[i].Label("en")), normLabel(out[j].Label("en"))
@@ -420,11 +593,14 @@ func (ix *Index) Terms(scheme string) []*Term {
 // starts with q, deduped, ordered by label.
 func (ix *Index) Search(scheme, q string, limit int) []*Term {
 	snap := ix.load()
-	entries := snap.search[scheme]
 	norm := normLabel(q)
 	if norm == "" || limit <= 0 {
 		return nil
 	}
+	if sc := snap.sidecar[scheme]; sc != nil {
+		return sc.search(norm, limit)
+	}
+	entries := snap.search[scheme]
 	start := sort.Search(len(entries), func(i int) bool { return entries[i].norm >= norm })
 	var out []*Term
 	seen := map[string]bool{}
@@ -448,13 +624,19 @@ func (ix *Index) Search(scheme, q string, limit int) []*Term {
 // by URI order; cycles and broader URIs missing from the scheme terminate
 // the walk. A root term (or unknown term) yields nil.
 func (ix *Index) Path(scheme, id string) []TermRef {
-	byURI := ix.load().schemes[scheme]
-	if byURI == nil || byURI[id] == nil {
+	snap := ix.load()
+	get := snap.termGetter(scheme)
+	if get == nil {
+		return nil
+	}
+	start, ok := get(id)
+	if !ok || start == nil {
 		return nil
 	}
 	// BFS upward over broader edges: the first dequeued node with no
 	// resolvable parent lies on a shortest chain. Broader lists are sorted
 	// at load, so equal-length chains resolve to the smallest URIs.
+	terms := map[string]*Term{id: start}
 	prev := map[string]string{id: ""}
 	queue := []string{id}
 	root := ""
@@ -462,12 +644,17 @@ func (ix *Index) Path(scheme, id string) []TermRef {
 		cur := queue[0]
 		queue = queue[1:]
 		parents := 0
-		for _, b := range byURI[cur].Broader {
-			if byURI[b] == nil {
+		for _, b := range terms[cur].Broader {
+			bt, seen := terms[b]
+			if !seen {
+				bt, _ = get(b)
+				terms[b] = bt
+			}
+			if bt == nil {
 				continue
 			}
 			parents++
-			if _, seen := prev[b]; !seen {
+			if _, visited := prev[b]; !visited {
 				prev[b] = cur
 				queue = append(queue, b)
 			}
@@ -481,10 +668,25 @@ func (ix *Index) Path(scheme, id string) []TermRef {
 	}
 	var path []TermRef
 	for cur := root; cur != id; cur = prev[cur] {
-		t := byURI[cur]
-		path = append(path, TermRef{Scheme: scheme, ID: cur, Label: t.Label("en")})
+		path = append(path, TermRef{Scheme: scheme, ID: cur, Label: terms[cur].Label("en")})
 	}
 	return path
+}
+
+// termGetter returns the scheme's term-by-URI accessor, or nil for an
+// unknown scheme. The map path can never fail; the sidecar path reports
+// read failures as misses.
+func (s *snapshot) termGetter(scheme string) func(uri string) (*Term, bool) {
+	if byURI := s.schemes[scheme]; byURI != nil {
+		return func(uri string) (*Term, bool) {
+			t, ok := byURI[uri]
+			return t, ok
+		}
+	}
+	if sc := s.sidecar[scheme]; sc != nil {
+		return sc.lookup
+	}
+	return nil
 }
 
 // LabelMatch is one exact-label hit: the term plus whether the match came
@@ -499,11 +701,14 @@ type LabelMatch struct {
 // matches produce suggestions, never prefix guesses.
 func (ix *Index) MatchLabel(scheme, label string) []LabelMatch {
 	snap := ix.load()
-	entries := snap.search[scheme]
 	norm := normLabel(label)
 	if norm == "" {
 		return nil
 	}
+	if sc := snap.sidecar[scheme]; sc != nil {
+		return sc.matchLabel(norm)
+	}
+	entries := snap.search[scheme]
 	start := sort.Search(len(entries), func(i int) bool { return entries[i].norm >= norm })
 	var out []LabelMatch
 	seen := map[string]bool{}

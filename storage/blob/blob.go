@@ -71,6 +71,69 @@ type Signer interface {
 	SignedGetURL(ctx context.Context, path string, ttl time.Duration) (string, error)
 }
 
+// RangeReader is an optional Store capability: read [offset, offset+length)
+// of an object without fetching the whole blob (tasks/167 -- range-served
+// vocabulary index artifacts). Implementations return exactly length bytes
+// unless the range runs past the object's end, where they return the
+// available prefix (io.ReaderAt semantics come from the ReaderAt adapter,
+// not from GetRange itself). Reads of a missing object return ErrNotFound.
+type RangeReader interface {
+	GetRange(ctx context.Context, path string, offset, length int64) ([]byte, error)
+}
+
+// ReaderAt adapts one object to io.ReaderAt: ranged reads through the
+// store's RangeReader capability when present, else one whole-object Get
+// held in memory. The returned size is the object's current size; callers
+// that cache derived state should key it by the returned ETag.
+func ReaderAt(ctx context.Context, s Store, path string) (io.ReaderAt, int64, string, error) {
+	rr, ok := s.(RangeReader)
+	if !ok {
+		data, etag, err := s.Get(ctx, path)
+		if err != nil {
+			return nil, 0, "", err
+		}
+		return bytes.NewReader(data), int64(len(data)), etag, nil
+	}
+	var found *Entry
+	for entry, err := range s.List(ctx, path) {
+		if err != nil {
+			return nil, 0, "", err
+		}
+		if entry.Path == path {
+			e := entry
+			found = &e
+			break
+		}
+	}
+	if found == nil {
+		return nil, 0, "", ErrNotFound
+	}
+	return &rangeReaderAt{ctx: ctx, rr: rr, path: path, size: found.Size}, found.Size, found.ETag, nil
+}
+
+// rangeReaderAt is the io.ReaderAt over a RangeReader capability.
+type rangeReaderAt struct {
+	ctx  context.Context
+	rr   RangeReader
+	path string
+	size int64
+}
+
+func (r *rangeReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if off >= r.size {
+		return 0, io.EOF
+	}
+	data, err := r.rr.GetRange(r.ctx, r.path, off, int64(len(p)))
+	if err != nil {
+		return 0, err
+	}
+	n := copy(p, data)
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
 // StreamPutter is an optional Store capability: write an object from a
 // reader without holding the whole payload in memory (tasks/108/110 --
 // full-corpus exports and vocabulary snapshot installs are output-sized).

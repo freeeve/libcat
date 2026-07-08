@@ -9,6 +9,7 @@ import (
 
 	"github.com/freeeve/libcat/backend/awsstore"
 	"github.com/freeeve/libcat/backend/store"
+	"github.com/freeeve/libcat/backend/vocab"
 	"github.com/freeeve/libcat/backend/vocabsrc"
 	"github.com/freeeve/libcat/storage/blob"
 )
@@ -100,5 +101,70 @@ func runVocabInstall(args []string) error {
 	}
 	fmt.Printf("installed %d %s terms as scheme %q under %svocab/%s.nq in %s -- the server loads it at its next boot or authority reload\n",
 		terms, *name, *scheme, *prefix, *name, time.Since(start).Round(time.Second))
+	return nil
+}
+
+// runVocabIndex (re)builds the sidecar index artifacts for already-installed
+// vocabulary snapshots (tasks/167) -- how an existing deployment adopts
+// range-served vocabularies without reinstalling the dumps.
+//
+//	lcatd vocab-index (--blob-dir <dir> | --s3-bucket <bucket>) [--aws-endpoint <url>]
+//	  (--name <snapshot> [--scheme <key>] | --all) [--authorities-prefix data/authorities/]
+func runVocabIndex(args []string) error {
+	fs := flag.NewFlagSet("vocab-index", flag.ExitOnError)
+	dir := fs.String("blob-dir", "", "blob store directory of the target deployment")
+	bucket := fs.String("s3-bucket", "", "S3 bucket of the target deployment; region/credentials from the AWS environment")
+	endpoint := fs.String("aws-endpoint", "", "S3 endpoint override (MinIO and other S3-compatibles)")
+	name := fs.String("name", "", "installed snapshot name under <prefix>vocab/")
+	scheme := fs.String("scheme", "", "vocab scheme key of the snapshot (default: the name)")
+	all := fs.Bool("all", false, "rebuild every installed snapshot")
+	prefix := fs.String("authorities-prefix", "data/authorities/", "authority tree prefix within the store")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if (*name == "") == !*all {
+		return fmt.Errorf("vocab-index: exactly one of --name or --all is required")
+	}
+	if (*dir == "") == (*bucket == "") {
+		return fmt.Errorf("vocab-index: exactly one of --blob-dir or --s3-bucket is required")
+	}
+	ctx := context.Background()
+	bs := blob.Store(nil)
+	if *bucket != "" {
+		var err error
+		if bs, err = awsstore.S3(ctx, *bucket, *endpoint); err != nil {
+			return err
+		}
+	} else {
+		bs = blob.NewDir(*dir)
+	}
+	type target struct{ name, scheme string }
+	var targets []target
+	if *all {
+		svc := &vocabsrc.Service{DB: store.NewMem(), Blob: bs, AuthoritiesPrefix: *prefix}
+		installed, err := svc.Installed(ctx)
+		if err != nil {
+			return fmt.Errorf("vocab-index: %w", err)
+		}
+		for _, info := range installed {
+			targets = append(targets, target{name: info.Source, scheme: info.Scheme})
+		}
+	} else {
+		s := *scheme
+		if s == "" {
+			s = *name
+		}
+		targets = append(targets, target{name: *name, scheme: s})
+	}
+	for _, t := range targets {
+		start := time.Now()
+		source := *prefix + "vocab/" + t.name + ".nq"
+		m, err := vocab.BuildSidecar(ctx, bs, *prefix, t.scheme, source)
+		if err != nil {
+			return fmt.Errorf("vocab-index: %s: %w", t.name, err)
+		}
+		fmt.Printf("indexed %s: %d terms (%d live) as scheme %q in %s\n",
+			t.name, m.Terms, m.Live, m.Scheme, time.Since(start).Round(time.Millisecond))
+	}
 	return nil
 }

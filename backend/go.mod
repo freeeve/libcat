@@ -17,10 +17,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.8
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.2
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.44.2
+	github.com/freeeve/roaringrange v0.29.0
 	golang.org/x/text v0.38.0
 )
 
 require (
+	github.com/RoaringBitmap/roaring/v2 v2.14.4 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.26 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.30 // indirect
@@ -32,6 +34,12 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.31.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.5 // indirect
+	github.com/bits-and-blooms/bitset v1.24.2 // indirect
+	github.com/freeeve/fst-go v0.1.0 // indirect
+	github.com/freeeve/go-ivfpq v0.1.0 // indirect
+	github.com/freeeve/go-stemmers v0.0.0-20260606195828-3c78df9017f5 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
+	github.com/mschoch/smat v0.2.0 // indirect
 )
 
 require (
