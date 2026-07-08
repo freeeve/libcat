@@ -148,9 +148,14 @@ export function fetchWorks(q: string, limit = 50, offset = 0, filters: WorkFilte
   return call("GET", `/v1/works?${params}`);
 }
 
-/** The profile-shaped editing document for one work (librarian). */
-export function fetchWorkDoc(id: string): Promise<WorkDocResponse> {
-  return call("GET", `/v1/works/${encodeURIComponent(id)}/doc`);
+/** The profile-shaped editing document for one work (librarian). A work
+ *  without recognized instances or passthrough statements arrives with those
+ *  Go nil slices as null; normalize so screens can index them. */
+export async function fetchWorkDoc(id: string): Promise<WorkDocResponse> {
+  const res: WorkDocResponse = await call("GET", `/v1/works/${encodeURIComponent(id)}/doc`);
+  res.doc.instances ??= [];
+  res.doc.passthrough ??= [];
+  return res;
 }
 
 /** Ships a field-op batch for one work (librarian). Writes require ifMatch
