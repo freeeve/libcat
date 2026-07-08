@@ -76,12 +76,34 @@ const (
 // carries), label is the human text riding the classification node's
 // rdfs:label -- the display-only channel -- so a facet can show "Fiction /
 // Romance / Contemporary" while exports keep FIC027000 (tasks/142).
-const SchemaVersion = 9
+// v10 added Catalog.Terms -- the vocabulary sideband: every referenced subject
+// term plus its transitive skos:broader ancestors, with whatever labels and
+// broader edges the graph carries -- so a consumer can label hierarchy nodes
+// no Work carries directly instead of minting them label-less (tasks/178).
+const SchemaVersion = 10
 
 // Catalog is the projected corpus: one record per Work, sorted by id.
 type Catalog struct {
 	Version int    `json:"version"`
 	Works   []Work `json:"works"`
+	// Terms is the vocabulary sideband (tasks/178): one entry per referenced
+	// subject term or transitive skos:broader ancestor that the graph
+	// describes (labels and/or broader edges; bare URIs with nothing to say
+	// are skipped). Sorted by ID.
+	Terms []Term `json:"terms,omitempty"`
+}
+
+// Term is one controlled-vocabulary concept the catalog references -- a
+// Work's subject or one of its skos:broader ancestors -- with the labels and
+// broader edges resolved from the graph. The sideband exists for hierarchy
+// nodes no Work carries directly: the browse-artifact builder unions subtree
+// postings into ancestors (search.BuildBrowse), and without this it can only
+// mint them label-less (tasks/178).
+type Term struct {
+	ID      string            `json:"id"`
+	Labels  map[string]string `json:"labels,omitempty"`
+	Broader []string          `json:"broader,omitempty"`
+	Scheme  string            `json:"scheme,omitempty"`
 }
 
 // Work is the discovery unit as the static site sees it -- the display and facet
@@ -526,7 +548,54 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 		cat.Works = append(cat.Works, p.work(w))
 	}
 	sort.Slice(cat.Works, func(i, j int) bool { return cat.Works[i].ID < cat.Works[j].ID })
+	cat.Terms = p.termSideband(cat.Works)
 	return cat, nil
+}
+
+// termSideband collects the vocabulary sideband (tasks/178): every subject
+// URI the works reference plus its transitive skos:broader closure, emitted
+// as Terms when the graph carries any metadata for them. The closure walks
+// the corpus-wide broader index, so an ancestor chain an enricher described
+// (labels + broader quads, no work link) surfaces here even though no
+// Work.Subjects entry names it.
+func (p *projector) termSideband(works []Work) []Term {
+	seen := map[string]bool{}
+	var frontier []string
+	for _, w := range works {
+		for _, s := range w.Subjects {
+			if !seen[s.ID] {
+				seen[s.ID] = true
+				frontier = append(frontier, s.ID)
+			}
+		}
+	}
+	// BFS over broader edges; the seen set terminates cycles.
+	for len(frontier) > 0 {
+		var next []string
+		for _, uri := range frontier {
+			for _, parent := range p.broader[uri] {
+				if parent == "" || seen[parent] {
+					continue
+				}
+				seen[parent] = true
+				next = append(next, parent)
+			}
+		}
+		frontier = next
+	}
+	out := make([]Term, 0, len(seen))
+	for uri := range seen {
+		labels, broader := p.labels[uri], p.broader[uri]
+		if len(labels) == 0 && len(broader) == 0 {
+			continue
+		}
+		out = append(out, Term{ID: uri, Labels: labels, Broader: broader, Scheme: SchemeForURI(uri)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 type projector struct {

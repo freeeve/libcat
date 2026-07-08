@@ -2,6 +2,7 @@ package project
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -340,6 +341,60 @@ func TestSubjectBroader(t *testing.T) {
 	// orphan has no skos:broader -> Broader omitted (nil).
 	if got, ok := byID["https://ex.org/orphan"]; !ok || got != nil {
 		t.Errorf("orphan broader = %v (present=%v), want nil", got, ok)
+	}
+}
+
+// TestTermSideband covers the vocabulary sideband (tasks/178): Catalog.Terms
+// carries every referenced subject plus its transitive skos:broader closure
+// when the graph has metadata for them -- including an ancestor chain an
+// enricher described with no work link -- and skips URIs the graph says
+// nothing about.
+func TestTermSideband(t *testing.T) {
+	const nq = `<#waWork> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:overdrive> .
+<#waWork> <http://id.loc.gov/ontologies/bibframe/subject> <https://homosaurus.org/v3/child> <feed:overdrive> .
+<https://homosaurus.org/v3/child> <http://www.w3.org/2004/02/skos/core#prefLabel> "Trans women"@en <enrichment:x> .
+<https://homosaurus.org/v3/child> <http://www.w3.org/2004/02/skos/core#broader> <https://homosaurus.org/v3/parent> <enrichment:x> .
+<https://homosaurus.org/v3/parent> <http://www.w3.org/2004/02/skos/core#prefLabel> "Gender minorities"@en <enrichment:x> .
+<https://homosaurus.org/v3/parent> <http://www.w3.org/2004/02/skos/core#broader> <https://homosaurus.org/v3/grand> <enrichment:x> .
+<https://homosaurus.org/v3/grand> <http://www.w3.org/2004/02/skos/core#prefLabel> "People"@en <enrichment:x> .
+`
+	cat, err := Project([]byte(nq), "overdrive")
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	byID := map[string]Term{}
+	for _, term := range cat.Terms {
+		byID[term.ID] = term
+	}
+	if len(cat.Terms) != 3 {
+		t.Fatalf("Terms = %+v, want child+parent+grand", cat.Terms)
+	}
+	if term := byID["https://homosaurus.org/v3/parent"]; term.Labels["en"] != "Gender minorities" ||
+		len(term.Broader) != 1 || term.Broader[0] != "https://homosaurus.org/v3/grand" || term.Scheme != "homosaurus" {
+		t.Errorf("parent term = %+v", term)
+	}
+	// grand is reachable only transitively (no work names it, parent does).
+	if term, ok := byID["https://homosaurus.org/v3/grand"]; !ok || term.Labels["en"] != "People" {
+		t.Errorf("grand term = %+v (present=%v)", term, ok)
+	}
+	// Sorted by ID for determinism.
+	if !sort.SliceIsSorted(cat.Terms, func(i, j int) bool { return cat.Terms[i].ID < cat.Terms[j].ID }) {
+		t.Errorf("Terms not sorted: %+v", cat.Terms)
+	}
+}
+
+// TestTermSidebandSkipsBareURIs: a broader target the graph never describes
+// (no labels, no broader of its own) contributes no Terms entry.
+func TestTermSidebandSkipsBareURIs(t *testing.T) {
+	const nq = `<#waWork> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:overdrive> .
+<#waWork> <http://id.loc.gov/ontologies/bibframe/subject> <https://ex.org/bare> <feed:overdrive> .
+`
+	cat, err := Project([]byte(nq), "overdrive")
+	if err != nil {
+		t.Fatalf("Project: %v", err)
+	}
+	if cat.Terms != nil {
+		t.Errorf("Terms = %+v, want nil (nothing described)", cat.Terms)
 	}
 }
 
