@@ -40,6 +40,30 @@ mem+snapshot) for the store, `LCATD_AWS_ENDPOINT` pointed locally.
   fossil-free claim (2026-01), which favors direct-renewable providers over
   offset-heavy hyperscalers.
 
+## Scaleway cost sketch (Paris list prices, 2026-07, excl. VAT)
+
+Sizing driver is workindex RSS (~57KB/work, tasks/085). Instance list prices
+include egress; object storage egress is free to 75GB/mo then EUR 0.01/GB;
+add ~EUR 5/mo fixed (flexible IPv4 EUR 0.004/h + ~20GB block storage OS disk).
+
+| Catalog | Workindex RAM | Instance | EUR/mo |
+|---|---|---|---|
+| <=50k works | ~3GB | PRO2-XXS 2c/8GB | 41 |
+| ~250k works | ~14GB | PRO2-XS 4c/16GB | 82 |
+| ~1M works | ~57GB | PRO2-M 16c/64GB (or POP2-HM 8c/64GB, 301) | 326 |
+
+- Store: mem+snapshot to object storage adds ~nothing; a single-node ScyllaDB
+  (Alternator) on its own PRO2-XXS adds EUR 41/mo -- only needed once
+  durability/writes outgrow snapshots.
+- Object storage: Standard Multi-AZ EUR 0.01606/GB/mo -- 50GB of blobs is
+  EUR 0.80/mo, rounding error.
+- So: small library ~EUR 45/mo all-in; mid-size ~EUR 90; 1M works ~EUR 330-370
+  with a Scylla node. 10M works (~570GB RSS) has no sane single instance --
+  that is the tasks/085 memory wall; the workindex persisted-snapshot work
+  (tasks/154, tasks/162 workindex) is what changes that curve.
+- Serverless Containers are a poor fit: the resident workindex makes cold
+  starts expensive; a long-lived instance is the right shape.
+
 ## Open questions
 
 - Latency: if users/QLL are US-based, EU-only providers may be a real cost;
