@@ -3,6 +3,7 @@ package bibframe
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/freeeve/libcodex/rdf"
 )
@@ -180,6 +181,40 @@ func AppendAuthoritySubject(grainNQ []byte, workID string, subj AuthoritySubject
 		return out, nil
 	}
 	return ApplyPatch(out, AuthorityGraph(vocab), authority)
+}
+
+// AppendAuthorityTerms writes standalone term descriptions (prefLabel per
+// language, broader links) into the authority:<vocab> graph without linking
+// them to any Work -- skos:broader ancestor-chain metadata, so hierarchy
+// nodes no Work carries directly still resolve labels in the projection
+// (tasks/178). Terms with no metadata contribute nothing. Idempotent.
+func AppendAuthorityTerms(grainNQ []byte, vocab string, terms []AuthoritySubject) ([]byte, error) {
+	var authority Patch
+	for _, subj := range terms {
+		if subj.URI == "" {
+			continue
+		}
+		term := rdf.NewIRI(subj.URI)
+		langs := make([]string, 0, len(subj.Labels))
+		for lang := range subj.Labels {
+			langs = append(langs, lang)
+		}
+		sort.Strings(langs)
+		for _, lang := range langs {
+			authority.Add = append(authority.Add, rdf.Quad{
+				S: term, P: rdf.NewIRI(skosPrefLabelIRI), O: rdf.NewLiteral(subj.Labels[lang], lang, ""),
+			})
+		}
+		for _, parent := range subj.Broader {
+			authority.Add = append(authority.Add, rdf.Quad{
+				S: term, P: rdf.NewIRI(skosBroaderIRI), O: rdf.NewIRI(parent),
+			})
+		}
+	}
+	if len(authority.Add) == 0 {
+		return grainNQ, nil
+	}
+	return ApplyPatch(grainNQ, AuthorityGraph(vocab), authority)
 }
 
 func checkPatchTerms(p Patch) error {

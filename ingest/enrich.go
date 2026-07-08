@@ -77,6 +77,13 @@ func (s WorkSummary) Matches(q string) bool {
 type Enrichment struct {
 	WorkID   string
 	Subjects []AuthoritySubject
+	// Terms carries standalone term descriptions -- typically the
+	// skos:broader ancestor chains of Subjects -- asserted into the
+	// enrichment graph as labels + hierarchy only, with no link to the Work
+	// (tasks/178). They keep ancestor nodes labeled in projections that roll
+	// subtree data up the hierarchy even when no work carries the ancestor
+	// directly.
+	Terms []AuthoritySubject
 	// Confidence (0-1] qualifies queue-moderated enrichments; direct-mode
 	// callers may threshold on it.
 	Confidence float64
@@ -142,32 +149,44 @@ func RunEnrich(ctx context.Context, st blob.Store, prefix string, e Enricher) (i
 }
 
 // enrichmentQuads renders one enrichment as self-contained statements: the
-// subject links plus each term's labels and hierarchy, all destined for the
-// enricher's own graph.
+// subject links plus each term's labels and hierarchy, then the standalone
+// Terms descriptions (ancestor-chain metadata with no work link, tasks/178),
+// all destined for the enricher's own graph.
 func enrichmentQuads(res Enrichment) []rdf.Quad {
 	var quads []rdf.Quad
 	for _, subj := range res.Subjects {
 		quads = append(quads, bibframe.SubjectQuad(res.WorkID, subj.URI))
-		term := rdf.NewIRI(subj.URI)
-		langs := make([]string, 0, len(subj.Labels))
-		for lang := range subj.Labels {
-			langs = append(langs, lang)
-		}
-		sort.Strings(langs)
-		for _, lang := range langs {
-			quads = append(quads, rdf.Quad{
-				S: term,
-				P: rdf.NewIRI("http://www.w3.org/2004/02/skos/core#prefLabel"),
-				O: rdf.NewLiteral(subj.Labels[lang], lang, ""),
-			})
-		}
-		for _, parent := range subj.Broader {
-			quads = append(quads, rdf.Quad{
-				S: term,
-				P: rdf.NewIRI("http://www.w3.org/2004/02/skos/core#broader"),
-				O: rdf.NewIRI(parent),
-			})
-		}
+		quads = append(quads, termQuads(subj)...)
+	}
+	for _, term := range res.Terms {
+		quads = append(quads, termQuads(term)...)
+	}
+	return quads
+}
+
+// termQuads renders one term's description: skos:prefLabel per language
+// (sorted for determinism) and skos:broader per parent.
+func termQuads(subj AuthoritySubject) []rdf.Quad {
+	var quads []rdf.Quad
+	term := rdf.NewIRI(subj.URI)
+	langs := make([]string, 0, len(subj.Labels))
+	for lang := range subj.Labels {
+		langs = append(langs, lang)
+	}
+	sort.Strings(langs)
+	for _, lang := range langs {
+		quads = append(quads, rdf.Quad{
+			S: term,
+			P: rdf.NewIRI("http://www.w3.org/2004/02/skos/core#prefLabel"),
+			O: rdf.NewLiteral(subj.Labels[lang], lang, ""),
+		})
+	}
+	for _, parent := range subj.Broader {
+		quads = append(quads, rdf.Quad{
+			S: term,
+			P: rdf.NewIRI("http://www.w3.org/2004/02/skos/core#broader"),
+			O: rdf.NewIRI(parent),
+		})
 	}
 	return quads
 }

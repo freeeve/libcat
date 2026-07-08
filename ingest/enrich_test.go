@@ -129,6 +129,7 @@ func TestSummarizeGrainControlledSubjects(t *testing.T) {
 type fakeEnricher struct {
 	name    string
 	subject bibframe.AuthoritySubject
+	terms   []bibframe.AuthoritySubject
 	calls   int
 }
 
@@ -140,6 +141,7 @@ func (f *fakeEnricher) Enrich(ctx context.Context, works []ingest.WorkSummary) (
 		e := ingest.Enrichment{WorkID: w.WorkID, Confidence: 1}
 		if f.subject.URI != "" {
 			e.Subjects = []bibframe.AuthoritySubject{f.subject}
+			e.Terms = f.terms
 		}
 		out = append(out, e) // empty Subjects = explicit withdrawal
 	}
@@ -148,11 +150,20 @@ func (f *fakeEnricher) Enrich(ctx context.Context, works []ingest.WorkSummary) (
 
 func TestRunEnrichDirect(t *testing.T) {
 	st := enrichFixture(t)
-	e := &fakeEnricher{name: "testsource", subject: bibframe.AuthoritySubject{
-		URI:     "http://id.loc.gov/authorities/subjects/sh85118553",
-		Labels:  map[string]string{"en": "Science fiction"},
-		Broader: []string{"http://id.loc.gov/authorities/subjects/sh85045198"},
-	}}
+	e := &fakeEnricher{
+		name: "testsource",
+		subject: bibframe.AuthoritySubject{
+			URI:     "http://id.loc.gov/authorities/subjects/sh85118553",
+			Labels:  map[string]string{"en": "Science fiction"},
+			Broader: []string{"http://id.loc.gov/authorities/subjects/sh85045198"},
+		},
+		// The ancestor's own description rides along as a standalone term
+		// (tasks/178): labels + hierarchy quads, no bf:subject link.
+		terms: []bibframe.AuthoritySubject{{
+			URI:    "http://id.loc.gov/authorities/subjects/sh85045198",
+			Labels: map[string]string{"en": "Fiction"},
+		}},
+	}
 	n, err := ingest.RunEnrich(t.Context(), st, "data/works/", e)
 	if err != nil || n != 1 {
 		t.Fatalf("RunEnrich = %d, %v", n, err)
@@ -164,6 +175,13 @@ func TestRunEnrichDirect(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("grain missing %q:\n%s", want, text)
 		}
+	}
+	// The standalone term's label landed; no bf:subject link points at it.
+	if !strings.Contains(text, `"Fiction"@en`) {
+		t.Fatalf("grain missing ancestor label:\n%s", text)
+	}
+	if strings.Contains(text, "bibframe/subject> <http://id.loc.gov/authorities/subjects/sh85045198>") {
+		t.Fatalf("ancestor term must not be linked as a work subject:\n%s", text)
 	}
 	// Idempotent re-run: byte-identical.
 	if _, err := ingest.RunEnrich(t.Context(), st, "data/works/", e); err != nil {
