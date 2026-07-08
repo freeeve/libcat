@@ -22,7 +22,9 @@
 [params]
   # catalogSchemaVersion the module targets; the adapter fails the build loudly on
   # a mismatch with catalog.json's top-level "version" (tasks/009 contract).
-  catalogSchemaVersion = 9
+  # Release checklist: this default and project.SchemaVersion move together --
+  # the mismatch only surfaces at an adopter's render (tasks/179).
+  catalogSchemaVersion = 10
 
   # Multi-vocabulary subjects (tasks/141). The facet sidebar renders one group
   # per vocabulary scheme; [[params.subjectSchemes]] sets group order and display

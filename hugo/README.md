@@ -251,7 +251,7 @@ if you need those localized.
 
 Both JSON files carry a top-level `version` (`project.SchemaVersion`). The adapter
 fails the build loudly if `catalog.json`'s version does not match the version the
-module targets (`params.catalogSchemaVersion`, currently **9**). Reproject with a
+module targets (`params.catalogSchemaVersion`, currently **10**). Reproject with a
 matching `lcat` if you hit a mismatch. v6 added the holdings signal: `held` on each
 instance and work (physical items, or a live-availability identifier whose feed
 still lists the work -- tasks/078). Whether unheld works are hidden, badged, or
@@ -263,7 +263,11 @@ from the authority namespace), driving the per-vocabulary facet groups and
 scheme-prefixed subject term keys above (tasks/141). v9 made classifications
 `{value, label}` objects: `value` stays the scheme code (the taxonomy key),
 `label` the human text when the graph carries one; facets, term pages, and the
-detail row show the label and fall back to the code (tasks/142).
+detail row show the label and fall back to the code (tasks/142). v10 added the
+top-level `terms` vocabulary sideband (referenced subjects plus their
+transitive `skos:broader` ancestors with labels); the module itself doesn't
+read it -- the browse-artifact builder does (tasks/178) -- but the version
+check keeps projector and consumers in lockstep.
 
 ## Display labels for language codes
 
@@ -421,7 +425,10 @@ paths over one doc space: ranked text search, search + facet filters, and
 facet-only browse -- replacing the interim substring filter. The static list is
 the no-JS fallback and returns whenever query + facets clear. The origin must
 honor HTTP Range requests (S3/CDN/nginx/`hugo server` do; `python -m
-http.server` does not -- the module then falls back to the static list).
+http.server` does not -- the module then falls back to the static list). For a
+local preview of an already-built site, `lcat serve [--dir public]` is a
+Range-capable static server that starts instantly -- no re-render, unlike
+`hugo server` on a large site (tasks/181).
 
 ### Minimal static profile (tasks/157)
 
