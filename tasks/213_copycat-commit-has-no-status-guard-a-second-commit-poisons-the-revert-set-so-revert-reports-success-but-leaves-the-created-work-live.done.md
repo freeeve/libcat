@@ -128,3 +128,27 @@ The admin index deliberately keeps retired records visible and the summary carri
 the flag (`"Tombstoned": true` in the response), while the OPAC projection filters
 them out at `project/project.go:541`. Cataloger-facing search showing a flagged
 tombstone is the intended asymmetry.
+
+## Outcome
+
+Fixed (fix(backend) tasks/213 commit), released v0.63.0 -- with one
+deliberate narrowing of your Expected: the guard refuses only a
+COMMITTED batch ("already COMMITTED; revert it before committing
+again" -> 400), not everything non-STAGED. Your alternative reading
+was right that someone intended re-commit: commit-after-REVERT is the
+redo of an undone import, exercised by an existing test
+(TestRevertRestoresOverlayBytesAndSkipsEdited re-commits an overlay
+after revert) -- and it is SAFE, because at that point the store again
+holds the true prior state, so writeRevertSet's re-derivation is
+correct. Only commit-after-COMMIT poisons the set, and only that is
+refused. writeRevertSet's comment now says exactly when its wholesale
+replace is reachable.
+
+One semantic worth knowing that the fix surfaced: redoing a
+CREATED-work batch does not resurrect the work -- the tombstone is
+editorial and the pipeline preserves editorial, so the redo is
+grain-stable, records no changes, and a revert of it refuses for
+having nothing to undo. Pinned in TestCommitRefusesNonStaged.
+
+Verified with your probe: C1-C15 zero FAILs (C10/C11 were the
+failures), CLEAN byte-exact.
