@@ -179,6 +179,15 @@ type Diff struct {
 	Removed []string `json:"removed"`
 }
 
+// Empty reports that the patch changes nothing. A save whose diff is empty must
+// not write, republish, or audit: the grain store is content-addressed so the
+// write is a no-op anyway, but the audit trail would gain a RECORD_EDIT row
+// naming an etag identical to its predecessor's, indistinguishable from a real
+// edit (tasks/249).
+func (d Diff) Empty() bool {
+	return len(d.Added) == 0 && len(d.Removed) == 0
+}
+
 // ComputeDiff applies the patch to a copy of the grain and reports the
 // line-level delta between the canonical forms.
 func ComputeDiff(grain []byte, p Patch) (Diff, []byte, error) {

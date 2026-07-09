@@ -116,6 +116,13 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// A patch that changes nothing writes nothing and audits nothing, for
+		// the same reason the ops path does not (tasks/249).
+		if editor.DiffLines(grain, updated).Empty() {
+			w.Header().Set("ETag", etag)
+			writeJSON(w, http.StatusOK, map[string]string{"workId": workID, "etag": etag})
+			return
+		}
 		newTag, err := bs.Put(r.Context(), bibframe.GrainPath(workID), updated, blob.PutOptions{
 			IfMatch: etag, ContentType: "application/n-quads",
 		})
@@ -199,6 +206,19 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeJSON(w, http.StatusOK, resp)
 			return
 		}
+		// Ops that change nothing are a save the record never saw. Returning
+		// before the write keeps the feed, the auto-linker and above all the
+		// audit trail free of an edit that did not happen (tasks/249). The
+		// response shape is the real one, carrying the unmoved etag.
+		if diff.Empty() {
+			w.Header().Set("ETag", etag)
+			resp := map[string]any{"workId": workID, "etag": etag, "diff": diff}
+			if dup := findDuplicate(r.Context(), ix, workID, updated); dup != nil {
+				resp["duplicate"] = dup
+			}
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
 		newTag, err := bs.Put(r.Context(), bibframe.GrainPath(workID), updated, blob.PutOptions{
 			IfMatch: etag, ContentType: "application/n-quads",
 		})
@@ -222,7 +242,9 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
-				Note: fmt.Sprintf("%d ops", len(req.Ops)),
+				// Quad counts, not just the op count: "3 ops" told a reader how
+				// much was asked for, never how much changed.
+				Note: fmt.Sprintf("%d ops, +%d/-%d quads", len(req.Ops), len(diff.Added), len(diff.Removed)),
 			})
 		}
 		if hook != nil {
