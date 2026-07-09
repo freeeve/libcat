@@ -1,9 +1,11 @@
-// RDA content, media, and carrier types as the LOC value vocabularies the
-// crosswalk emits (id.loc.gov/vocabulary/contentTypes, /mediaTypes, and
-// /carriers): IRI, human label, and MARC 336/337/338 code. Small closed
-// lists, so they ship as data -- the editor renders stored IRIs as labels
-// and offers a picker instead of a raw URL box. Unknown IRIs (rdaregistry
-// numerics, local terms) fall back to the generic IRI display.
+// RDA content, media, and carrier types plus issuance as the LOC value
+// vocabularies the crosswalk emits (id.loc.gov/vocabulary/contentTypes,
+// /mediaTypes, /carriers, and /issuance): IRI, human label, and MARC
+// 336/337/338 code (the id.loc.gov code for issuance, which has no 33X
+// field). Small closed lists, so they ship as data -- the editor renders
+// stored IRIs as labels and offers a picker instead of a raw URL box.
+// Unknown IRIs (rdaregistry numerics, local terms) fall back to the generic
+// IRI display.
 
 export interface RdaTerm {
   iri: string;
@@ -140,7 +142,19 @@ export const CARRIER_TYPES: RdaTerm[] = [
   ...terms(CARRIER_NS, "unspecified", [["zu", "unspecified"]]),
 ];
 
-const byIRI = new Map<string, RdaTerm>([...CONTENT_TYPES, ...MEDIA_TYPES, ...CARRIER_TYPES].map((t) => [t.iri, t]));
+const ISSUANCE_NS = "http://id.loc.gov/vocabulary/issuance/";
+
+/** LOC issuance modes (Leader/07 via the crosswalk's bf:issuance). */
+export const ISSUANCE_TYPES: RdaTerm[] = terms(ISSUANCE_NS, undefined, [
+  ["mono", "single unit"],
+  ["mulm", "multipart monograph"],
+  ["serl", "serial"],
+  ["intg", "integrating resource"],
+]);
+
+const byIRI = new Map<string, RdaTerm>(
+  [...CONTENT_TYPES, ...MEDIA_TYPES, ...CARRIER_TYPES, ...ISSUANCE_TYPES].map((t) => [t.iri, t]),
+);
 
 /** The known content/media/carrier term for an IRI, or undefined (generic display). */
 export function rdaTerm(iri: string): RdaTerm | undefined {
