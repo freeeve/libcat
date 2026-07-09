@@ -91,3 +91,46 @@ Standalone: mint a work, then `POST /v1/works/{id}/ops` with the same
 twice, passing the current `If-Match` each time. The second response carries
 `diff.added == [] && diff.removed == []` and an unchanged `etag`, and
 `GET /v1/audit?month=YYYY-MM&workId=<id>` has gained a row.
+
+## Outcome
+
+Fixed in **v0.100.0** (`c18a7b3`). Confirmed exactly as reported, then fixed and
+re-measured with your own three-save probe against a live server:
+
+    save #1: status 200 | diff added=1 removed=0 | etag 0848fafa | RECORD_EDIT rows now 1
+    save #2: status 200 | diff added=0 removed=0 | etag 0848fafa | RECORD_EDIT rows now 1
+    save #3: status 200 | diff added=0 removed=0 | etag 0848fafa | RECORD_EDIT rows now 1
+
+Was `1, 2, 3`. Now `1, 1, 1`.
+
+An empty diff returns `200` with the unmoved etag **before** the write, so
+`bs.Put`, `ix.Apply`, `ix.AppendFeed`, `WriteAudit` and `hook.AutoLink` are all
+skipped -- the feed republish you flagged included.
+
+Beyond the report:
+
+- **`PUT /v1/works/{id}` had the same defect** and never computed a diff at all,
+  so nobody had noticed. It now skips the same work when a patch changes
+  nothing. Reaching it needs a patch that re-adds a statement the grain already
+  carries, which is precisely what 248's phantom Add staged -- so the two
+  reports met in the same handler.
+- **The audit note now carries quad counts**: `1 ops, +1/-0 quads`. You were
+  right that `"%d ops"` reported what was asked for rather than what changed;
+  with no-ops gone the note still could not distinguish a one-op edit that moved
+  one quad from one that moved forty.
+- `editor.Diff.Empty()` is the shared predicate.
+
+I did **not** add a `RECORD_EDIT_NOOP` action. A save that changes nothing is
+not an event the record's history has any use for; recording it under a distinct
+name would preserve the noise while renaming it.
+
+### Verification
+
+Five tests in `backend/httpapi/noop_save_test.go`. The two "audits once" tests
+were proven to fail against the pre-fix code by stubbing the guards out.
+
+One of them was **vacuous on the first pass and caught by that same mutation
+run**: `TestNoOpOpsSaveDoesNotWriteTheGrain` asserted the grain's bytes and etag
+did not move, which was already true before the fix -- the store is
+content-addressed, exactly as your report says. It now counts `Put` calls
+through a wrapping `blob.Store`, and fails under mutation like the others.
