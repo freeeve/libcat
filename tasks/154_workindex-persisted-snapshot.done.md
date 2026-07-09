@@ -136,3 +136,27 @@ Net: the full-corpus scan is eliminated from steady state on both planes;
 it survives only at initial seed and full rebuilds. Tasks 155-160 are
 libcatalog-owned; this file (154) remains the queerbooks-filed problem
 statement.
+
+## Outcome (verification + closure, 2026-07-09)
+
+Everything this problem statement asked for shipped across the
+decomposed tasks 155-160 (all done): Index.Save/LoadSnapshot with the
+versioned gzipped-JSON container (155), the append-only change feed
+for cross-container read-your-writes (156), Save-after-publish wiring
+and the `lcatd workindex-snapshot (--blob-dir|--s3-bucket)` offline
+builder, plus the plane-2 pieces (157-160). What remained here was
+the end-to-end verification, run today against the 62,602-grain coll
+corpus on a fresh store (the standard 8491 verify recipe):
+
+- Cold boot, NO snapshot: /v1/works ready after 14.7s (full scan --
+  the phase that is 48k S3 GETs on Lambda).
+- `lcatd workindex-snapshot --blob-dir …`: scanned 62,602 grains,
+  wrote a 12.9MB data/workindex.snapshot in 4s.
+- Cold boot WITH snapshot: /v1/works ready after 2.2s, search
+  serving correct results ("barefoot" -> 7 matched). On S3 this is
+  one snapshot GET + List pages instead of a GET per grain.
+- Corrupt snapshot (truncated to a third): boot logs "snapshot:
+  unexpected EOF", falls back to the full scan, serves normally.
+
+No code change needed; current release v0.51.0 carries it all.
+Adoption steps filed back to queerbooks-demo (the filer).
