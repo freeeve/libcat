@@ -20,6 +20,10 @@ type SuggType string
 const (
 	TypeAdd    SuggType = "ADD"
 	TypeRemove SuggType = "REMOVE"
+	// TypeConcern is an anonymous report-a-problem (tasks/210): freetext in
+	// Note, moderated in the same queue (approve = resolve, reject =
+	// dismiss), never published to the graph.
+	TypeConcern SuggType = "CONCERN"
 )
 
 // Status is the review lifecycle of an aggregated (work, term, type) item.
@@ -76,11 +80,13 @@ type Suggestion struct {
 	Confidence     float64        `json:"confidence,omitempty"`
 	WorkTitle      string         `json:"workTitle,omitempty"`
 	SourceRef      string         `json:"sourceRef,omitempty"`
-	CreatedAt      time.Time      `json:"createdAt"`
-	LastActivityAt time.Time      `json:"lastActivityAt"`
-	ReviewedAt     time.Time      `json:"reviewedAt,omitzero"`
-	ReviewedBy     string         `json:"reviewedBy,omitempty"`
-	ReviewNote     string         `json:"reviewNote,omitempty"`
+	// Note carries a concern's freetext (TypeConcern only).
+	Note           string    `json:"note,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	LastActivityAt time.Time `json:"lastActivityAt"`
+	ReviewedAt     time.Time `json:"reviewedAt,omitzero"`
+	ReviewedBy     string    `json:"reviewedBy,omitempty"`
+	ReviewNote     string    `json:"reviewNote,omitempty"`
 	// SubstituteTerm is set when the reviewer approved a neighbouring term
 	// instead of the suggested one; the publisher writes the substitute.
 	SubstituteTerm *vocab.TermRef `json:"substituteTerm,omitempty"`

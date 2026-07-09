@@ -274,12 +274,18 @@
         class:tint-danger={staged && !staged.approve}
       >
         <span class="supporters" title="{s.supporterCount} supporter{s.supporterCount === 1 ? '' : 's'}">{s.supporterCount}</span>
-        <span class="chip chip--{s.type === 'ADD' ? 'add' : 'remove'}">{s.type}</span>
+        <span class="chip chip--{s.type === 'ADD' ? 'add' : s.type === 'CONCERN' ? 'concern' : 'remove'}">{s.type}</span>
         <a class="work" href={"#/works/" + encodeURIComponent(s.workId)}>{s.workTitle || s.workId}</a>
-        <span class="term">
-          {s.term.label || s.term.id}
-          <span class="chip chip--scheme">{s.term.scheme}</span>
-        </span>
+        {#if s.type === "CONCERN"}
+          <!-- A concern is freetext, not a term (tasks/210): show the note;
+               approve reads as resolve, reject as dismiss. -->
+          <span class="term concern-note" title={s.note}>{s.note}</span>
+        {:else}
+          <span class="term">
+            {s.term.label || s.term.id}
+            <span class="chip chip--scheme">{s.term.scheme}</span>
+          </span>
+        {/if}
         <span class="meta muted">
           {#if s.type === "REMOVE" && s.reasonCounts}<span class="reasons">{reasonSummary(s)}</span>{/if}
           <span class="chip chip--prov">
@@ -291,10 +297,15 @@
         <span class="staged">{#if staged}{stagedLabel(staged)}{/if}</span>
         {#if sel}
           <div class="acts">
-            <button class="button button--quiet" onclick={() => act("approve", s)}>Approve</button>
-            <button class="button button--quiet" onclick={() => act("reject", s)}>Reject</button>
-            <button class="button button--quiet" onclick={() => act("tombstone", s)}>Tombstone</button>
-            <button class="button button--quiet" onclick={() => act("substitute", s)}>Substitute…</button>
+            {#if s.type === "CONCERN"}
+              <button class="button button--quiet" onclick={() => act("approve", s)}>Resolve</button>
+              <button class="button button--quiet" onclick={() => act("reject", s)}>Dismiss</button>
+            {:else}
+              <button class="button button--quiet" onclick={() => act("approve", s)}>Approve</button>
+              <button class="button button--quiet" onclick={() => act("reject", s)}>Reject</button>
+              <button class="button button--quiet" onclick={() => act("tombstone", s)}>Tombstone</button>
+              <button class="button button--quiet" onclick={() => act("substitute", s)}>Substitute…</button>
+            {/if}
             {#if librarian && s.term.scheme === "folk"}
               <button class="button button--quiet" onclick={() => folk("acceptFolk", s)}>Accept folk</button>
               <button class="button button--quiet" onclick={() => folk("blockFolk", s)}>Block folk</button>
@@ -453,5 +464,14 @@
   }
   .reasons {
     color: var(--danger);
+  }
+  .chip--concern {
+    background: color-mix(in oklab, var(--accent) 18%, var(--surface));
+  }
+  .concern-note {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: italic;
   }
 </style>

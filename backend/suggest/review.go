@@ -125,6 +125,16 @@ func (s *Service) Review(ctx context.Context, decisions []Decision, actor string
 		if d.Approve {
 			to, action = StatusApproved, "REVIEW_APPROVE"
 		}
+		// Concern decisions are resolve/dismiss: same transitions, legible
+		// audit actions, and nothing ever publishes (the publisher's
+		// worklist filters TypeConcern; tasks/210).
+		if d.Type == TypeConcern {
+			if d.Approve {
+				action = "CONCERN_RESOLVE"
+			} else {
+				action = "CONCERN_DISMISS"
+			}
+		}
 		if d.Approve && d.SubstituteTerm != nil {
 			if s.vocab == nil {
 				return ErrBadTerm
@@ -289,7 +299,7 @@ func (s *Service) ApprovedUnpublished(ctx context.Context) ([]Suggestion, error)
 			continue
 		}
 		sg, err := unmarshalSuggestion(agg.Data)
-		if err != nil || sg.Status != StatusApproved || sg.PublishedETag != "" {
+		if err != nil || sg.Status != StatusApproved || sg.PublishedETag != "" || sg.Type == TypeConcern {
 			continue
 		}
 		out = append(out, sg)

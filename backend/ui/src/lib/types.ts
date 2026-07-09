@@ -284,7 +284,7 @@ export interface ProfileField {
   marcHint?: string;
 }
 
-export type SuggType = "ADD" | "REMOVE";
+export type SuggType = "ADD" | "REMOVE" | "CONCERN";
 export type SuggStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISPUTED";
 export type Provenance = "PATRON" | "PIPELINE" | "LIBRARIAN";
 
@@ -300,6 +300,8 @@ export interface Suggestion {
   confidence?: number;
   workTitle?: string;
   sourceRef?: string;
+  /** A concern's freetext (type CONCERN, tasks/210). */
+  note?: string;
   createdAt: string;
   lastActivityAt: string;
   reviewedAt?: string;

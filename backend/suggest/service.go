@@ -40,6 +40,27 @@ func New(db store.Store, ix *vocab.Index, caps Caps) *Service {
 // SetClock overrides the clock (tests).
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
 
+// bumpRate applies the shared per-supporter submission caps: bump-then-
+// check windowed counters; a rejected attempt stays counted, which only
+// makes the cap stricter under abuse. Term suggestions and concerns share
+// one budget (tasks/210).
+func (s *Service) bumpRate(ctx context.Context, supporterHash string, now time.Time) error {
+	day := now.Format("2006-01-02")
+	hour := now.Format("2006010215")
+	dayCount, err := s.db.Increment(ctx, store.Key{PK: "RATE#" + supporterHash, SK: "DAY#" + day}, 1, now.Add(48*time.Hour))
+	if err != nil {
+		return err
+	}
+	hourCount, err := s.db.Increment(ctx, store.Key{PK: "RATE#" + supporterHash, SK: "HOUR#" + hour}, 1, now.Add(3*time.Hour))
+	if err != nil {
+		return err
+	}
+	if dayCount > int64(s.caps.PerDay) || hourCount > int64(s.caps.PerHour) {
+		return ErrRateLimited
+	}
+	return nil
+}
+
 // Submit records one anonymous suggestion/flag: term validation, tombstone
 // and folk-lifecycle gates, per-supporter rate caps, supporter dedup, then
 // the aggregate bump and dispute reconciliation. Unlike qllpoc's single
@@ -72,18 +93,8 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (SubmitResult, err
 	// Rate caps: bump-then-check; a rejected attempt stays counted, which
 	// only makes the cap stricter under abuse.
 	now := s.now().UTC()
-	day := now.Format("2006-01-02")
-	hour := now.Format("2006010215")
-	dayCount, err := s.db.Increment(ctx, store.Key{PK: "RATE#" + in.SupporterHash, SK: "DAY#" + day}, 1, now.Add(48*time.Hour))
-	if err != nil {
+	if err := s.bumpRate(ctx, in.SupporterHash, now); err != nil {
 		return SubmitResult{}, err
-	}
-	hourCount, err := s.db.Increment(ctx, store.Key{PK: "RATE#" + in.SupporterHash, SK: "HOUR#" + hour}, 1, now.Add(3*time.Hour))
-	if err != nil {
-		return SubmitResult{}, err
-	}
-	if dayCount > int64(s.caps.PerDay) || hourCount > int64(s.caps.PerHour) {
-		return SubmitResult{}, ErrRateLimited
 	}
 
 	// Supporter dedup marker -- create-only; existing = idempotent no-op.
@@ -109,7 +120,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (SubmitResult, err
 	}
 
 	// Per-work velocity signal (abuse dashboards).
-	_, _ = s.db.Increment(ctx, store.Key{PK: "VEL#WORK#" + in.WorkID, SK: "HOUR#" + hour}, 1, now.Add(24*time.Hour))
+	_, _ = s.db.Increment(ctx, store.Key{PK: "VEL#WORK#" + in.WorkID, SK: "HOUR#" + now.Format("2006010215")}, 1, now.Add(24*time.Hour))
 
 	// Dispute reconciliation is read-after-write and self-healing: every
 	// subsequent vote re-runs it, so a racing pair converges.

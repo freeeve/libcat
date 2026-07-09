@@ -40,6 +40,44 @@ func registerSuggestions(mux *http.ServeMux, svc *suggest.Service, abuse *sugges
 		writeJSON(w, http.StatusOK, map[string]string{"challenge": abuse.Challenge()})
 	})
 
+	// Anonymous report-a-problem (tasks/210): same challenge, honeypot,
+	// and rate budget as term suggestions; the note lands in the review
+	// queue as a CONCERN and never touches the graph.
+	mux.HandleFunc("POST /v1/concerns", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			WorkID    string `json:"workId"`
+			Note      string `json:"note"`
+			WorkTitle string `json:"workTitle"`
+			Challenge string `json:"challenge"`
+			Website   string `json:"website"` // honeypot
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "bad request body")
+			return
+		}
+		if req.Website != "" {
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		if !abuse.VerifyChallenge(req.Challenge) {
+			writeError(w, http.StatusBadRequest, "bad or expired challenge")
+			return
+		}
+		if !workIDPattern.MatchString(req.WorkID) || len(req.WorkTitle) > maxTitleLen {
+			writeError(w, http.StatusBadRequest, "bad field")
+			return
+		}
+		err := svc.SubmitConcern(r.Context(), req.WorkID, req.Note, req.WorkTitle, abuse.HashIP(clientIP(r)))
+		switch {
+		case errors.Is(err, suggest.ErrRateLimited):
+			writeError(w, http.StatusTooManyRequests, "rate limited")
+		case err != nil:
+			writeError(w, http.StatusBadRequest, "declined")
+		default:
+			w.WriteHeader(http.StatusAccepted)
+		}
+	})
+
 	mux.HandleFunc("POST /v1/suggestions", func(w http.ResponseWriter, r *http.Request) {
 		var req suggestionRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&req); err != nil {
