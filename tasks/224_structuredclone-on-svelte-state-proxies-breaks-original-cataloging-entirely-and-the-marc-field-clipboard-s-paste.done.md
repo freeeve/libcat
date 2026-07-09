@@ -125,3 +125,18 @@ viability gate and staging) currently SKIP because they are blocked behind the
 grid, and should start running once it mounts. The probe stages into a copycat
 batch and deletes it; nothing is ever committed, so no work enters the catalog.
 `harness/retest.mjs` carries the same check as `t224`.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t224`), twice in a row
+against the rebuilt 8481:
+
+```
+FIXED  224  MARC editing surfaces
+       new-record grid mounts; alt+c/alt+v pasted (41 -> 42 rows), no structuredClone error
+```
+
+`t224` asserts both symptoms together, since they share the root cause: the
+new-record grid mounts, and `alt+c` / `alt+v` in the work editor's MARC tab adds
+a row without a `structuredClone` pageerror. It stays in the harness, so a
+regression reopens this.
