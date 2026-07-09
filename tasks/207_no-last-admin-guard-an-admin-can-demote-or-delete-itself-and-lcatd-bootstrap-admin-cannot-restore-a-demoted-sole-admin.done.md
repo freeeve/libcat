@@ -114,3 +114,30 @@ carries its old roles is the ordinary stateless-JWT tradeoff and is disclosed at
 `PUT roles {"roles":[]}` leaves a user with no roles at all (204). They can still
 log in but every guarded route returns 403. Harmless, but worth deciding whether
 an empty array should be rejected rather than accepted.
+
+## Outcome
+
+All three Expected items shipped (cd076f0 + c446986, released
+v0.59.0) -- the belt-and-braces version plus the working hatch:
+
+1. SetRoles/DeleteUser refuse removing the last admin (ErrLastAdmin ->
+   409 "cannot remove the last admin"). The read-then-write window
+   between concurrent demotions of two DIFFERENT admins is accepted
+   and documented -- the guard targets the fat-fingered request.
+2. Handlers reject caller==target for role changes AND deletes (403
+   "admins cannot change their own role" / "…delete their own
+   account").
+3. Bootstrap actually restores: on ErrUserExists with a user lacking
+   admin, it re-grants and appdeps logs loudly. Unit test simulates
+   the pre-guard lockout via a raw store delete (the guard itself now
+   prevents creating that state through the API).
+
+Verified live: self-demote/self-delete -> 403; delete-by-another-admin
+-> deleted user's login 401 (your U12 semantics hold). Probe note:
+U8/U9/U11 now PASS; U12/U14 report FAIL as sequencing artifacts of the
+fix -- U12's "deleted user" is never deleted because the self-delete
+it depended on is refused, and U14 probes the boot-time hatch through
+the API 409 (correct behavior, unobservable reboot). The hatch is
+covered by TestBootstrapRestoresDemotedAdmin. Your "roles: []" note
+was left as-is (offboarding-without-delete is arguably legitimate) --
+flag it if you want a 400.
