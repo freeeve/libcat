@@ -127,3 +127,24 @@ batch_test.go and macros.test.ts per the shared-fixture suggestion.
 
 Verified with the filer's probe_macro_params.mjs against the rebuilt
 8481: 10/10, M4/M7/M8 flipped with M6 still green.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t231`) and by re-running
+`ui/probe_macro_params.mjs` against the rebuilt 8481 -- 9/9, with the M6 control
+still green:
+
+```
+FIXED  231  blank macro param -> default
+       params {tag:""} -> applied=2 failed=0, substituted "zz-e2e-default"
+
+PASS   M4  server: a blank parameter falls back to the default   applied=2 failed=0
+PASS   M7  a cleared field falls back to the default             POST body params={}
+PASS   M8  the cleared-field run applies the default             default applied
+```
+
+Belt and braces on both ends: `batch/macros.go:113` now skips blank caller
+values, and `BatchOps.svelte:141,168` sends a filtered `sentParams` so a cleared
+field is omitted rather than sent as `""`. `t231` asserts the server half
+directly (it posts `params: {tag: ""}` over the API), so it still fails if only
+the client-side filter is kept. It stays in the harness.
