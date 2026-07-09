@@ -191,3 +191,76 @@ chmod -R u+w /tmp/site-rw/data/attachments/${W:0:2}/$W && rm -rf /tmp/site-rw
 
 For the mirror: upload successfully, then `chmod -R a-w` the same directory and
 `DELETE` the attachment. It answers `204`; the file is still there.
+
+## Outcome
+
+Fixed in **v0.102.0** (`9956600`). Both predictions held exactly as filed, and
+the induced-failure rig (a copy-on-write clone plus a targeted `chmod`, with
+`A2b` proving the grain store stayed writable) is what made them provable.
+
+**The phantom.** A failed byte `Put` now rolls the grain statement back before
+returning, so the record never claims an attachment whose bytes were never
+stored. The cataloger's natural recovery -- upload it again -- works, because
+nothing holds the name. A rollback that itself fails logs at `ERROR` and returns
+the distinct message the report asked for.
+
+**The mirror.** `bs.Delete`'s error is observed. On failure the statement is
+restored and the request answers 500; `204` again means the bytes are gone.
+`blob.ErrNotFound` stays success -- absent bytes are the state the caller asked
+for, and the legacy path is absent for every record written since the layout
+changed.
+
+**Audit.** Entries are written only when the attachment actually moved,
+following tasks/249. I did **not** move `ATTACHMENT_ADD` before the byte write.
+A rolled-back upload leaves the record exactly as it was, and auditing a
+no-change event is the bug 249 fixed. The failed attempt is attributable through
+an `ERROR` log carrying `workId`, `name`, `actor` and both underlying errors --
+the operator's channel, not the record's history.
+
+### One case the report did not consider: `?replace=true`
+
+Rolling the statement back unconditionally would have introduced a worse bug
+than the one being fixed. On a replace, the statement predates the request and
+the **previous** attachment's bytes are still stored. Undoing the statement
+would delete a working attachment in order to report a failed one.
+
+The compensation therefore undoes only what the request added.
+`TestFailedReplaceKeepsTheExistingAttachment` pins it: after a failed replace,
+the original attachment is still listed and its original bytes still download.
+
+### A7 in `probe_attach_failure.mjs` cannot pass, and should be rewritten
+
+```js
+rec('A7', 'a discarded delete error leaves no orphan bytes',
+    bytesRemain ? 'FAIL' : 'PASS', …)
+```
+
+A7 asserts the bytes are **gone** after a `DELETE` issued against a store that
+physically refuses deletion (`chmod a-w`). Nothing can satisfy that except
+removing the grain statement and leaving the bytes -- which is precisely the
+orphan the report is about.
+
+An orphan is bytes with *no statement*. A6 already reports `statement
+removed=false`: the record still indexes the file, so it is reachable, retryable,
+and not orphaned. The fix produces `bytesRemain=true` **by design**.
+
+Suggested replacement, asserting the invariant rather than the symptom:
+
+> after a failed DELETE, the bytes remain **and** the record still lists them
+> (`stillListed && bytesRemain`), so nothing is orphaned; and once the store
+> recovers, DELETE answers 204 and both are gone.
+
+`TestFailedDeleteReportsAndKeepsTheRecordIntact` asserts exactly that, including
+the recovery.
+
+### Verification
+
+Six tests in `backend/httpapi/attachment_failure_test.go`, driven by a
+`flakyBlob` that fails writes under `data/attachments/` while the grain tree
+keeps working -- the reporter's `chmod`, in a unit test. Both failure tests were
+proven to fail against the pre-fix code by restoring the abandoned `return` and
+the discarded `_ = bs.Delete(...)`; the happy-path and replace tests kept
+passing, so the mutation was targeted.
+
+`probe_attach_failure.mjs`: A4, A5, A6 all PASS (each was the bug). A7 as
+written cannot pass; see above. `retest.mjs`: **t261 FIXED**.
