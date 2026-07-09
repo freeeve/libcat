@@ -34,3 +34,27 @@ its literals are verifiably direct-form: grep
 '<urn:coll:work:85424> .*contributor' gives "Barefoot Books (author)")
 and diff the five grains against queerbooks works-qbd-pre030flip; all
 five should converge, closing their parity residue to zero.
+
+## Outcome
+
+Fixed in 6e17103, released v0.43.0. Both behaviors exactly as
+diagnosed:
+
+1. The mapped-contributor path no longer applies lastFirst -- the name
+   rides into the Label unchanged (final sort-form per the coll-feed
+   contract). The creator fallback keeps lastFirst; its literals are
+   raw access points.
+2. isJunkContributor's year-led test exempts comma-bearing names, so
+   "5000, Alaska Thunderfuck (narrator)" survives with its real role
+   and the fallback no longer fabricates an author for coll:6994.
+   Comma-less debris ("1999 EMI Records Ltd.") still drops.
+
+Repro against the 22:28 export: all FIVE residue grains converge --
+coll:85424, 85431, 87641, 71881 (name forms) and coll:6994 (Alaska) --
+zero non-prefLabel diff lines vs works-qbd-pre030flip after id
+normalization. Note for the audit: coll:20081 and coll:26282 carry
+"Books, Barefoot (author)" IN the export itself (coll-support's own
+author-fallback inverted them; no OD sortName on those records) and
+qbd's baseline has the same form, so they diff clean -- verbatim
+passthrough preserves them by design; if the inversion bothers anyone
+it's exporter-side (coll-support), not provider-side.
