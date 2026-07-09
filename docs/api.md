@@ -193,6 +193,37 @@ chip renderer and the published site's term pages both read them.
 
 ### Everything else
 
+### Health probes: `/v1/healthz` and `/v1/readyz`
+
+Two probes that answer different questions, and must be wired to different
+things.
+
+`GET /v1/healthz` is **liveness**: is this process wedged? It reports on the
+process and nothing else, and it keeps returning `200` while the server drains.
+Point a container liveness probe here. Never make it depend on a datastore -- a
+failing liveness probe restarts the container, so a dependency blip wired to
+liveness becomes a restart storm.
+
+`GET /v1/readyz` is **readiness**: should this replica receive traffic? It
+returns `200` normally and `503 {"status":"draining"}` once the process has
+received `SIGTERM`. Point a readiness probe here.
+
+Readiness deliberately does **not** check store connectivity, though it easily
+could. Every replica shares one store, so a store blip would fail every
+replica's readiness at once and the orchestrator would empty the Service of
+endpoints -- converting a degradation that still serves cached reads into a
+total outage. A probe whose failure mode is "remove all capacity" must not
+depend on anything shared.
+
+Readiness earns its keep at shutdown. Kubernetes removes a terminating pod from
+its Service endpoints *concurrently* with sending `SIGTERM`, not before it, so
+for the width of that race a load balancer still routes to a server that has
+already stopped listening. Set `LCATD_SHUTDOWN_DELAY` (e.g. `5s`, comfortably
+more than one readiness period) and `lcatd` will fail readiness immediately on
+`SIGTERM`, keep serving for the delay while it is deregistered, and only then
+drain in-flight requests. The default is `0` -- immediate drain -- which is what
+a local or single-process run wants.
+
 The remaining surfaces are grouped by path prefix and named plainly:
 `/v1/works` (records, MARC, items, covers, attachments, relations, clone,
 merge/split, visibility), `/v1/copycat` (SRU targets, search, import batches),
@@ -298,6 +329,7 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `POST` | `/v1/queries` | librarian | `batch_handlers.go` |
 | `DELETE` | `/v1/queries/{id}` | librarian | `batch_handlers.go` |
 | `GET` | `/v1/queue` | moderator | `review_handlers.go` |
+| `GET` | `/v1/readyz` | public | `httpapi.go` |
 | `POST` | `/v1/review` | moderator | `review_handlers.go` |
 | `GET` | `/v1/stats` | librarian | `review_handlers.go` |
 | `POST` | `/v1/suggestions` | public | `suggest_handlers.go` |

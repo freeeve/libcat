@@ -33,6 +33,13 @@ type Config struct {
 	// DynamoDB Local / MinIO in dev and tests. Empty uses the real AWS
 	// endpoints resolved from the region.
 	AWSEndpoint string
+	// ShutdownDelay, when positive, holds the server open after SIGTERM with
+	// readiness already failing, so an orchestrator has time to take this
+	// replica out of its load balancer before connections start being refused
+	// (tasks/054). Zero (the default) drains immediately, which is what a
+	// single-process or local run wants. In Kubernetes set it to comfortably
+	// more than one readiness period, e.g. 5s.
+	ShutdownDelay time.Duration
 	// ReadOnly puts the instance in demo mode: the blob store is wrapped
 	// read-only and editorial/config writes are rejected, so a public
 	// playground can be explored without persisting. Auth, reads, search, and
@@ -216,6 +223,13 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("config: LCATD_REBUILD_DEBOUNCE must be a positive duration (e.g. 5s)")
 		}
 		cfg.RebuildDebounce = d
+	}
+	if raw := os.Getenv("LCATD_SHUTDOWN_DELAY"); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil || d < 0 {
+			return Config{}, fmt.Errorf("config: LCATD_SHUTDOWN_DELAY must be a non-negative duration (e.g. 5s)")
+		}
+		cfg.ShutdownDelay = d
 	}
 	if cfg.ListenAddr == "" {
 		return Config{}, fmt.Errorf("config: empty LCATD_LISTEN_ADDR")

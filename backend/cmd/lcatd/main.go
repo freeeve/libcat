@@ -86,13 +86,25 @@ func main() {
 		logger.Error("setup", "err", err)
 		os.Exit(1)
 	}
+	health := &httpapi.Health{}
+	deps.Health = health
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           httpapi.New(deps),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	// SIGTERM starts a two-phase stop. First fail readiness and keep serving:
+	// an orchestrator removes a terminating pod from its load balancer
+	// concurrently with signalling it, so a server that stops listening
+	// immediately refuses the requests still being routed to it. Only once the
+	// deregistration window has passed do we drain (tasks/054).
 	go func() {
 		<-ctx.Done()
+		health.Drain()
+		if cfg.ShutdownDelay > 0 {
+			logger.Info("draining", "delay", cfg.ShutdownDelay)
+			time.Sleep(cfg.ShutdownDelay)
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {

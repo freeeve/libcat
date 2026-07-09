@@ -105,6 +105,9 @@ type Deps struct {
 	// rejected (paired with a read-only blob store), while authentication,
 	// reads, search, and dry-run previews still work.
 	ReadOnly bool
+	// Health, when set, backs GET /v1/readyz. A nil Health reports ready
+	// forever, which is what a non-orchestrated deployment wants.
+	Health *Health
 }
 
 // GraphPublisher is the publish pipeline seam (publish.Publisher in
@@ -117,6 +120,7 @@ type GraphPublisher interface {
 func New(deps Deps) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/healthz", handleHealthz)
+	mux.HandleFunc("GET /v1/readyz", handleReadyz(deps.Health))
 	// A defaults-only, read-only profile set stands in when no service is
 	// wired (tests, or a deployment without a blob store), so the record,
 	// batch, and authority handlers always have a profile source.
@@ -213,8 +217,4 @@ func New(deps Deps) http.Handler {
 		handler = readOnlyGuard(handler)
 	}
 	return wrap(handler, deps.Logger)
-}
-
-func handleHealthz(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
