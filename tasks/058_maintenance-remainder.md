@@ -16,7 +16,7 @@ is a UI/plumbing layer over machinery that exists.
    zip upload keyed by workId/ISBN; projector surfaces the cover URL.
 3. **RelationshipsPanel**: `bf:hasPart`/`bf:partOf`/series + enumeration in
    the editor (the write shapes exist via the editorial patch machinery).
-4. **Clone**: copy doc, strip provider keys, mint fresh work/instance ids,
+4. **Clone** (DONE -> tasks/217, v0.67.0): copy doc, strip provider keys, mint fresh work/instance ids,
    open as a draft -- needs a create-work path (grain built from an
    editorial-only doc), which none of the current surfaces have.
 5. **Item polish**: items column(s) in the CSV export; batch item edits
