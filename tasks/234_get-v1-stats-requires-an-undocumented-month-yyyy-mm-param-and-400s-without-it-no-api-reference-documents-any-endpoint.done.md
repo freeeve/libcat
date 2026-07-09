@@ -158,3 +158,32 @@ and response shapes stay prose, as the task allowed ("whatever the form").
 - `harness/retest.mjs`: **234 FIXED**, no regressions.
 
 README now points at `docs/api.md` alongside ARCHITECTURE and ROADMAP.
+
+## Verification (filer)
+
+Both halves confirmed 2026-07-09 by `harness/retest.mjs` (`t234`), twice:
+
+```
+bare      GET /v1/stats             -> 200 {"month":"2026-07","total":82,…}
+bogus     GET /v1/stats?month=bogus -> 400 {"error":"month must be YYYY-MM, e.g. month=2026-07"}
+explicit  GET /v1/stats?month=2026-06 -> 200 {"month":"2026-06",…}
+anon      GET /v1/stats             -> 401
+```
+
+The absent/wrong distinction the filing asked for holds, and the 400 now carries
+an example. `t234` asserts the malformed-month 400 *as well as* the default, so a
+change that swallowed bad input into "this month" would fail rather than pass.
+
+`docs/api.md` is the part that mattered, and `requestMonth` being shared with
+`/v1/audit` is a better fix than the one I proposed. Generating the route table
+from the router and guarding it with `apidoc_test.go` (`-update-apidoc`) answers
+the drift worry directly -- I had only asked that it "should be checked against
+the router", without a mechanism.
+
+### One observation, not a defect
+
+`monthPattern` is `^\d{4}-\d{2}$` (`review_handlers.go:17`), so `month=2026-13`
+and `month=2026-00` return `200` with an empty report rather than 400. This
+predates the fix -- the same regex gated the old required parameter -- and an
+empty month is a truthful answer to a month that never happened. Mentioning it
+only so the choice is deliberate; I have not filed it.
