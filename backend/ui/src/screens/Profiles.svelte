@@ -14,6 +14,7 @@
   } from "../lib/api";
   import type { ProfileSummary } from "../lib/types";
   import { isReadOnly } from "../lib/config";
+  import { setLeaveGuard } from "../lib/router";
 
   const readOnly = isReadOnly();
 
@@ -29,6 +30,22 @@
 
   onMount(() => {
     void loadList();
+  });
+
+  // Unsaved-JSON guard (tasks/206), mirroring the work editor's tasks/199
+  // wiring: while dirty, in-app navigation asks and beforeunload arms the
+  // browser's native prompt. Unlike work edits, no draft autosave backs
+  // this screen -- a silent discard of hand-edited profile JSON is
+  // unrecoverable.
+  $effect(() => {
+    if (!dirty) return;
+    const unregister = setLeaveGuard(() => confirm("Discard unsaved changes to this profile?"));
+    const onBeforeUnload = (ev: BeforeUnloadEvent) => ev.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      unregister();
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
   });
 
   async function loadList(): Promise<void> {
@@ -96,8 +113,19 @@
       await deleteProfileOverride(selected);
       dirty = false;
       await loadList();
-      await loadProfile(selected); // reloads the now-default; keeps status
-      status = "reverted to default";
+      if (list.some((p) => p.id === selected)) {
+        await loadProfile(selected); // reloads the now-default; keeps status
+        status = "reverted to default";
+      } else {
+        // No shipped default behind the override: the DELETE removed the
+        // profile outright, so clear the editor instead of 404ing into a
+        // stale selection (tasks/206).
+        selected = "";
+        text = "";
+        etag = "";
+        isDefault = true;
+        status = "override deleted -- this profile had no shipped default";
+      }
     } catch (e) {
       error = e instanceof ApiError ? e.message : "revert failed";
     } finally {
