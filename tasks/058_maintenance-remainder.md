@@ -11,7 +11,7 @@ is a UI/plumbing layer over machinery that exists.
 1. **Concerns** (DONE -> tasks/210, v0.61.0; convert-to-edit deferred): `CONCERN` queue item type (freetext + workId + reporter),
    anonymous report-a-problem endpoint sharing the suggestion anti-abuse
    challenge, review-screen actions resolve / dismiss / convert-to-edit.
-2. **Covers/attachments** (covers DONE -> tasks/215, v0.65.0; zip batch DONE -> tasks/220, v0.70.0; attachments remain): upload to the blob store + `lcat:coverImage`
+2. **Covers/attachments** (DONE: covers -> tasks/215 v0.65.0, zip batch -> tasks/220 v0.70.0, attachments -> tasks/229 v0.79.0): upload to the blob store + `lcat:coverImage`
    editorial quad (attachments same shape under `lcat:attachment`); batch
    zip upload keyed by workId/ISBN; projector surfaces the cover URL.
 3. **RelationshipsPanel** (DONE -> tasks/221, v0.71.0; OPAC surfacing -> tasks/222): `bf:hasPart`/`bf:partOf`/series + enumeration in

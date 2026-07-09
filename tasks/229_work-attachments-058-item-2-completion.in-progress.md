@@ -20,3 +20,20 @@ Generalize the covers machinery to arbitrary work attachments under
 - Audit ATTACHMENT_ADD / ATTACHMENT_REMOVE. Clones do not carry
   attachments (the lcat:* drop in CloneGrain already covers the
   statements; bytes stay with the source).
+
+## Outcome
+
+Shipped in v0.79.0 (commit b19868e), exactly per the scope above, plus
+a client-side name folder (`safeAttachmentName`) so real-world
+filenames ("My Scan (1).pdf") land on the server's safe shape instead
+of 400ing. Downloads ride fetch with the bearer (an anchor can't carry
+the header) and object-URL to disk.
+
+Verified live on the playground: upload -> statement in the grain +
+201; list; authorized download with attachment/nosniff headers; anon
+download 401; delete removes statement, bytes, and the listing. Unit
+lifecycle in bibframe (including clone-drop and hostile-name table)
+and httpapi.
+
+058 item 2 is now complete end to end; the 058 remainder is items 5
+(item polish) and 6 (merge chooser).
