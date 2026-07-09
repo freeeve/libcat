@@ -193,14 +193,24 @@ func (s *sidecarScheme) tierMatch(tier int, key string) (*Term, bool) {
 // retries; each pass range-reads only the dict blocks spanning the prefix
 // plus the matched labels' postings.
 func (s *sidecarScheme) search(q string, limit int) []*Term {
+	return hitTerms(s.searchHits(q, limit))
+}
+
+// searchHits is search, carrying each result's matched label norm. A term's
+// norm is the smallest of its labels matching the prefix, because the term
+// dictionary yields labels in ascending order and the first hit wins the
+// dedupe. That norm, then the term URI, is the map path's sort key too, so
+// Search can merge the two backends into one ordering (tasks/265).
+func (s *sidecarScheme) searchHits(q string, limit int) []searchHit {
 	var docs []uint32
+	var norms []string
 	for termLimit := limit; ; termLimit *= 4 {
 		tps, truncated, err := s.searchIdx.PrefixPostings(q, termLimit)
 		if err != nil {
 			s.miss("search", err)
 			return nil
 		}
-		docs = docs[:0]
+		docs, norms = docs[:0], norms[:0]
 		seen := map[uint32]bool{}
 	terms:
 		for _, tp := range tps {
@@ -212,6 +222,7 @@ func (s *sidecarScheme) search(q string, limit int) []*Term {
 				}
 				seen[d] = true
 				docs = append(docs, d)
+				norms = append(norms, tp.Term)
 				if len(docs) >= limit {
 					break terms
 				}
@@ -222,10 +233,10 @@ func (s *sidecarScheme) search(q string, limit int) []*Term {
 		}
 	}
 	byDoc := s.termsMany(docs)
-	var out []*Term
-	for _, d := range docs {
+	out := make([]searchHit, 0, len(docs))
+	for i, d := range docs {
 		if t, ok := byDoc[d]; ok {
-			out = append(out, t)
+			out = append(out, searchHit{term: t, norm: norms[i]})
 		}
 	}
 	return out

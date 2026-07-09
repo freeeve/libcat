@@ -141,17 +141,57 @@ func TestSidecarLooseQuads(t *testing.T) {
 	if err := ix.Reload(t.Context(), st, "data/authorities/", nil); err != nil {
 		t.Fatal(err)
 	}
-	// homosaurus is dirty; lcsh shares the source file, so the file replay
-	// forces it to maps too -- correctness beats arming.
-	if n := len(ix.load().sidecar); n != 0 {
-		t.Fatalf("dirty schemes still sidecar-armed: %d", n)
+	// A loose quad no longer costs the scheme its sidecar. It used to: three
+	// accessors read the sidecar alone, so the loader replayed the whole
+	// snapshot into maps to keep them correct -- 513k LCSH headings for one
+	// cached live pick (tasks/265). The accessors merge now, so the scheme
+	// carries a sidecar and a small map overlay together.
+	if n := len(ix.load().sidecar); n != 2 {
+		t.Fatalf("a loose quad demoted a sidecar-backed scheme: %d armed, want 2", n)
 	}
+	if snap := ix.load(); len(snap.schemes["homosaurus"]) != 1 {
+		t.Fatalf("overlay = %d terms, want just the loose one (the snapshot must not be resident)",
+			len(snap.schemes["homosaurus"]))
+	}
+
+	// Both backends answer, through every accessor.
 	if _, ok := ix.Lookup("homosaurus", "https://homosaurus.org/v4/homoitLOCAL"); !ok {
-		t.Fatal("loose grain term missing")
+		t.Fatal("Lookup missed the loose grain term")
 	}
 	if _, ok := ix.Lookup("homosaurus", "https://homosaurus.org/v4/homoit0001235"); !ok {
-		t.Fatal("snapshot term missing after fallback")
+		t.Fatal("Lookup missed the snapshot term")
 	}
+	if got := ix.Search("homosaurus", "Locally merged", 10); len(got) != 1 || got[0].ID != "https://homosaurus.org/v4/homoitLOCAL" {
+		t.Fatalf("Search missed the overlay term: %v", termIDs(got))
+	}
+	if got := ix.Search("homosaurus", "Trans", 10); len(got) == 0 {
+		t.Fatal("Search missed the sidecar's terms once an overlay existed")
+	}
+	if got := ix.MatchLabel("homosaurus", "locally merged concept"); len(got) != 1 {
+		t.Fatalf("MatchLabel missed the overlay term: %d matches", len(got))
+	}
+	all := ix.Terms("homosaurus")
+	if len(all) < 2 {
+		t.Fatalf("Terms = %d, want the sidecar's terms plus the overlay", len(all))
+	}
+	seen := map[string]bool{}
+	for _, t2 := range all {
+		if seen[t2.ID] {
+			t.Fatalf("Terms returned %s twice", t2.ID)
+		}
+		seen[t2.ID] = true
+	}
+	if !seen["https://homosaurus.org/v4/homoitLOCAL"] || !seen["https://homosaurus.org/v4/homoit0001235"] {
+		t.Fatal("Terms did not merge the overlay with the sidecar")
+	}
+}
+
+func termIDs(ts []*Term) []string {
+	out := make([]string, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, t.ID)
+	}
+	return out
 }
 
 // TestSidecarPartialArming builds artifacts for one scheme of a shared

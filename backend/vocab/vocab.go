@@ -259,49 +259,52 @@ func buildSnapshot(ctx context.Context, st blob.Store, prefix string, schemes []
 		}
 	}
 
-	// Pass 3: arm each manifest scheme unless loose quads for it surfaced
-	// elsewhere or its source changed; the bypass replays the source .nq so
-	// the scheme serves from maps exactly as before sidecars existed.
+	// Pass 3: arm each manifest scheme whose sidecar is current.
+	//
+	// Loose quads for the scheme no longer disqualify it. A single live-picked
+	// term cached under cache/<scheme>/ used to force the whole snapshot back
+	// into resident maps -- 513k LCSH headings, +698MB, permanently, because
+	// three accessors read the sidecar alone and the loader's only way to keep
+	// them correct was to abandon the sidecar. Those accessors now merge the
+	// sidecar with the map overlay, so a scheme carries both (tasks/265).
+	//
+	// A scheme that still falls back is a capacity event -- its whole snapshot
+	// becomes resident -- so each fallback logs at WARN with the term count it
+	// is about to cost. That turns an unexplained OOM at the next deploy into
+	// a grep (tasks/265).
 	for scheme, m := range manifests {
-		src, ok := deferred[scheme]
-		if !ok || m.SourceETag != sourceETags[m.Source] {
-			slog.Info("vocab: sidecar stale; serving scheme from maps", "scheme", scheme, "source", m.Source)
-			continue
-		}
-		if len(snap.schemes[scheme]) > 0 {
-			slog.Info("vocab: loose quads present; serving scheme from maps", "scheme", scheme)
-			if err := parse(src); err != nil {
-				return nil, err
-			}
+		if _, ok := deferred[scheme]; !ok || m.SourceETag != sourceETags[m.Source] {
+			slog.Warn("vocab: sidecar stale; serving scheme from resident maps",
+				"scheme", scheme, "source", m.Source, "terms", m.Terms)
 			continue
 		}
 		sc, err := openSidecar(ctx, st, prefix, m)
 		if err != nil {
-			slog.Warn("vocab: sidecar open failed; serving scheme from maps", "scheme", scheme, "err", err)
-			if err := parse(src); err != nil {
-				return nil, err
-			}
+			slog.Warn("vocab: sidecar open failed; serving scheme from resident maps",
+				"scheme", scheme, "terms", m.Terms, "err", err)
 			continue
 		}
 		snap.sidecar[scheme] = sc
 	}
-	// A deferred source whose manifest did not arm (dirty-scheme replay
-	// handled above) but whose scheme also never armed -- e.g. manifest
-	// vanished between passes -- must still be parsed.
+	// A deferred source whose scheme never armed must still be parsed: its
+	// snapshot terms live nowhere else. parse is idempotent per path, so a
+	// source shared by an armed and an unarmed scheme is read exactly once.
 	for scheme, src := range deferred {
-		if snap.sidecar[scheme] == nil && len(snap.schemes[scheme]) == 0 {
+		if snap.sidecar[scheme] == nil {
 			if err := parse(src); err != nil {
 				return nil, err
 			}
 		}
 	}
-	// A dirty scheme's replay parses its whole source file, populating every
-	// co-resident scheme's maps -- including one that already armed under an
-	// earlier iteration order. A scheme serves from exactly one backend, so
-	// the replayed maps win.
+	// Parsing an unarmed scheme's source populates the maps of every scheme
+	// that shares the file, including one that armed above. Such a scheme is
+	// already fully resident, so its sidecar is pure overhead -- drop it. The
+	// test is "was this scheme's own source parsed", not "are there any quads
+	// for it": a cached live pick leaves quads and must not demote anything.
 	for scheme := range snap.sidecar {
-		if len(snap.schemes[scheme]) > 0 {
-			slog.Info("vocab: shared source replayed; serving scheme from maps", "scheme", scheme)
+		if m := manifests[scheme]; parsed[m.Source] {
+			slog.Warn("vocab: shared source replayed; serving scheme from resident maps",
+				"scheme", scheme, "source", m.Source, "terms", m.Terms)
 			delete(snap.sidecar, scheme)
 		}
 	}
@@ -646,16 +649,18 @@ func homosaurusVariants(id string) []string {
 // management listing. Retired terms are included (marked by MergedInto).
 func (ix *Index) Terms(scheme string) []*Term {
 	snap := ix.load()
+	// The map overlay is the live-pick cache when a sidecar is armed, and the
+	// whole scheme when one is not. It comes first so that dedupe resolves a
+	// term held by both backends to the overlay's record -- the precedence
+	// Lookup has always applied, and Search and MatchLabel apply too.
 	var out []*Term
-	if sc := snap.sidecar[scheme]; sc != nil {
-		out = sc.all()
-	} else {
-		byURI := snap.schemes[scheme]
-		out = make([]*Term, 0, len(byURI))
-		for _, t := range byURI {
-			out = append(out, t)
-		}
+	for _, t := range snap.schemes[scheme] {
+		out = append(out, t)
 	}
+	if sc := snap.sidecar[scheme]; sc != nil {
+		out = append(out, sc.all()...)
+	}
+	out = dedupeTerms(out, 0)
 	sort.Slice(out, func(i, j int) bool {
 		li, lj := normLabel(out[i].Label("en")), normLabel(out[j].Label("en"))
 		if li != lj {
@@ -674,12 +679,91 @@ func (ix *Index) Search(scheme, q string, limit int) []*Term {
 	if norm == "" || limit <= 0 {
 		return nil
 	}
-	if sc := snap.sidecar[scheme]; sc != nil {
+	sc := snap.sidecar[scheme]
+	overlay := snap.searchMaps(scheme, norm, limit)
+	if sc == nil {
+		return hitTerms(overlay)
+	}
+	// A sidecar-backed scheme may also carry a map overlay: the terms a
+	// cataloger picked from this scheme's live tab (tasks/265). Both streams
+	// are ordered by matched-label norm, then URI, so merging them reproduces
+	// exactly the order a wholly map-backed load of the same terms gives --
+	// the parity the sidecar promises. Taking the overlay first on a tie makes
+	// a cached pick shadow the snapshot's record, as Lookup already does.
+	if len(overlay) == 0 {
 		return sc.search(norm, limit)
 	}
-	entries := snap.search[scheme]
+	return mergeHits(overlay, sc.searchHits(norm, limit), limit)
+}
+
+// searchHit is a search result together with the matched label's normalized
+// form -- the sort key both backends order by.
+type searchHit struct {
+	term *Term
+	norm string
+}
+
+func hitTerms(hits []searchHit) []*Term {
+	if len(hits) == 0 {
+		return nil
+	}
+	out := make([]*Term, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.term)
+	}
+	return out
+}
+
+// mergeHits merges two (norm, uri)-ordered streams into one, capping at limit.
+//
+// A term the overlay and the sidecar both hold is emitted once, from the
+// overlay, at the overlay's position: a cached live pick is the fresher record
+// and may carry a revised label, so letting the sidecar's copy win on the
+// strength of an older label sorting earlier would contradict Lookup, which
+// has always preferred the overlay. Right-hand hits are therefore skipped by
+// ID rather than deduped positionally.
+func mergeHits(left, right []searchHit, limit int) []*Term {
+	if len(left) == 0 && len(right) == 0 {
+		return nil
+	}
+	shadowed := make(map[string]bool, len(left))
+	for _, l := range left {
+		shadowed[l.term.ID] = true
+	}
+	out := make([]*Term, 0, limit)
+	i, j := 0, 0
+	for len(out) < limit {
+		for j < len(right) && shadowed[right[j].term.ID] {
+			j++
+		}
+		switch {
+		case i < len(left) && j < len(right):
+			l, r := left[i], right[j]
+			if l.norm < r.norm || (l.norm == r.norm && l.term.ID < r.term.ID) {
+				out = append(out, l.term)
+				i++
+			} else {
+				out = append(out, r.term)
+				j++
+			}
+		case i < len(left):
+			out = append(out, left[i].term)
+			i++
+		case j < len(right):
+			out = append(out, right[j].term)
+			j++
+		default:
+			return out
+		}
+	}
+	return out
+}
+
+// searchMaps is the prefix search over a scheme's resident terms.
+func (s *snapshot) searchMaps(scheme, norm string, limit int) []searchHit {
+	entries := s.search[scheme]
 	start := sort.Search(len(entries), func(i int) bool { return entries[i].norm >= norm })
-	var out []*Term
+	var out []searchHit
 	seen := map[string]bool{}
 	for i := start; i < len(entries) && strings.HasPrefix(entries[i].norm, norm); i++ {
 		uri := entries[i].uri
@@ -687,8 +771,26 @@ func (ix *Index) Search(scheme, q string, limit int) []*Term {
 			continue
 		}
 		seen[uri] = true
-		out = append(out, snap.schemes[scheme][uri])
+		out = append(out, searchHit{term: s.schemes[scheme][uri], norm: entries[i].norm})
 		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// dedupeTerms drops repeated term IDs, keeping the first occurrence, and caps
+// the result at limit (0 = no cap).
+func dedupeTerms(in []*Term, limit int) []*Term {
+	seen := make(map[string]bool, len(in))
+	out := in[:0]
+	for _, t := range in {
+		if t == nil || seen[t.ID] {
+			continue
+		}
+		seen[t.ID] = true
+		out = append(out, t)
+		if limit > 0 && len(out) >= limit {
 			break
 		}
 	}
@@ -828,10 +930,27 @@ func (ix *Index) MatchLabel(scheme, label string) []LabelMatch {
 	if norm == "" {
 		return nil
 	}
+	out := snap.matchLabelMaps(scheme, norm)
 	if sc := snap.sidecar[scheme]; sc != nil {
-		return sc.matchLabel(norm)
+		// The overlay and the sidecar can both hold the term. Auto-linking
+		// gates on whole-heading matches, so a duplicate would suggest the
+		// same link twice (tasks/265).
+		seen := make(map[string]bool, len(out))
+		for _, m := range out {
+			seen[m.Term.ID] = true
+		}
+		for _, m := range sc.matchLabel(norm) {
+			if !seen[m.Term.ID] {
+				out = append(out, m)
+			}
+		}
 	}
-	entries := snap.search[scheme]
+	return out
+}
+
+// matchLabelMaps is the exact-normalized-label gate over resident terms.
+func (s *snapshot) matchLabelMaps(scheme, norm string) []LabelMatch {
+	entries := s.search[scheme]
 	start := sort.Search(len(entries), func(i int) bool { return entries[i].norm >= norm })
 	var out []LabelMatch
 	seen := map[string]bool{}
@@ -840,7 +959,7 @@ func (ix *Index) MatchLabel(scheme, label string) []LabelMatch {
 			continue
 		}
 		seen[entries[i].uri] = true
-		out = append(out, LabelMatch{Term: snap.schemes[scheme][entries[i].uri], Alt: entries[i].alt})
+		out = append(out, LabelMatch{Term: s.schemes[scheme][entries[i].uri], Alt: entries[i].alt})
 	}
 	return out
 }
