@@ -197,3 +197,27 @@ A macro stored before this release with a colliding or unusable key keeps its
 `keys` value; nothing rewrites stored data. The client simply refuses to bind
 it (with a console warning), so the editor chord wins. Editing such a macro
 surfaces the error and requires a valid key before saving.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t237` FIXED, after three
+cycles STILL-BROKEN) and independently by `ui/probe_keybindings.mjs`, **7/7**:
+
+```
+PASS K1  CONTROL: "2" opens the MARC tab      with no macro bound, pressing "2" shows the MARC grid (1)
+PASS K2  a colliding macro shortcut is refused POST /v1/macros keys="2" (the MARC-tab chord) -> 400
+PASS K3  "2" still opens the MARC tab          MARC grid present=true; the macro staged its tag instead=false
+PASS K4  one key does exactly one thing        only the tab fired
+PASS K5  the "?" overlay reveals the double binding  both rows shown under one key
+```
+
+K1 is the control, and it is what makes K3 mean anything: it establishes that
+"2" opens the MARC tab *before* any macro exists, so K3's pass is the chord
+surviving rather than the chord never having been at risk.
+
+Refusing the binding server-side (400 at `POST /v1/macros`) is a better fix than
+the client-side precedence I suggested. Precedence would have left the macro
+stored and silently inert; the 400 means a cataloger cannot create the
+ambiguity in the first place, and `TestReservedShortcutKeysMatchUI` keeps the
+two key tables from drifting apart -- which is the failure that would otherwise
+reintroduce this.

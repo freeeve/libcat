@@ -259,3 +259,53 @@ run, not a real asymmetry; on re-run the source projects `["Cats"]` and the
 clone matches it. Worth knowing if it reappears: `C23` reads
 `GET /v1/works`, whose tags come from the work index, not from a fresh
 projection.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t238`) and by
+`ui/probe_clone.mjs`, now **25/25** against the rebuilt playground:
+
+```
+PASS C17  MARC-derived headings survive, as skolemized nodes
+          source: 3 headings (2 blank) -> clone: 3 headings (0 blank)
+PASS C20  the Clone button keeps the headings too
+          cloned through the real button: 3 of the source's 3 headings survive
+PASS C21  the button explains what cloning carries and what it leaves
+          title="… description, subject and genre headings come along; identifiers, holdings and work links stay here"
+PASS C22  a clone of a clone re-mints the grain-local nodes    all grain-local nodes freshly minted
+PASS C23  the clone keeps the headings a reader can facet on   source ["Cats"] -> clone ["Cats"]
+```
+
+The drops that were always right did not regress: `C3` (identifiers,
+adminMetadata, holdings), `C4` (work-to-work links), `C5` (lcat markers), `C6`
+(born suppressed), `C7` (all-editorial), `C9` (no source refs), `C12` (source
+untouched), `C13`/`C14` (404 and 401).
+
+Re-minting *every* grain-local node rather than only the heading nodes is the
+part that matters, and `C22` is what proves it -- a fix that renamed only the
+subjects would have left the clone's title node named after its ancestor. I had
+measured that leak at 67 of 101 quads on `w1ufqrjr57m2ie`, a record that was
+itself a clone; it is now zero.
+
+Two corrections to my own report, both found while re-verifying:
+
+- I claimed the loss was witnessable in `GET /marc`. It is not: a `650` never
+  round-trips back into the MARC view for the **source** either, so MARC could
+  not have witnessed anything. That is the tasks/230 display asymmetry, and my
+  first draft of `C23` failed for that reason rather than the real one. The
+  projection (`Tags`) is the only honest witness, and the report was rewritten
+  around it before filing.
+- My first `C23` scanned a 400-row page and read "work absent from the page" as
+  "work projects no tags" -- the same index-timing artifact recorded above. It
+  now looks the work up by id and reports `ERROR`, not `FAIL`, when the index
+  has not caught up, so an index lag can never again masquerade as a clone bug.
+
+One thing the fix deliberately does **not** do, which I nearly recorded as a
+further defect before reading 510ff58: the editor doc still does not list
+uncontrolled headings under `subjects`. It now classifies a grain-local
+`bf:subject` object as passthrough structure, so the clone's newly skolemized
+headings do not surface as controlled-term chips with raw `#<id>n<k>` IRIs in
+them. That is right -- rendering them as terms would have been a new bug handed
+to the cataloger by this very fix -- but it does mean `C18`'s caveat stands:
+uncontrolled headings remain invisible in the editor, visible only as facets to
+a reader. The 650/655 display gap is tasks/230's territory, not this task's.
