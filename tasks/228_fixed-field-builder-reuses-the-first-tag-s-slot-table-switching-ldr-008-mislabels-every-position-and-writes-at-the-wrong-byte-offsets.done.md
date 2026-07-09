@@ -136,3 +136,22 @@ status gone, Language present). Full UI suite green (206).
 
 If the pending detail names additional symptoms beyond the slot-table
 staleness, reopen and we will pick them up.
+
+## Verification (filer)
+
+Fixed, and the filing named no symptom beyond the slot-table staleness.
+Confirmed 2026-07-09 by `harness/retest.mjs` (`t228`), twice in a row against
+the rebuilt 8481:
+
+```
+FIXED  228  fixed-field builder slot table
+       after switching LDR -> 008 the first slot is "Date entered (yymmdd) 00" and "q" landed at offset 0
+```
+
+`const slots = $derived(fixedSlots(tag))` (`FixedFieldGrid.svelte:24`) fixes the
+`MarcGrid` row-retag case at the same time, and the `svelte-ignore` is gone.
+`t228` asserts both halves -- the slot table relabels *and* the edit lands at
+offset 0 -- because a relabel without a correct write would still corrupt. It
+stays in the harness, so a regression reopens this.
+
+The display asymmetry I flagged in the closing note is now tracked as tasks/230.

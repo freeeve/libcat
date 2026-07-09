@@ -137,3 +137,23 @@ carrying the note (a `500 $a`, because `020 $c` is dropped by the BIBFRAME
 conversion long before the UI sees it) and tombstones it on the way out; no
 pre-existing record is touched. `harness/retest.mjs` carries the same check as
 `t227`.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t227`), twice in a row
+against the rebuilt 8481:
+
+```
+FIXED  227  subfield "$" survives a round trip
+       edited the 245 in text mode; 500 still "$a List price $24.95 at issue"
+```
+
+The fix anchors a delimiter to `(^|\s)\$([a-z0-9])(?=\s|$)` in
+`lib/marc.ts:24`, so `$24.95` stays inside its value. `t227` edits only the 245
+in the text buffer and asserts the 500 is byte-identical afterwards, which is
+the exact path that used to corrupt it. It stays in the harness, so a regression
+reopens this.
+
+Noting the documented trade-off for future reference: `$aFoo` (no space) now
+reads as literal text rather than starting a subfield. The serializer always
+emits the spaced form, so nothing round-trips differently.
