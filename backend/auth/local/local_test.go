@@ -179,17 +179,17 @@ func TestUserManagement(t *testing.T) {
 
 func TestBootstrap(t *testing.T) {
 	svc, _ := newService(t)
-	if err := svc.Bootstrap(t.Context(), ""); err != nil {
+	if _, err := svc.Bootstrap(t.Context(), ""); err != nil {
 		t.Fatalf("empty spec: %v", err)
 	}
-	if err := svc.Bootstrap(t.Context(), "not-a-spec"); err == nil {
+	if _, err := svc.Bootstrap(t.Context(), "not-a-spec"); err == nil {
 		t.Fatal("malformed spec accepted")
 	}
-	if err := svc.Bootstrap(t.Context(), "root@example.org:changeme123"); err != nil {
+	if _, err := svc.Bootstrap(t.Context(), "root@example.org:changeme123"); err != nil {
 		t.Fatal(err)
 	}
 	// Idempotent on reboot.
-	if err := svc.Bootstrap(t.Context(), "root@example.org:changeme123"); err != nil {
+	if _, err := svc.Bootstrap(t.Context(), "root@example.org:changeme123"); err != nil {
 		t.Fatalf("second bootstrap: %v", err)
 	}
 	tokens, err := svc.Login(t.Context(), "root@example.org", "changeme123")

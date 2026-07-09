@@ -275,7 +275,9 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		if err != nil {
 			return httpapi.Deps{}, err
 		}
-		if err := svc.Bootstrap(ctx, cfg.BootstrapAdmin); err != nil {
+		if restored, err := svc.Bootstrap(ctx, cfg.BootstrapAdmin); restored {
+			logger.Warn("bootstrap re-granted admin to an existing demoted user (tasks/207)", "spec", "LCATD_BOOTSTRAP_ADMIN")
+		} else if err != nil {
 			return httpapi.Deps{}, fmt.Errorf("bootstrap admin: %w", err)
 		}
 		deps.Local = svc
