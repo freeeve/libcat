@@ -236,3 +236,63 @@ chmod -R u+w /tmp/site-rw && rm -rf /tmp/site-rw
 
 Equivalently, through the UI: open any work, add a subject, choose the **lcsh** live
 tab in the picker, and click one heading.
+
+## Outcome
+
+Fixed in **v0.103.0** (`a49d5ed`). Took the merge, not the stopgap: a scheme now
+carries a sidecar *and* a map overlay, and the "exactly one backend" invariant is
+gone. The dirty-scheme replay and the shared-source cleanup at pass 3 are deleted.
+
+Measured with the reporter's own probe, on its own clone:
+
+| | before | after |
+|---|---|---|
+| one cached lcsh pick (513,125 terms) | +735 MB | **+17 MB** |
+| after reboot, cache file on disk | +698 MB permanent | **+0 MB** |
+
+`retest.mjs`: **t265 FIXED**, no previously-FIXED task regressed.
+
+### The three accessors
+
+- `Search` merges the two streams on the key they already share -- the matched
+  label's norm, then the term URI -- so a scheme with an overlay returns exactly
+  the order a wholly map-backed load of the same terms returns.
+- `Terms` concatenates overlay-first, dedupes, sorts as before.
+- `MatchLabel` unions the two exact-label match sets by term ID.
+
+`sidecarScheme.search` grew a `searchHits` sibling that carries each result's
+matched norm; `search` is now a thin wrapper over it.
+
+### Two things the report did not ask for, and one it did
+
+**Result order must not depend on whether a sidecar is armed.** My first draft
+returned the overlay's hits first, reasoning that the deployment's own picks
+should lead. That is wrong: it makes `Search` answer differently for the same
+terms depending on an internal storage decision, and it breaks the parity
+`TestSidecarParity` guards. `TestSearchMergeMatchesAMapBackedLoad` compares
+sidecar+overlay against a map-only load of the same two files across seven
+prefixes and three limits; it fails against the overlay-first draft, which is
+how the draft was caught.
+
+**The accessors disagreed about which record wins.** `Lookup` has always
+preferred the overlay (it reads the maps first). `Terms` preferred the sidecar.
+A cached pick is the fresher record and may carry a revised label, so the
+overlay wins everywhere now -- including in `Search`, where a duplicate ID is
+skipped on the sidecar side rather than deduped positionally, or the sidecar's
+older label sorting earlier would have won it back.
+
+**Louder than INFO**: the three remaining fallbacks (stale sidecar, sidecar
+fails to open, shared source replayed) log at `WARN` with the term count they
+are about to make resident.
+
+### Moot, and not moot
+
+The "read, not measured" note about pass 3's dirtiness test running before the
+debris guard is **moot**: there is no dirtiness test any more, so label-less
+debris cannot disqualify a scheme.
+
+The eviction asks are **not** moot and are not in this commit: there is still no
+`DELETE /v1/vocabcache`, `RemoveSnapshot` still ignores `cache/`, and
+`GET /v1/vocabsources` still cannot say whether a scheme is sidecar-backed.
+They are no longer urgent -- a cached term costs its own size now, not its
+scheme's -- but "an operator cannot undo a click" stands. Filed separately.
