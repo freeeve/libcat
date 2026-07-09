@@ -29,10 +29,17 @@ type Config struct {
 	// surface (audit trail, queue, drafts, copycat, ...). Empty keeps the
 	// in-memory store -- the local/demo default, which resets on restart.
 	DynamoTable string
-	// AWSEndpoint overrides the AWS service endpoint for both stores, for
-	// DynamoDB Local / MinIO in dev and tests. Empty uses the real AWS
+	// AWSEndpoint overrides the AWS service endpoint for every AWS client, for
+	// a single compatible endpoint such as LocalStack. Empty uses the real AWS
 	// endpoints resolved from the region.
 	AWSEndpoint string
+	// S3Endpoint and DynamoEndpoint override AWSEndpoint for one service each.
+	// The off-AWS deployment is two unrelated servers -- MinIO for blobs,
+	// ScyllaDB Alternator or DynamoDB Local for documents -- so one endpoint
+	// for both stores cannot address it (tasks/054, tasks/165). Empty falls
+	// back to AWSEndpoint.
+	S3Endpoint     string
+	DynamoEndpoint string
 	// ShutdownDelay, when positive, holds the server open after SIGTERM with
 	// readiness already failing, so an orchestrator has time to take this
 	// replica out of its load balancer before connections start being refused
@@ -157,6 +164,8 @@ func FromEnv() (Config, error) {
 		S3Bucket:          os.Getenv("LCATD_S3_BUCKET"),
 		DynamoTable:       os.Getenv("LCATD_DYNAMO_TABLE"),
 		AWSEndpoint:       os.Getenv("LCATD_AWS_ENDPOINT"),
+		S3Endpoint:        os.Getenv("LCATD_S3_ENDPOINT"),
+		DynamoEndpoint:    os.Getenv("LCATD_DYNAMO_ENDPOINT"),
 		ReadOnly:          os.Getenv("LCATD_READ_ONLY") == "1" || os.Getenv("LCATD_READ_ONLY") == "true",
 		Sandbox:           os.Getenv("LCATD_SANDBOX") == "1" || os.Getenv("LCATD_SANDBOX") == "true",
 		LocalAuth:         os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
@@ -255,4 +264,22 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// ResolvedS3Endpoint is the endpoint the S3 client should use: the
+// service-specific override when set, else the all-services endpoint, else the
+// empty string (meaning real AWS, resolved from the region).
+func (c Config) ResolvedS3Endpoint() string {
+	if c.S3Endpoint != "" {
+		return c.S3Endpoint
+	}
+	return c.AWSEndpoint
+}
+
+// ResolvedDynamoEndpoint is the endpoint the DynamoDB client should use.
+func (c Config) ResolvedDynamoEndpoint() string {
+	if c.DynamoEndpoint != "" {
+		return c.DynamoEndpoint
+	}
+	return c.AWSEndpoint
 }

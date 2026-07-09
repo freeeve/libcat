@@ -1,0 +1,23 @@
+# The build context is the repo root; keep it small and keep developer-local
+# state out of the image.
+.git
+.github
+
+# go.work carries a local roaringrange replace pointing outside the context.
+# The Dockerfile synthesizes its own.
+go.work
+go.work.sum
+
+# Rebuilt inside the image by the ui stage; copying the committed placeholder
+# in would defeat the guard that checks for it.
+backend/ui/dist
+backend/ui/node_modules
+hugo/node_modules
+node_modules
+
+# Build output and scratch.
+public/
+dist/
+*.test
+tasks/
+docs/

@@ -62,7 +62,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	}
 	var db store.Store = store.NewMem()
 	if cfg.DynamoTable != "" {
-		d, err := awsstore.Dynamo(ctx, cfg.DynamoTable, cfg.AWSEndpoint)
+		d, err := awsstore.Dynamo(ctx, cfg.DynamoTable, cfg.ResolvedDynamoEndpoint())
 		if err != nil {
 			return httpapi.Deps{}, err
 		}
@@ -74,7 +74,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	deps.DB = db
 	switch {
 	case cfg.S3Bucket != "":
-		b, err := awsstore.S3(ctx, cfg.S3Bucket, cfg.AWSEndpoint)
+		b, err := awsstore.S3(ctx, cfg.S3Bucket, cfg.ResolvedS3Endpoint())
 		if err != nil {
 			return httpapi.Deps{}, err
 		}
