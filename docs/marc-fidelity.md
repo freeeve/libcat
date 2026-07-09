@@ -33,7 +33,7 @@ changes.
 |-----|-------|-------|
 | 001 | Control number | |
 | 006 / 007 | Additional/physical coded elements | since libcodex v0.12.0 -- folded into media/carrier both ways (upstream tasks/082) |
-| 008 | Fixed-length data elements | since libcodex v0.9.0 -- reconstructed from typed properties (tasks/053). Caveat (tasks/230): the reconstruction mirrors only the country (15-17); a provision date renders into 260 $c, not back into 07-10, and language is not re-rendered into 35-37 -- semantic survival, not positional. libcodex tasks/103 asks for the date/language mirror. |
+| 008 | Fixed-length data elements | since libcodex v0.9.0 -- reconstructed from typed properties (tasks/053). Positional parity since libcodex v0.22.0 (tasks/230, 235): the reconstruction mirrors the provision date into 06/07-10 when it is a bare four-digit year, the country into 15-17, and the first content language into 35-37 -- every position `FromRecord` reads back out. A date that is not a bare year (`c2010`, `2010-2012`), or two provisions naming different years, leaves 06/07-10 blank and lives only in 260 $c. |
 | 020 | ISBN | qualifier text (e.g. `(electronic bk)`) rides in the value |
 | 100 / 700 | Primary / added agent | 700 present on the audiobook sample |
 | 245 | Title statement | |
@@ -84,8 +84,10 @@ systems parse. Both are now carried:
 ### Relocated, not lost
 
 - **041 (language code)** appears in the output though the samples carry language only
-  in `008/35-37`: the crosswalk surfaces the coded language as an explicit `041`. The
-  information survives; its MARC home moves.
+  in `008/35-37`: the crosswalk surfaces the coded language as an explicit `041`. Since
+  libcodex v0.22.0 (tasks/235) the language is *also* mirrored back into `008/35-37`, so
+  this is an addition rather than a move -- a decoded record carries the language in both
+  homes, and `041 $h` (language of the original) never reaches the 008 slot.
 
 ## The `lcat:marcVerbatim` sidecar (tasks/049)
 

@@ -2,8 +2,10 @@ package bibframe
 
 import (
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/freeeve/libcodex"
 	codexbf "github.com/freeeve/libcodex/bibframe"
 )
 
@@ -124,4 +126,98 @@ func TestMARCRoundTripLossTableCurrent(t *testing.T) {
 			t.Errorf("field %s is listed as known-lost but now survives the round-trip; move it to coreFields and update docs/marc-fidelity.md", tag)
 		}
 	}
+}
+
+// control008 slots the round trip must preserve positionally, not merely
+// semantically (tasks/230, 235): the date, the country, and the content
+// language. Everything else in the 008 is derived or blank by design.
+var control008Slots = []struct {
+	name     string
+	from, to int
+}{
+	{"date 07-10", 7, 11},
+	{"country 15-17", 15, 18},
+	{"language 35-37", 35, 38},
+}
+
+// TestMARCRoundTrip008PositionsSurvive pins libcodex v0.22.0's positional
+// parity. Before it, decode reconstructed only the country, so a saved
+// provision date reappeared in 260 $c with 008/07-10 blank and the fixed-field
+// builder looked like it had discarded the edit (tasks/230). Tag-presence
+// gates cannot see that; this one can. A libcodex regression breaks the build
+// rather than the MARC view.
+func TestMARCRoundTrip008PositionsSurvive(t *testing.T) {
+	for _, sample := range marcExpressSamples {
+		f, err := os.Open(sample)
+		if err != nil {
+			t.Fatalf("open %s: %v", sample, err)
+		}
+		recs, err := ReadMARC(f)
+		_ = f.Close()
+		if err != nil {
+			t.Fatalf("read %s: %v", sample, err)
+		}
+		for _, rec := range recs {
+			in := control008(rec.Fields())
+			if in == "" {
+				continue
+			}
+			data, err := codexbf.Encode(rec)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			back, err := codexbf.Decode(data)
+			if err != nil || len(back) == 0 {
+				t.Fatalf("decode: %v", err)
+			}
+			out := control008(back[0].Fields())
+			if out == "" {
+				t.Errorf("%s: the round trip dropped the 008 entirely", sample)
+				continue
+			}
+			for _, slot := range control008Slots {
+				want := slice008(in, slot.from, slot.to)
+				// A blank or non-derivable input slot asserts nothing: the
+				// reconstruction does not fabricate, and a date like "c2010"
+				// legitimately stays in 260 $c.
+				if strings.TrimSpace(want) == "" || (slot.name == "date 07-10" && !isBareYear(want)) {
+					continue
+				}
+				if got := slice008(out, slot.from, slot.to); got != want {
+					t.Errorf("%s: 008 %s = %q after the round trip, want %q\n in: %q\nout: %q",
+						sample, slot.name, got, want, in, out)
+				}
+			}
+		}
+	}
+}
+
+func control008(fields []codex.Field) string {
+	for _, f := range fields {
+		if f.Tag == "008" {
+			return f.Value
+		}
+	}
+	return ""
+}
+
+// slice008 reads a fixed-field range, tolerating a short 008 rather than
+// panicking on a malformed record.
+func slice008(v string, from, to int) string {
+	if len(v) < to {
+		return ""
+	}
+	return v[from:to]
+}
+
+func isBareYear(v string) bool {
+	if len(v) != 4 {
+		return false
+	}
+	for i := range v {
+		if v[i] < '0' || v[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
