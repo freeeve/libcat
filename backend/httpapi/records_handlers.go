@@ -255,6 +255,15 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeError(w, http.StatusBadRequest, "merge needs distinct from and to work ids")
 			return
 		}
+		// The retiring work must exist: the marker is a permanent
+		// instruction to the identity resolver (SeedMerge, with no removal
+		// route), so a mistyped from used to record false provenance
+		// against a work that was never there (tasks/214). The survivor's
+		// existence is checked by mutateWorkGrain reading its grain.
+		if _, _, err := bs.Get(r.Context(), bibframe.GrainPath(req.From)); err != nil {
+			writeError(w, http.StatusNotFound, "no such work: "+req.From)
+			return
+		}
 		// The marker lives in the survivor's grain (tasks/001 semantics).
 		etag, err := mutateWorkGrain(r, bs, ix, req.To, func(grain []byte) ([]byte, error) {
 			return bibframe.AddMergeMarker(grain, req.From, req.To)

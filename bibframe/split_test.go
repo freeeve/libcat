@@ -26,7 +26,8 @@ func TestScanPins(t *testing.T) {
 }
 
 func TestAddSplitMarkersIdempotent(t *testing.T) {
-	base := []byte("<#wsharedWork> <http://id.loc.gov/ontologies/bibframe/mainTitle> \"x\" <feed:overdrive> .\n")
+	base := []byte("<#wsharedWork> <http://id.loc.gov/ontologies/bibframe/mainTitle> \"x\" <feed:overdrive> .\n" +
+		"<#isame2Instance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:overdrive> .\n")
 	once, err := AddSplitMarkers(base, "wnew", "wshared", []string{"isame2"})
 	if err != nil {
 		t.Fatalf("AddSplitMarkers: %v", err)

@@ -1,6 +1,7 @@
 package bibframe
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -113,7 +114,28 @@ func scanPinsDataset(ds *rdf.Dataset) []identity.Pin {
 // idempotent. Recorded in the source Work's grain, the pins are recovered on the
 // next ingest and force the pinned Instances onto newWork. Thin wrapper over
 // ApplyEditorialPatch.
+// Every pinned Instance must be one the grain describes: a pin is a
+// permanent instruction to the identity resolver (SeedPin), so a typo or an
+// id from another record would silently strand that Instance on a work id
+// with no grain at the next ingest (tasks/214, the tasks/211 invariant).
 func AddSplitMarkers(grainNQ []byte, newWork, fromWork string, instanceIDs []string) ([]byte, error) {
+	ds, err := rdf.ParseNQuads(grainNQ)
+	if err != nil {
+		return nil, err
+	}
+	for _, inst := range instanceIDs {
+		subject := rdf.NewIRI(InstanceIRI(inst))
+		described := false
+		for i := range ds.Quads {
+			if ds.Quads[i].S == subject {
+				described = true
+				break
+			}
+		}
+		if !described {
+			return nil, fmt.Errorf("bibframe: %w: no instance %s in this grain", ErrNoSuchInstance, inst)
+		}
+	}
 	patch := Patch{Add: []rdf.Quad{{
 		S: rdf.NewIRI(WorkIRI(newWork)),
 		P: rdf.NewIRI(PredSplitFrom),

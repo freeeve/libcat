@@ -165,16 +165,40 @@ func TestMutateMissingWork404(t *testing.T) {
 
 func TestMergeSplitBatch(t *testing.T) {
 	h, bs := newRecordsAPI(t)
-	original := seedWorkGrain(t, bs)
+	_ = seedWorkGrain(t, bs)
+	// The survivor grain carries an instance (the split below pins it) and
+	// the retiring work really exists -- merge/split refuse phantom ids
+	// since tasks/214.
+	ds := &rdf.Dataset{}
+	feed := bibframe.FeedGraph("overdrive")
+	ds.Add(rdf.NewIRI(bibframe.WorkIRI(editWorkID)), rdf.NewIRI("http://id.loc.gov/ontologies/bibframe/title"), rdf.NewLiteral("A Book", "", ""), feed)
+	ds.Add(rdf.NewIRI(bibframe.InstanceIRI("i1")), rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), rdf.NewIRI("http://id.loc.gov/ontologies/bibframe/Instance"), feed)
+	original, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), bibframe.GrainPath(editWorkID), original, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	const srcWorkID = "wsrc999src999"
+	src := &rdf.Dataset{}
+	src.Add(rdf.NewIRI(bibframe.WorkIRI(srcWorkID)), rdf.NewIRI("http://id.loc.gov/ontologies/bibframe/title"), rdf.NewLiteral("Retiring", "", ""), feed)
+	srcNQ, err := src.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), bibframe.GrainPath(srcWorkID), srcNQ, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Merge via API reproduces AddMergeMarker byte-for-byte.
 	rec := request(t, h, http.MethodPost, "/v1/works/merge", "lib-token", "", map[string]string{
-		"from": "wzzz999zzz999", "to": editWorkID,
+		"from": srcWorkID, "to": editWorkID,
 	})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("merge: %d %s", rec.Code, rec.Body)
 	}
-	want, err := bibframe.AddMergeMarker(original, "wzzz999zzz999", editWorkID)
+	want, err := bibframe.AddMergeMarker(original, srcWorkID, editWorkID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,5 +290,36 @@ func TestDraftsCRUD(t *testing.T) {
 	}
 	if rec := request(t, h, http.MethodGet, "/v1/drafts/"+d.ID, "lib-token", "", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("get after delete: %d", rec.Code)
+	}
+}
+
+// TestMergeSplitRejectPhantomIDs covers tasks/214: merge refuses a retiring
+// work that has no grain, and split refuses instances the source grain does
+// not describe -- both markers are permanent identity-resolver instructions
+// with no removal route, so a typo must not write false provenance or
+// strand an Instance on a workless id.
+func TestMergeSplitRejectPhantomIDs(t *testing.T) {
+	h, bs := newRecordsAPI(t)
+	before := seedWorkGrain(t, bs)
+
+	// Merge with an unknown retiring work -> 404, survivor untouched.
+	rec := request(t, h, http.MethodPost, "/v1/works/merge", "lib-token", "", map[string]string{
+		"from": "wzzzz00e2eghost", "to": editWorkID,
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("phantom merge = %d %s, want 404", rec.Code, rec.Body)
+	}
+
+	// Split pinning an instance the grain does not describe -> 400.
+	rec = request(t, h, http.MethodPost, "/v1/works/split", "lib-token", "", map[string]any{
+		"from": editWorkID, "instances": []string{"izzsplitphantom"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("phantom split = %d %s, want 400", rec.Code, rec.Body)
+	}
+
+	after, _, _ := bs.Get(t.Context(), bibframe.GrainPath(editWorkID))
+	if !bytes.Equal(before, after) {
+		t.Fatalf("grain mutated by rejected merge/split:\n%s", after)
 	}
 }
