@@ -14,20 +14,24 @@ import (
 // provider keys are gone, and keeping them would trip identifier-based
 // duplicate resolution), the source record's admin metadata (the clone is a
 // fresh editorial description, so its 040 derives from the clone's own graph
-// facts per tasks/192), holdings (the physical copies belong to the source
-// work), and uncontrolled provider headings -- the blank-node bf:subject /
-// bf:genreForm shapes. Blank headings must not skolemize (an IRI object of
-// bf:subject reads as a controlled term everywhere) and blank editorial
-// statements are unpatchable, so like identifiers they stay with the source;
-// controlled subject IRIs carry over.
+// facts per tasks/192), and holdings (the physical copies belong to the
+// source work).
+//
+// Subject and genre headings are NOT dropped, controlled or not (tasks/238).
+// They were, on the reasoning that a skolemized blank heading "reads as a
+// controlled term everywhere" -- which tasks/218 made false the same week, by
+// teaching both readers (project.subjectsAndTags, ingest.SummarizeDataset)
+// that a grain-local IRI object of bf:subject is an uncontrolled heading, the
+// same as the blank node it stands in for. See GrainLocalIRI. Uncontrolled
+// headings are most of the subject access in a MARC-derived record, and
+// dropping them was invisible to the cataloger and visible to the reader as a
+// missing facet.
 func cloneDropsSubgraph(q *rdf.Quad) bool {
 	switch q.P.Value {
 	case "http://id.loc.gov/ontologies/bibframe/identifiedBy",
 		"http://id.loc.gov/ontologies/bibframe/adminMetadata",
 		predHasItem:
 		return true
-	case bfSubjectIRI, "http://id.loc.gov/ontologies/bibframe/genreForm":
-		return q.O.IsBlank()
 	case PredHasPart, PredPartOf:
 		// Work-to-work links are stored in both grains (tasks/221); a clone
 		// carrying its source's side would be a half-link no other grain
@@ -71,31 +75,50 @@ func CloneGrain(src []byte, workID string) ([]byte, string, error) {
 		if cloneDropsSubgraph(q) {
 			drop[q.O.Value] = true
 		}
-		if q.S.IsIRI() && strings.HasSuffix(q.S.Value, "Instance") && strings.HasPrefix(q.S.Value, "#") {
-			if _, ok := rename[q.S.Value]; !ok {
-				rename[q.S.Value] = InstanceIRI(identity.Mint(identity.InstancePrefix))
+		// An instance can be named from either end (bf:hasInstance names it as
+		// an object before its rdf:type names it as a subject).
+		for _, t := range []rdf.Term{q.S, q.O} {
+			if cloneInstanceIRI(t) {
+				if _, ok := rename[t.Value]; !ok {
+					rename[t.Value] = InstanceIRI(identity.Mint(identity.InstancePrefix))
+				}
 			}
 		}
 	}
-	// Close the drop set over blank-node children (identifier type/value
-	// nodes, item fields): shared named nodes like an org IRI stay.
+	// Close the drop set over the dropped nodes' children -- blank ones
+	// (identifier type/value nodes, item fields) and grain-local ones, which
+	// is what those children are in a grain that has already been cloned
+	// once. Shared named nodes like an org IRI stay.
 	for grew := true; grew; {
 		grew = false
 		for i := range ds.Quads {
 			q := &ds.Quads[i]
-			if drop[q.S.Value] && q.O.IsBlank() && !drop[q.O.Value] {
+			if !drop[q.S.Value] || drop[q.O.Value] {
+				continue
+			}
+			if q.O.IsBlank() || (q.O.IsIRI() && GrainLocalIRI(q.O.Value)) {
 				drop[q.O.Value] = true
 				grew = true
 			}
 		}
 	}
 
-	// Skolemize blank nodes to grain-local fragment IRIs: every clone
-	// statement is editorial, and the editorial patch machinery refuses
-	// blank-node patches (their identity is canonicalization-label-
-	// dependent), so a blank title/contribution node would make those
-	// fields uneditable -- the opposite of what a clone is for. The source
-	// is canonical, so first-appearance order names them deterministically.
+	// Give every node the clone owns a fresh grain-local name.
+	//
+	// Blank nodes skolemize because every clone statement is editorial and the
+	// editorial patch machinery refuses blank-node patches (their identity is
+	// canonicalization-label-dependent), so a blank title node would make that
+	// field uneditable -- the opposite of what a clone is for.
+	//
+	// Grain-local IRIs re-mint because GrainLocalIRI means "a node THIS grain
+	// minted". A source that was itself cloned already carries #<sourceID>n<k>
+	// nodes; passing them through would leave most of the new grain -- its
+	// title node included -- named after an ancestor work, forever (tasks/238).
+	// The Work and the instances are already in rename, so they keep their
+	// dedicated identities.
+	//
+	// The source is canonical, so first-appearance order names both kinds
+	// deterministically.
 	skolem := 0
 	editorial := EditorialGraph()
 	out := &rdf.Dataset{}
@@ -105,11 +128,12 @@ func CloneGrain(src []byte, workID string) ([]byte, string, error) {
 			continue
 		}
 		for _, t := range []rdf.Term{q.S, q.O} {
-			if t.IsBlank() {
-				if _, ok := rename[t.Value]; !ok {
-					skolem++
-					rename[t.Value] = fmt.Sprintf("#%sn%d", newID, skolem)
-				}
+			if !t.IsBlank() && !(t.IsIRI() && GrainLocalIRI(t.Value)) {
+				continue
+			}
+			if _, ok := rename[t.Value]; !ok {
+				skolem++
+				rename[t.Value] = fmt.Sprintf("#%sn%d", newID, skolem)
 			}
 		}
 		out.Add(renameTerm(q.S, rename), q.P, renameTerm(q.O, rename), editorial)
@@ -133,6 +157,11 @@ func CloneGrain(src []byte, workID string) ([]byte, string, error) {
 // value, never a controlled term, exactly like the blank nodes it stands
 // in for.
 func GrainLocalIRI(v string) bool { return strings.HasPrefix(v, "#") }
+
+// cloneInstanceIRI reports whether a term names a grain-local Instance node.
+func cloneInstanceIRI(t rdf.Term) bool {
+	return t.IsIRI() && strings.HasPrefix(t.Value, "#") && strings.HasSuffix(t.Value, "Instance")
+}
 
 // renameTerm maps a grain-local node (the Work and Instance fragment IRIs,
 // a skolemized blank node) onto the clone's freshly minted identity; every

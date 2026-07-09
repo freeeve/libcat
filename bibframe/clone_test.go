@@ -36,9 +36,10 @@ func cloneSourceGrain(t *testing.T) []byte {
 	adminNode := rdf.NewBlank("adm0")
 	ds.Add(inst1, rdf.NewIRI(bf+"adminMetadata"), adminNode, feed)
 	ds.Add(adminNode, rdf.NewIRI("http://www.w3.org/2000/01/rdf-schema#label"), rdf.NewLiteral("DLC", "", ""), feed)
-	// Subjects: a controlled term (IRI, carries) and an uncontrolled
-	// provider heading (blank node, stays with the source -- skolemizing it
-	// would forge a controlled term).
+	// Subjects: a controlled term (an authority IRI) and an uncontrolled
+	// provider heading (a blank node carrying its own label). Both carry to
+	// the clone; the heading skolemizes and still reads as uncontrolled,
+	// because GrainLocalIRI is what tells the readers apart (tasks/218/238).
 	ds.Add(work, rdf.NewIRI(bf+"subject"), rdf.NewIRI("http://id.loc.gov/authorities/subjects/sh85056595"), feed)
 	headingNode := rdf.NewBlank("subj0")
 	ds.Add(work, rdf.NewIRI(bf+"subject"), headingNode, feed)
@@ -102,16 +103,23 @@ func TestCloneGrain(t *testing.T) {
 	if len(insts) != 2 {
 		t.Fatalf("instances = %v, want 2 fresh ones", insts)
 	}
-	// Provider keys, admin metadata, holdings, curation markers, and
-	// uncontrolled headings stayed with the source; the controlled subject
-	// carried over.
-	for _, gone := range []string{"od-12345", "OverDrive", "DLC", "31234", "FIC UNG", "book-club", "Statesmen"} {
+	// Provider keys, admin metadata, holdings and curation markers stayed with
+	// the source.
+	for _, gone := range []string{"od-12345", "OverDrive", "DLC", "31234", "FIC UNG", "book-club"} {
 		if strings.Contains(text, gone) {
 			t.Fatalf("clone carried %q:\n%s", gone, text)
 		}
 	}
+	// Both headings carried: the controlled IRI verbatim, the uncontrolled one
+	// skolemized onto a grain-local node that keeps its label (tasks/238).
 	if !strings.Contains(text, "sh85056595") {
 		t.Fatalf("clone lost the controlled subject:\n%s", text)
+	}
+	if !strings.Contains(text, "Statesmen -- Virginia") {
+		t.Fatalf("clone lost the uncontrolled heading:\n%s", text)
+	}
+	if !strings.Contains(text, "<#"+newID+"n") {
+		t.Fatalf("the uncontrolled heading did not skolemize onto the clone:\n%s", text)
 	}
 	// Born suppressed (the draft state), nothing else set.
 	vis, err := Visibility(out, newID)
@@ -129,5 +137,45 @@ func TestCloneGrain(t *testing.T) {
 	// Describes-guard: a grain that does not describe the id refuses.
 	if _, _, err := CloneGrain(src, "wzzz999zzz999z"); err == nil {
 		t.Fatal("clone of undescribed work id succeeded")
+	}
+}
+
+// TestCloneOfCloneRemintsGrainLocalNodes covers tasks/238: a clone's own
+// skolems are grain-local nodes, so cloning the clone must re-mint them.
+// Passing them through would leave most of the second grain -- its title node
+// included -- named after the first work, and every descendant after that.
+func TestCloneOfCloneRemintsGrainLocalNodes(t *testing.T) {
+	src := cloneSourceGrain(t)
+	first, id1, err := CloneGrain(src, "w1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(first), "<#"+id1+"n") {
+		t.Fatalf("the first clone minted no skolems, so this test proves nothing:\n%s", first)
+	}
+	second, id2, err := CloneGrain(first, id1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(second)
+	// Not one statement may still name the parent clone -- neither its work id
+	// nor any node it minted.
+	if strings.Contains(text, id1) {
+		t.Fatalf("the clone of a clone still names %s:\n%s", id1, text)
+	}
+	if !strings.Contains(text, "<#"+id2+"n") {
+		t.Fatalf("the second clone re-minted nothing:\n%s", text)
+	}
+	// It is a faithful copy, not an empty one: the headings survive two hops.
+	for _, want := range []string{"sh85056595", "Statesmen -- Virginia", "A Book"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the clone of a clone lost %q:\n%s", want, text)
+		}
+	}
+	// And the drops still hold across two generations.
+	for _, gone := range []string{"od-12345", "DLC", "31234"} {
+		if strings.Contains(text, gone) {
+			t.Errorf("the clone of a clone carried %q", gone)
+		}
 	}
 }

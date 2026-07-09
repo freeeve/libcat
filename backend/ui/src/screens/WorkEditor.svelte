@@ -165,7 +165,9 @@
             class="button button--quiet"
             onclick={() => void doClone()}
             disabled={$session.busy || $session.ops.length > 0}
-            title={$session.ops.length > 0 ? "save or discard staged edits first" : "copy into a new suppressed draft with fresh ids"}
+            title={$session.ops.length > 0
+              ? "save or discard staged edits first"
+              : "copy into a new suppressed draft with fresh ids: description, subject and genre headings come along; identifiers, holdings and work links stay here"}
           >
             Clone
           </button>
