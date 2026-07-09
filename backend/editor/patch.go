@@ -79,6 +79,71 @@ func (p Patch) Validate(allowlist []string) error {
 	return nil
 }
 
+// Rebindable reports whether p can be applied to a work other than the one its
+// subjects name -- the question a batch edit has to answer before it writes
+// anything (tasks/240).
+//
+// A batch patch carries one literal subject. Applied verbatim to every selected
+// work, it writes quads describing the first work into every other work's
+// grain, and the dry run agrees with the corruption because it diffs the same
+// verbatim patch. The subject has to be rebound per work, which is only
+// meaningful for a Work node: an Instance id or a skolem child names a node in
+// one grain and nothing at all in another. A grain-local object has the same
+// problem. Both are refused rather than guessed at.
+func (p Patch) Rebindable() error {
+	for _, st := range append(append([]Statement{}, p.Add...), p.Remove...) {
+		if _, ok := bibframe.WorkIDFromIRI(st.S); !ok {
+			return fmt.Errorf("editor: subject %s is not a Work node; a batch patch edits each work's own Work node", st.S)
+		}
+		if st.O.Kind == "iri" && bibframe.GrainLocalIRI(st.O.Value) {
+			return fmt.Errorf("editor: object %s names a node inside one grain; a batch patch cannot reference it", st.O.Value)
+		}
+	}
+	return nil
+}
+
+// BoundTo checks that every Work-node subject in p names workID -- the
+// single-record form of the tasks/240 rule. A patch aimed at one work has no
+// business asserting statements about another work's node, and a grain that
+// describes a Work it does not contain is invisible to every reader that
+// resolves from the Work id inward.
+//
+// Subjects that are not Work nodes (an Instance node, a skolem child, an
+// absolute IRI) pass through: those are the shapes a single-record editorial
+// patch legitimately mints, and unlike the batch case there is nothing to
+// rebind them to.
+func (p Patch) BoundTo(workID string) error {
+	for _, st := range append(append([]Statement{}, p.Add...), p.Remove...) {
+		named, ok := bibframe.WorkIDFromIRI(st.S)
+		if ok && named != workID {
+			return fmt.Errorf("editor: subject %s names work %s, not %s", st.S, named, workID)
+		}
+	}
+	return nil
+}
+
+// RebindWork returns p with every subject rebound to workID's Work node, so
+// applying it to that work states something about that work. Call Rebindable
+// first; a subject that is not a Work node is left alone here rather than
+// silently rewritten.
+func (p Patch) RebindWork(workID string) Patch {
+	subject := bibframe.WorkIRI(workID)
+	rebind := func(in []Statement) []Statement {
+		if in == nil {
+			return nil
+		}
+		out := make([]Statement, len(in))
+		for i, st := range in {
+			if _, ok := bibframe.WorkIDFromIRI(st.S); ok {
+				st.S = subject
+			}
+			out[i] = st
+		}
+		return out
+	}
+	return Patch{Add: rebind(p.Add), Remove: rebind(p.Remove)}
+}
+
 func allowed(predicate string, allowlist []string) bool {
 	for _, prefix := range allowlist {
 		if strings.HasPrefix(predicate, prefix) {

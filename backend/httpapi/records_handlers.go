@@ -94,6 +94,10 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 		if !ok {
 			return
 		}
+		if err := patch.BoundTo(workID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if etag != ifMatch {
 			w.Header().Set("ETag", etag)
 			writeJSON(w, http.StatusPreconditionFailed, grainView{WorkID: workID, ETag: etag, NQuads: string(grain)})
@@ -235,8 +239,14 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		grain, etag, _, ok := readGrain(w, r)
+		grain, etag, workID, ok := readGrain(w, r)
 		if !ok {
+			return
+		}
+		// The preview refuses exactly what the write refuses, or it previews
+		// a request that cannot succeed.
+		if err := patch.BoundTo(workID); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		diff, _, err := editor.ComputeDiff(grain, patch)
@@ -329,6 +339,15 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// One patch, many works: its subject names a single Work node, so
+		// applied verbatim it would describe that one work inside every other
+		// work's grain -- with the dry run agreeing, because it diffed the same
+		// verbatim patch (tasks/240). Rebind the subject per work, and refuse
+		// outright the patches that cannot be rebound.
+		if err := req.Patch.Rebindable(); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		type itemResult struct {
 			WorkID string       `json:"workId"`
 			ETag   string       `json:"etag,omitempty"`
@@ -341,13 +360,14 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 				results = append(results, itemResult{WorkID: workID, Error: "bad work id"})
 				continue
 			}
+			patch := req.Patch.RebindWork(workID)
 			if req.DryRun {
 				grain, _, err := bs.Get(r.Context(), bibframe.GrainPath(workID))
 				if err != nil {
 					results = append(results, itemResult{WorkID: workID, Error: "no such work"})
 					continue
 				}
-				diff, _, err := editor.ComputeDiff(grain, req.Patch)
+				diff, _, err := editor.ComputeDiff(grain, patch)
 				if err != nil {
 					results = append(results, itemResult{WorkID: workID, Error: err.Error()})
 					continue
@@ -356,7 +376,7 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 				continue
 			}
 			etag, err := mutateWorkGrain(r, bs, ix, workID, func(grain []byte) ([]byte, error) {
-				return bibframe.ApplyEditorialPatch(grain, req.Patch.ToBibframe())
+				return bibframe.ApplyEditorialPatch(grain, patch.ToBibframe())
 			})
 			if err != nil {
 				results = append(results, itemResult{WorkID: workID, Error: err.Error()})

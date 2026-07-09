@@ -2,6 +2,7 @@ package bibframe
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -41,6 +42,23 @@ func WorkIRI(id string) string { return "#" + id + "Work" }
 
 // InstanceIRI returns the node IRI libcodex mints for an Instance id.
 func InstanceIRI(id string) string { return "#" + id + "Instance" }
+
+// workNodePattern matches exactly the IRI WorkIRI mints, and nothing that
+// merely starts like it: an editorial skolem node ("#<id>Work-ed-title") names
+// a title node, not the Work.
+var workNodePattern = regexp.MustCompile(`^#(w[a-z0-9]{6,20})Work$`)
+
+// WorkIDFromIRI recovers the Work id a grain-local Work node names. It is what
+// lets a statement about one Work be rebound to another (a batch edit): every
+// other grain-local node -- instances, skolem children -- names something that
+// exists in one grain and nowhere else, so it cannot be rebound at all.
+func WorkIDFromIRI(iri string) (string, bool) {
+	m := workNodePattern.FindStringSubmatch(iri)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
 
 // ScanMerges recovers the editorial merge decisions in one grain's N-Quads: every
 // lcat:mergedInto statement in the editorial graph, as From->To Work-id pairs. A

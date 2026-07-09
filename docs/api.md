@@ -156,6 +156,33 @@ grain, so across a selection it would edit whichever record happened to own it.
 `items` is the one non-work resource a batch may name, because it addresses a
 set rather than a node.
 
+### Editing: raw quad patches
+
+`PUT /v1/works/{id}` and `POST /v1/batch` take a quad-level patch (`add` /
+`remove` statements) rather than an op list. They are the machine surface; the
+admin UI uses the op endpoints above. Predicates are checked against an
+editorial allowlist.
+
+**A patch's subject must name the work it edits.** For `PUT`, a subject that is
+a Work node must be *this* work's; for `POST /v1/batch`, whose single patch is
+applied to many works, the Work-node subject is **rebound to each work in turn**
+(tasks/240). Without that, one patch wrote quads describing the first work into
+every other selected work's grain, and the dry run agreed with the corruption
+because it diffed the same verbatim patch.
+
+`POST /v1/batch` therefore refuses a patch it cannot rebind: a subject that is
+not a Work node (an Instance node or a skolem child names a node in one grain
+and nothing at all in another), or an object that is a grain-local IRI. `PUT`
+keeps accepting those, since a single-record patch legitimately mints its own
+skolem and instance nodes and there is nothing to rebind them to.
+
+The rule is enforced at the route, not in `bibframe.ApplyEditorialPatch`, because
+a grain describing *another* Work node is not universally wrong: a merge marker
+(`lcat:mergedInto`) lives in the survivor's grain with the **retiring** work as
+its subject. That is deliberate provenance, and the identity resolver reads it.
+The consequence is that `PUT /v1/works/{id}` can no longer hand-write a merge
+marker -- use `POST /v1/works/merge`, which is the audited path for it.
+
 ### Public intake
 
 `POST /v1/suggestions` and `POST /v1/concerns` accept unauthenticated patron
