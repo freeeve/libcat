@@ -350,11 +350,16 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 		rdfsLabel = "http://www.w3.org/2000/01/rdf-schema#label"
 	)
 	// One merged view over all graphs; enrichers see feed + editorial data.
-	merged := &rdf.Graph{}
+	// Built in one exactly-sized pass straight off the quads, in the same
+	// graph-grouped order Dataset.Graph would yield: materializing each
+	// graph and re-Adding tripled the copies and dominated the per-grain
+	// allocation profile at workindex boot/refresh scale (tasks/121).
+	merged := &rdf.Graph{Triples: make([]rdf.Triple, 0, len(ds.Quads))}
 	for _, gt := range ds.Graphs() {
-		g := ds.Graph(gt)
-		for _, tr := range g.Triples {
-			merged.Add(tr.S, tr.P, tr.O)
+		for i := range ds.Quads {
+			if q := &ds.Quads[i]; q.G == gt {
+				merged.Triples = append(merged.Triples, rdf.Triple{S: q.S, P: q.P, O: q.O})
+			}
 		}
 	}
 	// lcat:extra/* literals by subject, one pass: deployment-defined Work
