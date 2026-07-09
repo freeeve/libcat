@@ -762,6 +762,27 @@ export async function postCoverBatch(file: File): Promise<{ applied: number; res
   return callRaw("POST", "/v1/covers/batch", file, "application/zip");
 }
 
+/** One linked work in a relations listing (tasks/221). */
+export interface RelationEntry {
+  workId: string;
+  title?: string;
+}
+
+/** A work's editorial hasPart/partOf links with titles (librarian). */
+export function fetchRelations(workId: string): Promise<{ hasPart: RelationEntry[]; partOf: RelationEntry[] }> {
+  return call("GET", `/v1/works/${encodeURIComponent(workId)}/relations`);
+}
+
+/** Links two works; the inverse is written on the target (librarian). */
+export function addRelation(workId: string, kind: "hasPart" | "partOf", target: string): Promise<void> {
+  return call("POST", `/v1/works/${encodeURIComponent(workId)}/relations`, { kind, target });
+}
+
+/** Unlinks two works, retracting both directions (librarian). */
+export function removeRelation(workId: string, kind: "hasPart" | "partOf", target: string): Promise<void> {
+  return call("DELETE", `/v1/works/${encodeURIComponent(workId)}/relations`, { kind, target });
+}
+
 /** Batch scheme-agnostic term resolve: stored subject URIs to full terms;
  *  unresolvable URIs are absent from the map (tasks/071). */
 export function resolveTermURIs(ids: string[]): Promise<{ terms: Record<string, Term> }> {

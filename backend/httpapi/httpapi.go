@@ -156,6 +156,7 @@ func New(deps Deps) http.Handler {
 		registerCovers(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
 		registerClone(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
 		registerCoverBatch(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
+		registerRelations(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
 		wl := registerWorksList(mux, ix, deps.Verifier, deps.ExtraFacets, deps.Vocab)
 		registerTags(mux, wl, deps.Verifier)
 	}

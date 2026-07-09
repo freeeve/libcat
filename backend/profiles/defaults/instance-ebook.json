@@ -52,6 +52,23 @@
       "marcHint": "250"
     },
     {
+      "path": "series",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/seriesStatement"],
+      "label": "Series",
+      "help": "Series statement as transcribed (tasks/221)",
+      "valueSource": {"kind": "literal"},
+      "marcHint": "490$a"
+    },
+    {
+      "path": "seriesEnumeration",
+      "predicates": ["http://id.loc.gov/ontologies/bibframe/seriesEnumeration"],
+      "label": "Series enumeration",
+      "help": "Volume/part within the series, e.g. v. 2",
+      "max": 1,
+      "valueSource": {"kind": "literal"},
+      "marcHint": "490$v"
+    },
+    {
       "path": "publicationPlace",
       "predicates": ["http://id.loc.gov/ontologies/bibframe/provisionActivity", "http://id.loc.gov/ontologies/bflc/simplePlace"],
       "label": "Publication place",

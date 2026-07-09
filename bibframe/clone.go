@@ -28,6 +28,11 @@ func cloneDropsSubgraph(q *rdf.Quad) bool {
 		return true
 	case bfSubjectIRI, "http://id.loc.gov/ontologies/bibframe/genreForm":
 		return q.O.IsBlank()
+	case PredHasPart, PredPartOf:
+		// Work-to-work links are stored in both grains (tasks/221); a clone
+		// carrying its source's side would be a half-link no other grain
+		// reciprocates.
+		return true
 	}
 	return false
 }
