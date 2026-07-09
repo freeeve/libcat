@@ -186,3 +186,61 @@ partition and returns `[]` rather than an error.)
 Or in the UI: open `#/queue` in two tabs, click **Reject** on a row in tab one and
 **Apply**; then in tab two (whose page predates that) click **Approve** on the same row
 and **Apply**. Tab two says *"reviewed 1"*, and the suggestion is still rejected.
+
+## Outcome
+
+Fixed in **v0.101.0** (`2bb38cc`). The diagnosis was exact -- the information
+existed at `review.go:219` and was thrown away one line later -- and the fix is
+the one proposed.
+
+`Review` now returns `ReviewResult{Applied int, Skipped []Decision}`. The
+handler reports `{"reviewed": applied}` and returns the discarded decisions.
+`Queue.svelte` names them and **re-stages** them rather than clearing the
+moderator's work: *"reviewed 0 · 1 already decided by someone else"*.
+
+### The suggested response shape had a collision
+
+The report proposed `{"reviewed": applied, "skipped": len(skipped)}`, mirroring
+publish. That would have been overwritten. `publish.Result` already serializes
+`skipped` into this **same** response object, and `review_handlers.go` merges it
+with `maps.Copy(resp, pubResp)` *after* building the review half -- so on
+`publish: true`, the very path where both halves have something to say, the
+publisher's skipped count would silently replace the review's.
+
+The discarded decisions are returned as **`staleDecisions`** instead, and the
+full decisions come back rather than a count, which is what lets the queue
+re-stage them. `TestStaleDecisionsDoNotCollideWithThePublishSkippedCount`
+pins the distinction, asserting the publish half actually ran.
+
+### R8 in `probe_review_apply.mjs` is asserting the wrong thing
+
+R8 fails, and should be changed rather than fixed. It records `FAIL` when the
+stored decision is A's:
+
+```js
+rec('R8', "B's decision was the one discarded",
+    ui?.reviewNote === 'zz-e2e A (out of band)' ? 'FAIL' : 'PASS', …)
+```
+
+But A resolved the suggestion first, so A's decision **must** stand. R8 can only
+pass if a stale decision clobbers a fresh one -- last-writer-wins, which is the
+bug, not the fix. This report says so itself:
+
+> Both branches are correct: this is exactly the optimistic-concurrency check
+> the queue needs.
+
+The harm was never that B's decision was discarded; it was that B was *told it
+had been applied*. That is R7, and R7 passes. Suggest R8 assert the positive:
+after the fix, B's decision comes back in `staleDecisions` and is still staged
+in the UI.
+
+### Verification
+
+Four tests in `backend/suggest/stale_review_test.go` (stale approve, nonexistent
+suggestion, mixed batch, and that a skipped decision still writes no audit
+entry), two in `backend/httpapi/stale_review_test.go`. Both handler tests were
+proven to fail against the pre-fix code by restoring `len(req.Decisions)`: they
+reported `reviewed = 1` for a decision that changed nothing, exactly as filed.
+
+`probe_review_apply.mjs`: R2, R4, R5, R7 all PASS (were the bug). `retest.mjs`:
+**t257 FIXED**.
