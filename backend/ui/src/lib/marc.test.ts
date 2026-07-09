@@ -26,6 +26,46 @@ describe("subfield line syntax", () => {
     expect(lineToSubfields("")).toEqual([]);
     expect(lineToSubfields("$a $b kept")).toEqual([{ code: "b", value: "kept" }]);
   });
+
+  // tasks/227: a literal dollar amount is not a delimiter -- "$2" followed
+  // by a digit (no space) must stay inside its value, or a price three
+  // fields from the cursor is silently rewritten on save.
+  it("keeps dollar amounts inside values", () => {
+    expect(lineToSubfields("$a List price $24.95 at issue")).toEqual([{ code: "a", value: "List price $24.95 at issue" }]);
+    expect(lineToSubfields("$a The novel $c $24.95")).toEqual([
+      { code: "a", value: "The novel" },
+      { code: "c", value: "$24.95" },
+    ]);
+    expect(lineToSubfields("$a Item $c $5.00")).toEqual([
+      { code: "a", value: "Item" },
+      { code: "c", value: "$5.00" },
+    ]);
+  });
+
+  it("round-trips values containing dollar amounts", () => {
+    const cases = [
+      [{ code: "a", value: "List price $24.95 at issue" }],
+      [
+        { code: "a", value: "The novel" },
+        { code: "c", value: "$24.95" },
+      ],
+      [
+        { code: "a", value: "Item" },
+        { code: "c", value: "$5.00" },
+      ],
+      [
+        { code: "a", value: "Gideon the Ninth" },
+        { code: "b", value: "a novel /" },
+      ],
+    ];
+    for (const subs of cases) {
+      expect(lineToSubfields(subfieldsToLine(subs))).toEqual(subs);
+    }
+  });
+
+  it("a mid-value $-code without a following space is literal text", () => {
+    expect(lineToSubfields("$a see $b2 for details")).toEqual([{ code: "a", value: "see $b2 for details" }]);
+  });
 });
 
 describe("fixed-field slots", () => {

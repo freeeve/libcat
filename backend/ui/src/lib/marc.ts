@@ -9,22 +9,30 @@ export function subfieldsToLine(subfields: MarcSubfield[] | undefined): string {
 }
 
 /** Parses a "$a Foo $b Bar" line back to subfields. Text before the first
- *  delimiter becomes $a (typing without delimiters still works). */
+ *  delimiter becomes $a (typing without delimiters still works).
+ *
+ *  A delimiter is "$" + one alphanumeric code standing ALONE: preceded by
+ *  line start or whitespace and followed by whitespace or line end. A
+ *  literal dollar amount ("$24.95", "$5.00") therefore stays inside its
+ *  value instead of silently reparsing as a bogus subfield (tasks/227) --
+ *  the serializer always emits the spaced form, so real delimiters always
+ *  qualify. The cost is that "$aFoo" (no space) no longer starts a
+ *  subfield; it reads as literal text. */
 export function lineToSubfields(line: string): MarcSubfield[] {
   const out: MarcSubfield[] = [];
   const trimmed = line.trim();
   if (trimmed === "") return out;
-  // Split on "$x" delimiters (a code is one alphanumeric after $).
-  const re = /\$([a-z0-9])\s?/gi;
+  const re = /(^|\s)\$([a-z0-9])(?=\s|$)/gi;
   let match = re.exec(trimmed);
   if (!match) return [{ code: "a", value: trimmed }];
-  if (match.index > 0) out.push({ code: "a", value: trimmed.slice(0, match.index).trim() });
+  const firstStart = match.index + match[1].length;
+  if (firstStart > 0) out.push({ code: "a", value: trimmed.slice(0, firstStart).trim() });
   while (match) {
-    const code = match[1].toLowerCase();
-    const start = match.index + match[0].length;
+    const code = match[2].toLowerCase();
+    const valueStart = match.index + match[0].length;
     const next = re.exec(trimmed);
-    const value = trimmed.slice(start, next ? next.index : undefined).trim();
-    out.push({ code, value });
+    const nextStart = next ? next.index + next[1].length : undefined;
+    out.push({ code, value: trimmed.slice(valueStart, nextStart).trim() });
     match = next;
   }
   return out.filter((sf) => sf.value !== "");
