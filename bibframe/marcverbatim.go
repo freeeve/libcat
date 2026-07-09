@@ -101,9 +101,25 @@ func addInstanceVerbatim(g *rdf.Graph, instanceID string, fields []string) {
 // per-Work+Instance enumeration; if the counts ever disagree, verbatim
 // attachment is skipped rather than misattached.
 func DecodeGrainMARC(grain []byte) ([]*codex.Record, error) {
+	recs, _, err := decodeGrainMARC(grain)
+	return recs, err
+}
+
+// decodeGrainMARC is DecodeGrainMARC plus whether the grain carries any
+// editorial-graph statement -- the fact the tasks/192 cataloging-source
+// derivation reads.
+func decodeGrainMARC(grain []byte) ([]*codex.Record, bool, error) {
 	ds, err := rdf.ParseNQuads(grain)
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	edited := false
+	editorial := EditorialGraph()
+	for _, q := range ds.Quads {
+		if q.G == editorial {
+			edited = true
+			break
+		}
 	}
 	overrides := ScanOverrides(ds)
 	verbatim := map[string][]string{}
@@ -136,7 +152,7 @@ func DecodeGrainMARC(grain []byte) ([]*codex.Record, error) {
 	}
 	recs, err := codexbf.Decode(doc)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	nodes := marcRecordNodes(ds)
 	if len(nodes) == len(recs) {
@@ -146,13 +162,13 @@ func DecodeGrainMARC(grain []byte) ([]*codex.Record, error) {
 			for _, raw := range fields {
 				f, err := DecodeVerbatimField(raw)
 				if err != nil {
-					return nil, fmt.Errorf("bibframe: bad verbatim sidecar on %s: %w", nodes[i], err)
+					return nil, false, fmt.Errorf("bibframe: bad verbatim sidecar on %s: %w", nodes[i], err)
 				}
 				rec.AddField(f)
 			}
 		}
 	}
-	return recs, nil
+	return recs, edited, nil
 }
 
 // filterPreferredSubjectLabels keeps one prefLabel language per bf:subject

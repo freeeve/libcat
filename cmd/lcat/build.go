@@ -132,6 +132,9 @@ type exportStep struct {
 	// PublicSources overrides the [project] allowlist for the nq download;
 	// unset inherits it, so one policy covers both public surfaces.
 	PublicSources []string `toml:"public-sources"`
+	// OrgCode is the deployment's MARC organization code: the MARC
+	// downloads derive each record's 040 from graph facts (tasks/192).
+	OrgCode string `toml:"org-code"`
 }
 
 type indexStep struct {
@@ -218,7 +221,7 @@ func buildIngest(cfg *buildConfig, src buildSource) error {
 // buildExportStep derives the download artifacts, inheriting the [project]
 // public-sources allowlist unless [export] sets its own.
 func buildExportStep(cfg *buildConfig) error {
-	opts := export.Options{In: cfg.Out, Out: cfg.Export.Out}
+	opts := export.Options{In: cfg.Out, Out: cfg.Export.Out, OrgCode: cfg.Export.OrgCode}
 	publicSources := cfg.Export.PublicSources
 	if publicSources == nil && cfg.Project != nil {
 		publicSources = cfg.Project.PublicSources

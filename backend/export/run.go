@@ -216,7 +216,7 @@ func (s *Service) emitMARC(ctx context.Context, w io.Writer, paths []string) (in
 	mw := iso2709.NewWriter(w)
 	count := 0
 	err := s.eachGrain(ctx, paths, func(_ string, grain []byte) error {
-		recs, err := bibframe.DecodeGrainMARC(grain)
+		recs, err := bibframe.DecodeGrainMARCSource(grain, s.OrgCode)
 		if err != nil {
 			return err
 		}
@@ -238,7 +238,7 @@ func (s *Service) emitJSONLD(ctx context.Context, w io.Writer, paths []string) (
 	count := 0
 	var buf bytes.Buffer
 	err := s.eachGrain(ctx, paths, func(_ string, grain []byte) error {
-		recs, err := bibframe.DecodeGrainMARC(grain)
+		recs, err := bibframe.DecodeGrainMARCSource(grain, s.OrgCode)
 		if err != nil {
 			return err
 		}

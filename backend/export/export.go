@@ -99,6 +99,10 @@ type Service struct {
 	// Vocab, when set, enables authority exports over the loaded term index
 	// (tasks/069).
 	Vocab *vocab.Index
+	// OrgCode is the deployment's MARC organization code; when set, MARC and
+	// JSON-LD exports derive each record's 040 from graph facts at decode
+	// time (tasks/192).
+	OrgCode string
 	// tokenSecret signs fallback download tokens.
 	tokenSecret []byte
 	now         func() time.Time

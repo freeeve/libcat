@@ -22,10 +22,12 @@ func runExport(args []string) error {
 	manifest := fs.String("manifest", "", "manifest path the downloads page reads (default <out>/downloads.json)")
 	publicSources := fs.String("public-sources", "",
 		"comma-separated extra.sources names allowed in the nq download; others are stripped (tasks/172). Empty (default) keeps everything.")
+	orgCode := fs.String("org-code", "",
+		"deployment MARC organization code: derives each record's 040 from graph facts in the MARC downloads (tasks/192). Empty disables.")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	opts := export.Options{In: *in, Out: *out}
+	opts := export.Options{In: *in, Out: *out, OrgCode: *orgCode}
 	if *publicSources != "" {
 		opts.PublicSources = project.SourceSet(*publicSources)
 	}

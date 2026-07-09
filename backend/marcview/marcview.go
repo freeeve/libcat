@@ -86,7 +86,14 @@ func DocToRecord(doc RecordDoc) (*codex.Record, error) {
 
 // View materializes every record a grain carries.
 func View(grain []byte) ([]RecordDoc, error) {
-	recs, err := bibframe.DecodeGrainMARC(grain)
+	return ViewSource(grain, "")
+}
+
+// ViewSource is View with the deployment's MARC organization code: each
+// record's 040 derives from graph facts at decode time (tasks/192). Empty
+// org decodes unchanged.
+func ViewSource(grain []byte, org string) ([]RecordDoc, error) {
+	recs, err := bibframe.DecodeGrainMARCSource(grain, org)
 	if err != nil {
 		return nil, err
 	}

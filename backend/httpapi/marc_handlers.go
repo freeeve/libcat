@@ -23,7 +23,7 @@ import (
 // record back as an editorial diff under If-Match, with dryRun returning the
 // exact quad delta. The fidelity table rides along so the SPA can warn
 // without hardcoding it.
-func registerMARC(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue *suggest.Service, prof *profilesvc.Service, vocabIx *vocab.Index, verifier auth.TokenVerifier) {
+func registerMARC(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue *suggest.Service, prof *profilesvc.Service, vocabIx *vocab.Index, verifier auth.TokenVerifier, orgCode string) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	readGrain := func(w http.ResponseWriter, r *http.Request) ([]byte, string, string, bool) {
@@ -35,7 +35,7 @@ func registerMARC(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue 
 		if !ok {
 			return
 		}
-		docs, err := marcview.View(grain)
+		docs, err := marcview.ViewSource(grain, orgCode)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "marc materialization failed")
 			return
@@ -74,7 +74,7 @@ func registerMARC(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue 
 				return
 			}
 		}
-		docs, err := marcview.View(updated)
+		docs, err := marcview.ViewSource(updated, orgCode)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "marc materialization failed")
 			return

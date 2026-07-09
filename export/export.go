@@ -44,6 +44,10 @@ type Options struct {
 	PublicSources map[string]bool
 	// Log receives skip and strip warnings; nil means os.Stderr.
 	Log io.Writer
+	// OrgCode is the deployment's MARC organization code; when set, the
+	// MARC download derives each record's 040 from graph facts at decode
+	// time (tasks/192).
+	OrgCode string
 }
 
 // Manifest is the downloads-page data file: what was generated when, from how
@@ -88,7 +92,7 @@ func Run(opts Options) (*Manifest, error) {
 	nq.Records = len(grains) // one Work per grain
 	files = append(files, nq)
 
-	mrc, xml, err := emitMARC(grains, opts.Out, opts.Log)
+	mrc, xml, err := emitMARC(grains, opts.Out, opts.Log, opts.OrgCode)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +228,7 @@ func filterSourcesQuad(line string, public map[string]bool) string {
 // represent (ISO 2709 caps a record at 99,999 bytes and a field at 9,999) are
 // skipped from both artifacts with a warning, so one pathological record does
 // not abort the export; both artifacts always contain the same record set.
-func emitMARC(grains []string, out string, log io.Writer) (File, File, error) {
+func emitMARC(grains []string, out string, log io.Writer, org string) (File, File, error) {
 	none := File{}
 	gm, wm, err := newGzFile(filepath.Join(out, "catalog.mrc.gz"))
 	if err != nil {
@@ -242,7 +246,7 @@ func emitMARC(grains []string, out string, log io.Writer) (File, File, error) {
 		if err != nil {
 			return none, none, err
 		}
-		recs, err := bibframe.DecodeGrainMARC(grain)
+		recs, err := bibframe.DecodeGrainMARCSource(grain, org)
 		if err != nil {
 			return none, none, fmt.Errorf("%s: %w", path, err)
 		}

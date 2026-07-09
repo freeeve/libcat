@@ -124,6 +124,13 @@ type Config struct {
 	// Default "overdrive".
 	Provider string
 
+	// OrgCode is the deployment's MARC organization code. When set, MARC
+	// surfaces (the MARC view, exports) derive each record's 040 cataloging
+	// source from graph facts at decode time (tasks/192): locally edited
+	// records gain this code as a modifying-agency $d, born-digital records
+	// synthesize 040 $a/$c. Empty disables the derivation.
+	OrgCode string
+
 	// EnrichLocsh enables the id.loc.gov LCSH reconciliation source when set
 	// to "queue" (moderated) or "direct" (auto-approve).
 	EnrichLocsh string
@@ -158,6 +165,7 @@ func FromEnv() (Config, error) {
 		TriggerSQSURL:     os.Getenv("LCATD_TRIGGER_SQS_URL"),
 		TriggerEventBus:   os.Getenv("LCATD_TRIGGER_EVENT_BUS"),
 		Provider:          envOr("LCATD_PROVIDER", "overdrive"),
+		OrgCode:           os.Getenv("LCATD_ORG_CODE"),
 		EnrichLocsh:       os.Getenv("LCATD_ENRICH_LOCSH"),
 	}
 	if cfg.Sandbox {

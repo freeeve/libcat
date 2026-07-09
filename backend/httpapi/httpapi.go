@@ -78,6 +78,10 @@ type Deps struct {
 	DB store.Store
 	// Exports, when set, mounts the export-job surface.
 	Exports *export.Service
+	// OrgCode is the deployment's MARC organization code; MARC surfaces
+	// derive each record's 040 from graph facts at decode time when set
+	// (tasks/192).
+	OrgCode string
 	// Enrich, when set, mounts the admin enrichment surface.
 	Enrich *enrich.Service
 	// VocabSources, when set, mounts the authority-source registry, the
@@ -147,7 +151,7 @@ func New(deps Deps) http.Handler {
 			ix = workindex.New(deps.Blob, "data/works/")
 		}
 		registerRecords(mux, deps.Blob, ix, deps.DB, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier, hook)
-		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier)
+		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier, deps.OrgCode)
 		registerMaintenance(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
 		wl := registerWorksList(mux, ix, deps.Verifier, deps.ExtraFacets, deps.Vocab)
 		registerTags(mux, wl, deps.Verifier)
