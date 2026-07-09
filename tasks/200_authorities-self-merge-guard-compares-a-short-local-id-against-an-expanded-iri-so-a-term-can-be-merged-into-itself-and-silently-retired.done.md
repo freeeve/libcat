@@ -91,3 +91,19 @@ node harness/probe_selfmerge.mjs
   **200 text/html** rather than 404/405 -- see task 201. A handful of
   `zz-selfmerge-*` / `zz-e2e-auth-*` local headings are now retired-but-present
   in the 8481 playground blob store as a result.
+
+## Outcome
+
+Fixed in aeb4eb0, released v0.51.0. As diagnosed: a local winner's
+short minted id now canonicalizes to its authority IRI before the
+guard (keyed on Scheme==local + IDPattern), so a self-merge rejects in
+BOTH id forms -- and as a bonus the stored marker, reference rewrites,
+and winnerSubject lookup now carry the canonical IRI for local
+winners, matching non-local ones (fixes the short-id mergedInto your
+probe recorded, and the Lookup miss that lost the winner's labels).
+Your requested table test is TestMergeSelfGuard (short-id self,
+full-IRI self, empty, plus a distinct short-id winner asserting the
+canonicalized result). Verified live: self-merge with the short id ->
+400 "merge needs a distinct winner term", heading still gettable.
+The zz-* tombstones your probes left in the playground store remain
+(no DELETE route exists -- a fair follow-up ask if you want one).
