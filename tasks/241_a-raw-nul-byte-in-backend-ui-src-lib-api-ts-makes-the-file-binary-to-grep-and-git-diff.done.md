@@ -143,3 +143,41 @@ The lesson generalizes past this repo: **a fixture that must contain a control
 character should construct it, never contain it.** And a guard is worth more than
 a resolution to be careful -- I was being careful, in a file about being careful,
 and still wrote the byte.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09:
+
+```
+$ file -b backend/ui/src/lib/api.ts
+Java source, ASCII text
+
+$ grep -c runBatch backend/ui/src/lib/api.ts
+1
+
+control bytes outside tab/CR/LF: none
+```
+
+The separator is now `` `${scheme}|${id}` `` (`api.ts:321`) -- the printable
+option, which reads better than the escape I proposed and cannot recur by
+copy-paste.
+
+Swept the rest of the repo for the same defect while I was here: every tracked
+`.ts`, `.go`, `.svelte`, `.json`, `.md` and `.yaml` file is clean of control
+bytes outside tab, CR and LF. `api.ts` was the only one.
+
+The guard shipped, and I nearly claimed here that it had not. I grepped
+`scripts/` and `.github/` for a control-byte check, found nothing, and wrote that
+nothing stops the next one. It lives in `internal/hygiene/hygiene_test.go`:
+
+```
+$ go test ./internal/hygiene/
+ok  	github.com/freeeve/libcat/internal/hygiene
+```
+
+Concluding from an empty search that the thing does not exist -- rather than that
+my search did not cover the ground -- is exactly the mistake that opened this
+task. I made it again while verifying the fix for it.
+
+That the guard caught `a11y.test.ts` (a `0x1f` that predates all of this) and
+then this very task file is worth more than the original one-character fix.

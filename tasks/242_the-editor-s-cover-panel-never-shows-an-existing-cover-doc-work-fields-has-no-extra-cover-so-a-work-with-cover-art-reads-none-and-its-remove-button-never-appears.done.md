@@ -164,3 +164,39 @@ which is exactly the session in which anyone would test the feature." The panel
 holds `current` in local state, so the person who just uploaded a cover sees it,
 the Remove button, and the "Replace…" label. Everything works, once, for the one
 person who cannot be harmed by it not working.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t242` FIXED) and by
+`ui/probe_cover.mjs`, now **21/21**:
+
+```
+PASS V18  a work that has a cover still shows one after a reload
+          the reloaded panel has 1 <img> and reads "COVER Replace… Remove"
+PASS V19  the existing cover can be removed from the editor
+          Remove buttons: 1; the upload control reads "Replace…"
+PASS V20  after a reload the panel shows the replacement, not the cached original
+          src="/covers/whhq5b30j8si0i.png?v=0" (cache-buster back to v=0: true); rgba=[0,0,255,255]
+```
+
+Controls held: `V15`, `V16` and `V17` stayed green, so the panel still renders
+the cover it just uploaded and the in-session cache-buster still works.
+
+Returning `cover` at the top of the doc response, beside `doc` and `etag`, is the
+better of the two options I offered, and the code comment says why more precisely
+than my report did: it is not a profile field, so putting it in `doc.work.fields`
+would have handed a blob URL to the generic field editor as editable text.
+
+`V20` passes only because tasks/243 shipped the etag in the same batch. On a
+reload the panel requests `?v=0` again -- the exact URL the browser cached an
+hour earlier -- and gets the new image because the response now revalidates. Had
+this landed alone, fixing the panel would have *surfaced* the stale-cache bug
+rather than hidden it. The two were more coupled than either report said.
+
+**I had to correct my own check to see the fix.** `t242` looked for the cover at
+`doc.work.fields["extra/cover"]` or `doc.cover` -- inside the doc -- because those
+were the two shapes my report proposed. The fix put it at `response.cover`,
+satisfying the panel and neither of my guesses, so the check reported
+STILL-BROKEN against working code. It now accepts any of the three. A retest that
+recognises only the fix its filer imagined is worse than no retest: it argues
+confidently for the wrong conclusion.

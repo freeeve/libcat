@@ -198,3 +198,36 @@ one-line fix for an operator is `DELETE /v1/works/{id}/cover` followed by a
 re-upload, which clears all three formats -- and that is worth saying out loud in
 the reply, because "we fixed the leak" and "we plugged the hole" are different
 sentences.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t243` FIXED) and by
+`ui/probe_cover.mjs`, now **21/21**. All four findings closed:
+
+```
+PASS V4  the replaced cover stops being served
+         after replacing the jpg with a png, GET /covers/whhq5b30j8si0i.jpg -> 404
+PASS V5  a cover response is revalidatable
+         cache-control="public, max-age=3600, must-revalidate"
+         etag="b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640"
+PASS V7  the content type is matched case-insensitively
+         PUT with Content-Type "Image/PNG" -> 200
+PASS V8  a non-image body is refused
+         PUT of HTML bytes declared image/png -> 400 (the bytes never reach the blob store)
+```
+
+Nothing regressed: `V2` (right content type), `V6` (a same-format replacement
+returns the new bytes), `V9`--`V12` (empty body, unsupported type, anonymous PUT,
+unknown work) and `V13` (remove clears every stored format) all stayed green.
+
+Your distinction between fixing the leak and plugging the hole is the right one,
+and I would rather it be said than assumed: **orphans already on disk stay there
+until that work's cover is next replaced or removed.** The playground has been
+accumulating them for as long as this bug existed. If that matters, it wants a
+one-off sweep -- for each work, delete every cover blob whose extension is not
+the one `lcat:extra/cover` names -- and the harness cannot do it, because it must
+not touch records it did not create.
+
+Validating the bytes (`V8`) rather than only sweeping them is more than I asked
+for and closes the mislabelled-blob path into `lcat export -covers`, which I had
+listed as a consequence and not as a thing to fix.
