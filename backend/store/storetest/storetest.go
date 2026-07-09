@@ -4,8 +4,11 @@
 package storetest
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +31,7 @@ func Run(t *testing.T, s store.Store, opts Options) {
 	t.Run("VersionLifecycle", func(t *testing.T) { testVersionLifecycle(t, s) })
 	t.Run("CondIfAbsent", func(t *testing.T) { testCondIfAbsent(t, s) })
 	t.Run("CondIfVersion", func(t *testing.T) { testCondIfVersion(t, s) })
+	t.Run("ConcurrentCAS", func(t *testing.T) { testConcurrentCAS(t, s) })
 	t.Run("Delete", func(t *testing.T) { testDelete(t, s) })
 	t.Run("Query", func(t *testing.T) { testQuery(t, s) })
 	t.Run("QueryPagination", func(t *testing.T) { testQueryPagination(t, s) })
@@ -178,6 +182,92 @@ func testCondIfVersion(t *testing.T, s store.Store) {
 	if _, err := s.Put(t.Context(), ghost, store.CondIfVersion); !errors.Is(err, store.ErrConditionFailed) {
 		t.Fatalf("versioned Put on missing: err = %v, want ErrConditionFailed", err)
 	}
+}
+
+// casWriters is small enough to stay quick and large enough that a
+// non-atomic CondIfVersion loses an update on essentially every run.
+const casWriters = 8
+
+// testConcurrentCAS is the only test in this suite that two writers race, and
+// it exists because the rest of the suite cannot see the failure it catches.
+//
+// CondIfVersion is a compare-and-swap: read at version N, write back "only if
+// still N". Every writer here read-modify-writes a shared counter through it,
+// retrying on ErrConditionFailed, so a store that implements the condition
+// atomically must end at exactly casWriters -- each increment either won its
+// version or was rejected and retried against a fresh read. A store that
+// merely *reports* success without isolating the read from the write loses
+// updates and ends below it.
+//
+// Single-threaded conformance cannot distinguish the two. ScyllaDB Alternator
+// run with --alternator-write-isolation=unsafe_rmw passes every other test in
+// this file while silently dropping concurrent edits (tasks/165): the queue's
+// state transitions, the ingest lease, and the record editor's If-Match all
+// rest on this being real.
+func testConcurrentCAS(t *testing.T, s store.Store) {
+	ctx := t.Context()
+	key := k("CAS#1", "COUNTER")
+	if _, err := s.Put(ctx, store.Record{Key: key, Data: []byte("0")}, store.CondIfVersion); err != nil {
+		t.Fatalf("seed the counter: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, casWriters)
+	for i := range casWriters {
+		wg.Add(1)
+		go func(writer int) {
+			defer wg.Done()
+			if err := casIncrement(ctx, s, key); err != nil {
+				errs <- fmt.Errorf("writer %d: %w", writer, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	final, err := s.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("read the counter back: %v", err)
+	}
+	got, err := strconv.Atoi(string(final.Data))
+	if err != nil {
+		t.Fatalf("counter is not a number: %q", final.Data)
+	}
+	if got != casWriters {
+		t.Fatalf("counter = %d after %d compare-and-swap increments, want %d: "+
+			"%d update(s) were lost, so CondIfVersion reports success without being atomic",
+			got, casWriters, casWriters, casWriters-got)
+	}
+}
+
+// casIncrement adds one to the counter at key through a read/CondIfVersion-write
+// loop, retrying while the condition loses to another writer.
+func casIncrement(ctx context.Context, s store.Store, key store.Key) error {
+	const maxAttempts = 200
+	for attempt := range maxAttempts {
+		cur, err := s.Get(ctx, key)
+		if err != nil {
+			return fmt.Errorf("get: %w", err)
+		}
+		n, err := strconv.Atoi(string(cur.Data))
+		if err != nil {
+			return fmt.Errorf("counter is not a number: %q", cur.Data)
+		}
+		next := store.Record{Key: key, Data: []byte(strconv.Itoa(n + 1)), Version: cur.Version}
+		switch _, err := s.Put(ctx, next, store.CondIfVersion); {
+		case err == nil:
+			return nil
+		case errors.Is(err, store.ErrConditionFailed):
+			// Another writer took this version. Re-read and try again.
+			time.Sleep(time.Duration(attempt%5+1) * time.Millisecond)
+		default:
+			return fmt.Errorf("put: %w", err)
+		}
+	}
+	return fmt.Errorf("gave up after %d compare-and-swap attempts", maxAttempts)
 }
 
 func testDelete(t *testing.T, s store.Store) {
