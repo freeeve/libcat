@@ -9,21 +9,23 @@ const MAX_ENTRIES = 20;
 export const fieldClipboard = $state<{ entries: MarcField[] }>({ entries: [] });
 
 /** Adds a field to the top of the clipboard (a plain deep copy, so later
- *  grid edits cannot mutate it). */
+ *  grid edits cannot mutate it). Snapshot first: callers may hand a $state
+ *  proxy, which structuredClone cannot clone (tasks/224). */
 export function clipPush(f: MarcField): void {
-  fieldClipboard.entries = [structuredClone(f), ...fieldClipboard.entries].slice(0, MAX_ENTRIES);
+  fieldClipboard.entries = [structuredClone($state.snapshot(f)) as MarcField, ...fieldClipboard.entries].slice(0, MAX_ENTRIES);
 }
 
-/** The most recent entry, copied for insertion; undefined when empty. */
+/** The most recent entry, copied for insertion; undefined when empty.
+ *  Reading entries back through the module $state re-proxies them, so the
+ *  copy must snapshot before cloning (tasks/224). */
 export function clipPeek(): MarcField | undefined {
-  const f = fieldClipboard.entries[0];
-  return f ? structuredClone(f) : undefined;
+  return clipAt(0);
 }
 
 /** A specific entry, copied for insertion (the tasks/076 pane picks). */
 export function clipAt(i: number): MarcField | undefined {
   const f = fieldClipboard.entries[i];
-  return f ? structuredClone(f) : undefined;
+  return f ? (structuredClone($state.snapshot(f)) as MarcField) : undefined;
 }
 
 /** Removes one entry. */

@@ -46,18 +46,23 @@
   async function loadTemplates(): Promise<void> {
     try {
       templates = (await fetchCopycatTemplates()).templates ?? [];
-      if (!st.record && templates.length > 0) pick(st.templateId || templates[0].id);
     } catch {
+      // Only the fetch belongs to this message: an error thrown after a
+      // 200 must not masquerade as a load failure (tasks/224).
       error = "loading the templates failed";
+      return;
     }
+    if (!st.record && templates.length > 0) pick(st.templateId || templates[0].id);
   }
 
-  /** Starts (or restarts) the draft from a skeleton. */
+  /** Starts (or restarts) the draft from a skeleton. Snapshot before the
+   *  clone: templates is $state, and structuredClone cannot clone its
+   *  proxies (tasks/224). */
   function pick(id: string): void {
     const tpl = templates.find((t) => t.id === id);
     if (!tpl) return;
     st.templateId = id;
-    st.record = structuredClone(tpl.record);
+    st.record = structuredClone($state.snapshot(tpl.record)) as MarcRecordDoc;
     fieldErrors = [];
     textValid = true;
   }
