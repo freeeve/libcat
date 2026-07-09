@@ -122,3 +122,78 @@ Expect `K2`, `K3` and `K5` to flip to PASS, with `K1` (the control) and `K4`
 staying green. The probe mints its own sentinel work and macro, only ever
 *stages* the macro's op, and tombstones the work and deletes the macro on the way
 out. `harness/retest.mjs` carries the same check as `t237`.
+
+## Outcome
+
+Shipped in **v0.87.0**. All five Expected bullets, plus the `?` overlay gap the
+last one hinted at. The report's root-cause reading was exact, including the
+leak: because the evicted binding is deleted by identity, `WorkEditor`'s unbind
+silently stopped working.
+
+### The registry no longer evicts
+
+`bindKeys` keeps the **first** binding for a key and drops the later one with a
+`console.warn`. The task suggested "warn on collision; better, refuse" -- it
+refuses, because a dropped registration is recoverable (fix the key) while a
+silently disabled chord is not discoverable.
+
+That alone was not enough. `bindKeys` derived the action id as
+`` `${scope}:${defaultKey}` ``, so `MacroBar`'s macro on `"2"` and
+`WorkEditor`'s MARC tab were **both `editor:2`** -- an id check would have read
+the collision as the same action re-registering, and replaced anyway. So
+`bindKeys` takes an `idPrefix`, and `MacroBar` passes `"macro:"`: a macro on
+`"2"` is `editor:macro:2`, a genuine collision. Re-registering the same id (a
+remount) still replaces, which `keyboard.test.ts` pins alongside the collision
+case and the no-op unbind.
+
+### The key is validated where it is chosen and where it is stored
+
+- `Macros.svelte` rejects live, before save: the field goes red, the error
+  names the action holding the key, and the Save button disables. The macro
+  list is right there, so duplicate macro keys are caught too.
+- `batch.CreateMacro`/`UpdateMacro` reject the same collisions server-side --
+  which is what `K2` demanded, and what any non-UI client needs. Reserved
+  chords, multi-character keys (`"zz"`, which could never fire), and keys held
+  by another visible macro all refuse with `ErrValidation`, each naming what
+  holds the key.
+
+The reserved table exists twice, in `keyboard.ts` and `macros.go`, because the
+editor's chords are only knowable in the UI and the refusal is only enforceable
+in the server. **`TestReservedShortcutKeysMatchUI` parses the TypeScript and
+fails when the two drift** -- confirmed to fail on a hand-added key before being
+restored, rather than assumed to bite. This is the shared-fixture discipline
+the filer proposed for 231.
+
+The placeholder is now `4`, and `SUGGESTED_SHORTCUT_KEY` is the single place it
+is named.
+
+### The `?` overlay gap, which the task found sideways
+
+`K5` was still red after the collision was fixed, and it was right to be. The
+MARC and History tabs were registered `hidden: true`, which excludes them from
+the overlay as well as the footer -- so the one place a cataloger can look up
+what `2` does **never listed it**, macro or no macro. They are now
+`legendHidden: true`: the footer rail still shows a single `1/2/3 tabs` row,
+and the overlay names each tab. That is the honest reading of the task's last
+bullet, and it is a bug the collision merely made visible.
+
+### Verification
+
+- `keyboard.test.ts`: first-wins, the dropped registration's unbind cannot take
+  the survivor with it, same-id re-registration still replaces, and
+  `shortcutKeyError` covers reserved / multi-character / duplicate / free.
+- `TestMacroShortcutValidation` walks every reserved chord and asserts the
+  refusal names the action; `TestReservedShortcutKeysMatchUI` pins the tables;
+  `TestMacroEndpoints` asserts the 400 at the HTTP layer.
+- `go test ./...` green in both modules; `svelte-check` clean; 211 UI tests.
+- The filer's `ui/probe_keybindings.mjs` against the rebuilt 8481: **7/7**.
+  `K2`, `K3` and `K5` flipped; `K1` (the control) and `K4` stayed green.
+- `harness/retest.mjs`: **237 FIXED, STILL-BROKEN: none** -- the whole suite is
+  green for the first time.
+
+### Migration note
+
+A macro stored before this release with a colliding or unusable key keeps its
+`keys` value; nothing rewrites stored data. The client simply refuses to bind
+it (with a console warning), so the editor chord wins. Editing such a macro
+surfaces the error and requires a valid key before saving.
