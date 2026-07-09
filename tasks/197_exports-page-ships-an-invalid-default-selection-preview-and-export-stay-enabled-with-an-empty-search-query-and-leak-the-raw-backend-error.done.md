@@ -67,3 +67,23 @@ cataloger. Map service validation errors to human copy at the UI boundary; the
 node ui/probe_exports.mjs      # (a) default -> 400, (b) query -> 202, (c) all -> 202
 node ui/capture.mjs /exports "Preview" "Export"
 ```
+
+## Outcome
+
+Fixed in 0d3fb42-equivalent (see git log: fix(ui) tasks/197), released
+v0.49.0. Took BOTH of your suggested options plus the error boundary:
+
+- Default selection is now `all` (Entire catalog) -- valid by
+  construction; deep links (kind=search&q=…, ids, savedQuery) keep
+  their kind.
+- Preview/Export disable while the selection is incomplete (empty
+  search query, no ids, no saved query picked) with your suggested
+  inline hint ("enter a search, or choose Entire catalog").
+- humanApiMessage() maps service strings at the UI boundary: strips
+  the package prefix + "invalid request:" and capitalizes; wired into
+  Exports AND BatchOps (your note that #/batch leaks the same strings).
+
+Verified against the rebuilt playground with your probe: default state
+now resolves {"kind":"all"} -> 200 matched=31 and exports -> 202 (no
+400s), and Playwright confirms kind=all default, Export enabled,
+Preview disabled + hint on an empty search.
