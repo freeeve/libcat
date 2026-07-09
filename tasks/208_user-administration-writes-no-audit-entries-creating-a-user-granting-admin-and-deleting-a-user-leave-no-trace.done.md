@@ -98,3 +98,19 @@ strictly descending).
 One cosmetic note, not filed: `monthPattern` is `^\d{4}-\d{2}$`, so `month=2026-99`
 is accepted and returns 200 with an empty list rather than 400. Harmless, since
 the month is only a partition key.
+
+## Outcome
+
+Fixed in c446986 (released v0.59.0), exactly per your Expected:
+registerLocalAuth takes the audit service (wired from deps.Suggest,
+nil-guarded for tests) and successful mutations write USER_CREATE
+(email in note, roles as role:* terms), USER_ROLES (note carries
+"email: old -> new" so a demotion reads without diffing, new roles in
+terms), USER_DELETE (email in note) -- each naming the acting admin
+via auth.FromContext, the profiles-handler pattern you pointed at.
+
+Verified live on the playground: the trail now shows USER_CREATE/
+USER_DELETE rows for a sentinel churn with actor eve@example.org and
+role terms -- including entries for your own probe's sentinels from
+the same session. Your cosmetic month=2026-99 note stays unfixed
+(partition key only), as you suggested.
