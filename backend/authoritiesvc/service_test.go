@@ -253,3 +253,47 @@ func TestAutoLink(t *testing.T) {
 		t.Fatalf("covered tag enqueued %d, %v", n, err)
 	}
 }
+
+// TestMergeSelfGuard covers tasks/200: a self-merge is rejected regardless
+// of which id form the caller uses -- the guard used to compare the short
+// minted id against the expanded loser IRI and never matched, so one
+// request could retire a live heading into itself.
+func TestMergeSelfGuard(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	id, _, err := svc.Create(t.Context(), bibframe.AuthorityTerm{
+		PrefLabel: map[string]string{"en": "Self-merge bait"},
+	}, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherID, _, err := svc.Create(t.Context(), bibframe.AuthorityTerm{
+		PrefLabel: map[string]string{"en": "Legit winner"},
+	}, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, winner := range map[string]vocab.TermRef{
+		"short-id self": {Scheme: authoritiesvc.LocalScheme, ID: id},
+		"full-IRI self": {Scheme: authoritiesvc.LocalScheme, ID: bibframe.LocalAuthorityIRI(id)},
+		"empty winner":  {Scheme: authoritiesvc.LocalScheme, ID: ""},
+	} {
+		if _, err := svc.Merge(t.Context(), id, winner, "lib@example.org"); !errors.Is(err, authoritiesvc.ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
+	}
+	// The bait survives every rejected attempt.
+	if _, _, err := svc.Get(t.Context(), id); err != nil {
+		t.Fatalf("loser retired by a rejected merge: %v", err)
+	}
+
+	// A DISTINCT local winner works in both forms, and the marker carries
+	// the canonical IRI either way.
+	res, err := svc.Merge(t.Context(), id, vocab.TermRef{Scheme: authoritiesvc.LocalScheme, ID: otherID}, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Winner != bibframe.LocalAuthorityIRI(otherID) {
+		t.Fatalf("short-id winner not canonicalized: %+v", res)
+	}
+}

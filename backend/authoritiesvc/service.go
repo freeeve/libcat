@@ -170,6 +170,16 @@ func (s *Service) Update(ctx context.Context, id string, term bibframe.Authority
 // established vocabulary term is the expected promotion path.
 func (s *Service) Merge(ctx context.Context, loserID string, winner vocab.TermRef, actor string) (MergeResult, error) {
 	loserURI := bibframe.LocalAuthorityIRI(loserID)
+	// A local winner arrives as the short minted id (what POST
+	// /v1/authorities returns); expand it so the self-merge guard compares
+	// like with like -- it used to compare the short id against the
+	// expanded loser IRI and never matched, letting a term merge into
+	// itself and silently retire (tasks/200). Expansion also makes the
+	// stored marker, the rewrites, and the winnerSubject lookup carry the
+	// canonical IRI, as every non-local winner already does.
+	if winner.Scheme == LocalScheme && IDPattern.MatchString(winner.ID) {
+		winner.ID = bibframe.LocalAuthorityIRI(winner.ID)
+	}
 	if winner.ID == "" || winner.ID == loserURI {
 		return MergeResult{}, fmt.Errorf("%w: merge needs a distinct winner term", ErrValidation)
 	}
