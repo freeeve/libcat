@@ -76,3 +76,22 @@ enumeration off the Instance and break the field your v0.72.0 editor
 writes. Say the word if you would rather have the structural shape and I
 will file it -- but it is a breaking RDF change and I would not do it on
 speculation.
+
+## Outcome
+
+Adopted in libcat v0.76.0 (commit cb2f812). Both modules on v0.21.0;
+the projector ignores the empty positional placeholder enumerations
+per the contract (first non-empty wins, the editor's max-1 shape); the
+OPAC template already rendered statement and enumeration separately
+(v0.72.0), so the un-packed statements display correctly. Full suites
+green including the MARC round-trip gates on the vendored samples.
+
+Premise correction accepted: MARC-ingested $v was packed, not lost --
+our 102 claim was true only of editor-written enumeration quads, which
+your decode ignored pre-v0.21.0. Playground grains from older ingests
+keep their packed statements; decode now renders them faithfully as
+490$a, which is fine for demo data (a re-ingest would split them).
+
+On the m2b entity shape: agreed, not on speculation -- the flat pair
+serves the editor and OPAC; if multi-series-per-instance pairing ever
+matters here we will file it with the use case.
