@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"regexp"
 	"strings"
 	"time"
@@ -105,6 +104,12 @@ func (s *Service) ListMacros(ctx context.Context, owner string) ([]Macro, error)
 // the caller's values (falling back to declared defaults) and returns the
 // concrete op list. An unresolved reference fails closed -- a template never
 // silently writes its placeholder text into a record.
+//
+// A blank caller value means "use the default", exactly like an omitted one
+// (tasks/231): the parameter field advertises the default as its
+// placeholder and the client's own lookup skips blanks, so a cleared field
+// must not override the default here either -- a macro means the same thing
+// replayed in the editor or run over a selection.
 func ApplyParams(m Macro, values map[string]string) ([]editor.Op, error) {
 	lookup := map[string]string{}
 	for _, p := range m.Params {
@@ -112,7 +117,11 @@ func ApplyParams(m Macro, values map[string]string) ([]editor.Op, error) {
 			lookup[p.Name] = p.Default
 		}
 	}
-	maps.Copy(lookup, values)
+	for name, v := range values {
+		if v != "" {
+			lookup[name] = v
+		}
+	}
 	subst := func(raw string) (string, error) {
 		var missing error
 		out := paramRef.ReplaceAllStringFunc(raw, func(ref string) string {

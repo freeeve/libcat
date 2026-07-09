@@ -228,6 +228,20 @@ func TestMacroCRUDAndParams(t *testing.T) {
 	if err != nil || ops[0].Values[0].V != "No summary (stamped)" {
 		t.Fatalf("default = %+v, %v", ops, err)
 	}
+	// A blank value means "use the default", same as omitted -- the client's
+	// applyParams already reads it that way, and the parameter field
+	// advertises the default as its placeholder (tasks/231; the ui
+	// macros.test.ts table carries this same fixture).
+	ops, err = batch.ApplyParams(m, map[string]string{"text": ""})
+	if err != nil || ops[0].Values[0].V != "No summary (stamped)" {
+		t.Fatalf("blank param = %+v, %v", ops, err)
+	}
+	// Blank with no default fails closed, naming the parameter.
+	noDefault := m
+	noDefault.Params = []batch.Param{{Name: "text", Label: "Summary text"}}
+	if _, err := batch.ApplyParams(noDefault, map[string]string{"text": ""}); !errors.Is(err, batch.ErrValidation) || !strings.Contains(err.Error(), `parameter "text"`) {
+		t.Fatalf("blank without default err = %v", err)
+	}
 	orphan := m
 	orphan.Params = nil
 	if _, err := batch.ApplyParams(orphan, nil); !errors.Is(err, batch.ErrValidation) {

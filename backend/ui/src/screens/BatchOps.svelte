@@ -65,6 +65,12 @@
   let macros = $state<Macro[]>([]);
   let macroId = $state("");
   let paramValues = $state<Record<string, string>>({});
+
+  /** Params as sent: a cleared field is OMITTED, same as never touched --
+   *  blank means "use the default", which is what the placeholder promises
+   *  (tasks/231). The server treats "" the same way; this keeps the wire
+   *  shape identical for both histories of the same blank field. */
+  const sentParams = $derived(Object.fromEntries(Object.entries(paramValues).filter(([, v]) => v !== "")));
   let opRows = $state<OpRow[]>([{ path: "", action: "add", value: "", lang: "" }]);
 
   let result = $state<BatchRunResult | null>(null);
@@ -132,7 +138,7 @@
 
   /** The execute-relevant inputs, serialized; compared against `dryRunFor`. */
   const runPayload = $derived(
-    JSON.stringify(macroId ? { selection: selection(), macroId, params: paramValues } : { selection: selection(), ops: ops() }),
+    JSON.stringify(macroId ? { selection: selection(), macroId, params: sentParams } : { selection: selection(), ops: ops() }),
   );
   const dryRunFresh = $derived(dryRunFor !== "" && dryRunFor === runPayload);
 
@@ -159,7 +165,7 @@
     const payload = runPayload;
     try {
       const req = macroId
-        ? { selection: selection(), macroId, params: paramValues, dryRun }
+        ? { selection: selection(), macroId, params: sentParams, dryRun }
         : { selection: selection(), ops: ops(), dryRun };
       if (!macroId && (req.ops?.length ?? 0) === 0) {
         error = "no complete ops staged";
