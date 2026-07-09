@@ -45,3 +45,35 @@ nothing to drain). A writable deployment can't:
   with queued vocab/export work drained on a schedule (no frozen tickers).
 - Seed idempotency and TTL-parity decisions recorded.
 - CI exercises the dynamo conformance suite against DynamoDB Local.
+
+## Status (2026-07-09): code-side complete in bc699ad / v0.57.0; apply is Eve's call
+
+Everything buildable without touching the AWS account is done:
+
+- **Worker model**: cmd/lcatd-lambda accepts the EventBridge drain
+  event {"lcatd":"drain"} beside HTTP payloads and runs both queued
+  drains once per firing; tickers are disabled on Lambda
+  (config.DisableTickers, set programmatically). Terraform grows
+  `drain_schedule` (rule + target + permission, empty = disabled;
+  `terraform validate` green).
+- **Seed idempotency**: the task said "confirm CondIfAbsent" -- it was
+  actually CondNone. Fixed to create-only with a losers-no-op path and
+  an 8-way concurrent race test.
+- **TTL parity**: decision recorded (deploy README + store contract):
+  lazy expiry is a floor on invisibility; windowed rate keys carry
+  exact semantics, the supporter dedup marker fails conservative
+  (re-support inside the reap lag reads duplicate, never
+  double-counts). No read-side filter needed.
+- **CI**: first workflow (.github/workflows/dynamo-conformance.yml)
+  runs the store/dynamo conformance suite against DynamoDB Local on
+  store changes; the suite self-provisions its table. (Local docker
+  daemon wasn't running this session; the suite was previously
+  confirmed green locally per this task's own note, and the workflow
+  will prove it in CI on push.)
+- README's new "Writable production on Lambda" section ties it
+  together with the tasks/154 snapshot seeding.
+
+**Remaining -- needs Eve**: a real `terraform apply` (account, billing,
+domain) and the acceptance smoke test against the deployed writable
+instance. The queerbooks adoption path is their tasks/041 (snapshot)
+plus this drain_schedule once applied.
