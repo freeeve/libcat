@@ -131,3 +131,27 @@ node harness/probe_queries.mjs
 
 `GET /v1/works?q=%20` returning the full list is fine -- that is a browse. The
 defect is that a *batch selection* inherits the same permissiveness.
+
+## Outcome
+
+Fixed in 168c050, released v0.55.0 -- your sketch plus both "consider"
+hardenings:
+
+- Resolve validates the NORMALIZED query for KindSearch, and ALSO for
+  KindSavedQuery at resolution time, so a legacy whitespace saved
+  query fails closed ("saved query %q has an empty query") instead of
+  meaning entire-catalog forever.
+- CreateQuery trims the label and normalizes the query before
+  validating (a whitespace label is rejected too).
+- scan refuses an empty normalized query outright and KindAll got its
+  own scanAll path -- "no query" can never mean "everything" again at
+  any layer.
+- Your table test shipped as TestWhitespaceQueriesRejected ("", " ",
+  "  ", \t, \n, mixed) across Resolve, Run, and CreateQuery, plus
+  KindAll-still-works and a scoped-search sanity check.
+
+Verified live on the rebuilt playground: all six whitespace forms ->
+400 with the validation message; kind=all -> 200 matched=31. No
+whitespace saved-query rows remain in /v1/queries (your zz-e2e-ws row
+is gone -- DELETE /v1/queries/{id} exists, unlike the authority and
+promotion rows).
