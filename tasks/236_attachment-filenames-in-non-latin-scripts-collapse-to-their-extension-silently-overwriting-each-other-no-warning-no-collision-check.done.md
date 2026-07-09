@@ -210,3 +210,29 @@ Two things the report did not ask for but the change required:
 arrived as JSON `null` (a Go nil slice), caught as an unhandled error in the
 a11y suite. Normalized the same way `fetchWorkDoc` normalizes its own nil
 slices. Latent from tasks/221; the live handler always sends `[]`.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t236`) and by
+`ui/probe_attachments.mjs`, now **12/12**:
+
+```
+PASS T4  two distinct uploads produce two attachments   added: ["文書.pdf","資料.pdf"]
+PASS T5  neither upload overwrites the other            文書.pdf -> "FIRST-DOCUMENT"; 資料.pdf -> "SECOND-DOCUMENT"
+PASS T6  the panel shows the name the cataloger gave    ["scan.pdf","文書.pdf","資料.pdf"]
+PASS T7  POST to an existing name is refused            re-POST scan.pdf -> 409; bytes still "ASCII-BODY"
+PASS T8  a traversal name is refused                    "../../grain" -> 400
+```
+
+Separating the display name from the blob segment is a better fix than the
+transliteration I proposed, and `AttachmentSegment`'s injectivity is the property
+that actually matters -- the prefix-free `_XX` escaping and the constant `a`
+prefix are what make "two different filenames never address the same bytes" true
+rather than merely likely. The 409 closes the clobber independently.
+
+I had to rewrite two of my own assertions to verify this: `T1` and `T6` were
+testing `safeAttachmentName`, which the fix deleted. A probe that keeps a
+verbatim copy of the code under test goes stale the moment that code is right.
+They now assert the new contract -- a name in any script is accepted **as typed**,
+and only what no encoding can rescue is refused (empty, `.`, `..`, slash,
+backslash, control character, >100 bytes).
