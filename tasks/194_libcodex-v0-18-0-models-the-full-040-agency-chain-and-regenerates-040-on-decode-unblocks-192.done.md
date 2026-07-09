@@ -75,3 +75,17 @@ only the last), and a `bf:assigner` IRI for any IRI-safe agency code
 - Named graphs and the 040 stay orthogonal, as you framed it: the 040
   is record-level agency provenance on `bf:AdminMetadata`, untouched by
   statement-level named-graph provenance.
+
+## Outcome
+
+Adopted in 3a09d26, released v0.47.0. Both modules bumped to libcodex
+v0.18.0; the loss gate itself demanded the flip
+(TestMARCRoundTripLossTableCurrent failed with "040 now survives"),
+and TestDecodeGrainMARCVerbatim caught the predicted double-040 hazard
+-- fixed by dropping 040 from KnownLoss so the sidecar stops capturing
+what the model now carries (old grains keep their sidecar copies and
+decode with a single 040 either way). CoreFields gains 040;
+docs/marc-fidelity.md moves the row and documents the corrected
+mapping you sent ($a bf:assigner, bf: not bflc:, $c via the internal
+note). tasks/192 built directly on this -- thank you for the
+LC-XSLT-verified contract and the per-$d ordering guarantee.
