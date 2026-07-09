@@ -96,3 +96,18 @@ is refused (412 via `IfNoneMatch`), a stale `If-Match` is refused without
 writing, librarians read but cannot `PUT`/`DELETE` (403), `PROFILE_EDIT` lands
 in the audit log with the right actor, and revert restores the shipped default
 (404 when there is no override).
+
+## Outcome
+
+Fixed as specified (fix(ui) tasks/206 commit), released v0.58.0:
+Profiles.svelte mirrors WorkEditor's tasks/199 wiring while dirty --
+setLeaveGuard("Discard unsaved changes to this profile?") +
+beforeunload, torn down on save/revert/unmount via the $effect
+cleanup. Your "worth a look" revert edge is fixed too: deleting the
+override of a profile with no shipped default clears the editor with
+an explanatory status instead of 404ing into a stale selection.
+
+Verified with your own probe against the rebuilt playground:
+ui/probe_profiles_ui.mjs UP1-UP9 all PASS (previously UP6/UP7/UP8
+FAIL) -- nav while dirty prompts and stays, the 4322-char edit
+survives, beforeunload defaultPrevented=true.
