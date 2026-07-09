@@ -33,3 +33,26 @@ Scope here once that lands:
 4. Flip docs/marc-fidelity.md 040 row Lost -> Kept together with
    knownLostFields (the TestMARCRoundTripNoUndocumentedLoss gate
    enforces the pairing), documenting the derivation rule.
+
+## Outcome
+
+Shipped in d075160 (on 194's v0.18.0 adoption, 3a09d26), released
+v0.47.0. The design rule held: the 040 is DERIVED at decode, never
+stored, so it cannot drift from the named-graph provenance.
+
+- bibframe.DecodeGrainMARCSource(grain, org): arrived 040s decode
+  field-exact from the model; when the grain carries any
+  editorial-graph statement the deployment org joins as ONE trailing
+  $d (slotted before $e, idempotent); a grain with no 040 (born-
+  digital feeds) synthesizes 040 $a<org>$c<org>. Empty org = decode
+  unchanged.
+- Config, per prefer-native-config-formats: LCATD_ORG_CODE for lcatd
+  (MARC view + export jobs via httpapi.Deps/export.Service), [export]
+  org-code in lcat.toml, lcat export -org-code for the CLI.
+- Scope trims vs the original sketch: $e-from-profile synthesis
+  dropped (profiles declare no conventions; a synthesized $a/$c
+  states the fact that matters), and "edited" means any
+  editorial-graph quad, not just lcat:overrides claims -- additions
+  are modifications too.
+- Fidelity contract: 040 Lost -> Kept flipped with the CI gates
+  (KnownLoss/CoreFields/docs updated together as required).
