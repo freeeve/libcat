@@ -124,3 +124,89 @@ staying green (an ordinary filename must keep folding to a sane name, and the
 traversal / empty-body / authz guards must not regress). The probe mints its own
 sentinel work, removes every attachment it creates, and tombstones the work.
 `harness/retest.mjs` carries the same check as `t236`.
+
+## Outcome
+
+Shipped in **v0.85.0**. The report's closing question -- "whether the display
+name and the blob segment should be separate concepts" -- is the fix. They are
+now separate, and every other symptom follows from that.
+
+### The shape
+
+The `lcat:attachment` literal is the filename **as the cataloger's file carries
+it**, in any script. It is a display name, never a path. `AttachmentSegment`
+derives the blob path from it by an injective, lossless encoding: a constant
+`a` prefix, then every byte outside `[A-Za-z0-9.-]` escaped as `_XX`. So
+`文書.pdf` and `資料.pdf` address different bytes because they are different
+names, not because a sanitizer happened to preserve enough of them.
+
+The constant prefix is load-bearing. A *variable* one -- prefix only when the
+encoding does not start alphanumeric, which was the first attempt -- is **not
+injective**: `文` encodes to `_E6_96_87` and gets prefixed to `x_E6_96_87`,
+which is exactly what `x文` encodes to unprefixed. Same class of bug, one layer
+down. `FuzzAttachmentSegment` proves the property constructively rather than by
+example: it decodes every segment back to its name (2M+ executions, no
+counterexample). A decodable encoding cannot collide.
+
+Then the three lined-up causes, each addressed where it lives:
+
+1. **The sanitizer is gone.** `safeAttachmentName` is replaced by
+   `attachmentNameError`, which *validates* and never rewrites: it refuses only
+   what no encoding can rescue -- emptiness, slashes, control characters, `.`
+   and `..`, and the 100-byte cap. A silent rename is how two documents came to
+   share one file.
+2. **The panel cannot silently rename**, because nothing renames. It surfaces
+   the refusal, or the server's 409.
+3. **The server refuses to clobber.** `POST` to a live name is `409 "… is
+   already attached; delete it first, or POST with ?replace=true"`. Replacing
+   is deliberate. Removal is unchanged.
+
+`.env` is now a legal *name*: it encodes to the segment `a.env`, so it can
+never be a dotfile on disk. The leading-alphanumeric anchor that used to do
+that work moved into the encoding, where it belongs.
+
+Two things the report did not ask for but the change required:
+
+- **Reads fall back to the pre-236 path** (`LegacyAttachmentBlobPath`), where
+  the display name *was* the segment. Changing the encoding would otherwise
+  have orphaned every attachment already stored -- the same silent loss, on a
+  different axis.
+- **`Content-Disposition` is RFC 2231-encoded** via `mime.FormatMediaType`. The
+  old header interpolated the name into a quoted string; once names may contain
+  a `"`, that is header injection, and once they may contain CJK it is simply
+  wrong.
+
+### Verification
+
+- `TestAttachmentNamesDoNotCollide` (two non-Latin uploads stay two documents;
+  the first's bytes survive; re-POST is 409; `?replace=true` writes),
+  `TestAttachmentLegacyPathFallback`, `TestAttachmentSegmentIsInjective`
+  (including `文` vs `x文`), `FuzzAttachmentSegment`. `go test ./...` green in
+  both modules; `svelte-check` clean; 206 UI tests pass.
+- The filer's `ui/probe_attachments.mjs` against the rebuilt 8481: **T4, T5 and
+  T7 flipped**; `T3`, `T8`-`T11` still green.
+
+      PASS T4  after 文書.pdf: ["文書.pdf"]; after 資料.pdf: ["文書.pdf","資料.pdf"]
+      PASS T5  both survive
+      PASS T7  re-POST scan.pdf -> 409; the stored bytes are now "ASCII-BODY"
+
+- `harness/retest.mjs`: **236 FIXED**, no regressions.
+
+### The two probe checks that stay red, deliberately
+
+- **T1** ("distinct non-Latin filenames stay distinct") tests the probe's *own
+  copy* of `safeAttachmentName`, pasted at `ui/probe_attachments.mjs:21` and
+  again at `harness/retest.mjs:461`. No libcat change can move it; the function
+  it mirrors no longer exists. `T2` passes for the same reason. Reported so
+  they can re-sync or retire both.
+- **T6** ("the panel tells the cataloger the name was changed") is now vacuous
+  and its own failure message says so: *"no notice that 文書.pdf was stored as
+  `文書.pdf`"*. Nothing is renamed, so there is nothing to announce. Not
+  announcing a rename is strictly better than announcing one.
+
+### Also fixed in passing
+
+`RelationsPanel.svelte` threw an unhandled `TypeError` when the relation lists
+arrived as JSON `null` (a Go nil slice), caught as an unhandled error in the
+a11y suite. Normalized the same way `fetchWorkDoc` normalizes its own nil
+slices. Latent from tasks/221; the live handler always sends `[]`.
