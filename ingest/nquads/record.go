@@ -133,13 +133,17 @@ func (r record) Work() codexbf.Work {
 	return w
 }
 
-// contributions builds the Work's agents: mapped contributor literals
-// ("Last, First (role)"; first statement primary, role lowercased, default
-// author) when the export carries them, else one author per creator literal
-// as before (tasks/182). Both paths run the junk/length gate (tasks/186): a
-// record whose every agent is debris yields a Work with no contributions --
-// the raw creator literal still feeds the identity author key regardless
-// (Identity reads it directly).
+// contributions builds the Work's agents: mapped contributor literals when
+// the export carries them, else one author per creator literal (tasks/182).
+// A mapped contributor name is a FINAL sort-form label per the coll-feed
+// contract -- the exporter already inverted transcribed person names and
+// passes provider sortNames (and corporate direct forms) verbatim -- so it
+// rides into the Label unchanged; lastFirst applies only to the creator
+// fallback, whose literals are raw access points (tasks/190). Both paths
+// run the junk/length gate (tasks/186): a record whose every agent is
+// debris yields a Work with no contributions -- the raw creator literal
+// still feeds the identity author key regardless (Identity reads it
+// directly).
 func (r record) contributions() []codexbf.Contribution {
 	var out []codexbf.Contribution
 	for _, entry := range r.w.contributors {
@@ -153,7 +157,7 @@ func (r record) contributions() []codexbf.Contribution {
 		out = append(out, codexbf.Contribution{
 			Primary: len(out) == 0,
 			Class:   "Person",
-			Label:   lastFirst(name),
+			Label:   name,
 			Roles:   []codexbf.Role{{Term: role}},
 		})
 	}
@@ -191,6 +195,9 @@ const maxContributorName = 100
 // isJunkContributor reports a "name" that is copyright-line debris or an
 // overlong non-agent rather than a person: a © line, an "All rights
 // reserved" fragment, a copyright-holder credit, or a year-led remnant.
+// The year-led test exempts comma-bearing names: "5000, Alaska Thunderfuck"
+// is an inverted sort-form name, not a bare copyright-year line like
+// "2011 EMI Records Ltd." (tasks/190).
 func isJunkContributor(name, role string) bool {
 	lower := strings.ToLower(name)
 	return role == "copyright holder" ||
@@ -198,7 +205,7 @@ func isJunkContributor(name, role string) bool {
 		strings.Contains(name, "©") ||
 		strings.Contains(lower, "all rights reserved") ||
 		lower == "c" ||
-		yearLed.MatchString(name)
+		(yearLed.MatchString(name) && !strings.Contains(name, ","))
 }
 
 // Instance returns this record's Instance: title, the format's RDA media

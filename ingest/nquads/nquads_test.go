@@ -506,6 +506,29 @@ func TestContributionJunkGate(t *testing.T) {
 		t.Fatalf("all-junk contributors did not fall back to creator: %+v", got)
 	}
 
+	// Mapped contributor names are final sort-form labels (tasks/190): no
+	// lastFirst re-inversion of direct forms, and the year-led junk test
+	// exempts comma-bearing inverted names.
+	r = record{w: &work{contributors: []string{
+		"Barefoot Books (author)",
+		"Twin Cities GLBT Oral History Project (author)",
+		"5000, Alaska Thunderfuck (narrator)",
+		"1999 EMI Records Ltd. (author)",
+	}}}
+	got = r.contributions()
+	if len(got) != 3 || got[0].Label != "Barefoot Books" ||
+		got[1].Label != "Twin Cities GLBT Oral History Project" ||
+		got[2].Label != "5000, Alaska Thunderfuck" || got[2].Roles[0].Term != "narrator" {
+		t.Fatalf("sort-form labels mangled: %+v", got)
+	}
+
+	// The creator FALLBACK still lastFirsts (raw access points, not sort
+	// forms) and still drops comma-less year-led debris.
+	r = record{w: &work{creators: []string{"1999 EMI Records Ltd."}}}
+	if got := r.contributions(); len(got) != 0 {
+		t.Fatalf("year-led creator debris survived: %+v", got)
+	}
+
 	// The identity author key keeps reading the raw creator literal even
 	// when the gate drops it as a contribution (tasks/186: the drop must
 	// not re-merge distinct works or orphan the key).
