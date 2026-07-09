@@ -385,9 +385,34 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			results = append(results, itemResult{WorkID: workID, ETag: etag})
 		}
 		if !req.DryRun && queue != nil {
+			// One entry per rewritten record, so a bulk edit is visible in the
+			// History tab of each record it changed, plus one aggregate entry
+			// for the run (tasks/239). The old aggregate carried a JSON blob of
+			// the results cut at 512 bytes -- past ~7 works the cut landed
+			// mid-token, and a byte-boundary slice can split a UTF-8 rune.
+			runID := suggest.NewRunID()
+			note := fmt.Sprintf("quad patch, +%d/-%d statements", len(req.Patch.Add), len(req.Patch.Remove))
+			failed := 0
+			rewritten := make([]string, 0, len(results))
+			for _, res := range results {
+				if res.Error != "" {
+					failed++
+					continue
+				}
+				rewritten = append(rewritten, res.WorkID)
+				queue.WriteAudit(r.Context(), suggest.AuditEntry{
+					WorkID: res.WorkID, Action: "BATCH_EDIT", Actor: id.Email,
+					ETag: res.ETag, RunID: runID, Note: note,
+				})
+			}
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
-				Action: "BATCH_EDIT", Actor: id.Email,
-				Note: batchNote(results),
+				Action: "BATCH_EDIT", Actor: id.Email, RunID: runID,
+				Note: suggest.RunNote{
+					Selection: "ids", Matched: len(req.WorkIDs), Applied: len(rewritten),
+					Rewritten: len(rewritten), Failed: failed,
+					Added: len(req.Patch.Add) * len(rewritten), Removed: len(req.Patch.Remove) * len(rewritten),
+					Works: rewritten,
+				}.String(),
 			})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"results": results})
@@ -451,12 +476,4 @@ func mutateWorkGrain(r *http.Request, bs blob.Store, ix *workindex.Index, workID
 		return newTag, nil
 	}
 	return "", errors.New("write kept conflicting")
-}
-
-func batchNote(results any) string {
-	b, _ := json.Marshal(results)
-	if len(b) > 512 {
-		b = b[:512]
-	}
-	return string(b)
 }

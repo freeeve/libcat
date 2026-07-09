@@ -39,6 +39,69 @@ type AuditEntry struct {
 	Terms  []string  `json:"terms,omitempty"` // "<scheme>:<id>"
 	Note   string    `json:"note,omitempty"`
 	ETag   string    `json:"etag,omitempty"` // grain etag for publish events
+	// RunID ties a bulk run's per-record entries to its aggregate entry
+	// (tasks/239). Empty for single-record actions, which are their own run.
+	RunID string `json:"runId,omitempty"`
+}
+
+// auditSKLayout keys an audit entry by time. It is RFC3339 with a **fixed
+// width** nanosecond field, unlike time.RFC3339Nano, which trims trailing
+// zeros: an entry at .167790000 keyed as ".16779Z" and one at .167792000 as
+// ".167792Z", and a descending lexicographic scan ranks 'Z' (0x5A) above '2',
+// so the older entry came back first. A bulk run writes several entries inside
+// one microsecond, which is what surfaced it (tasks/239).
+const auditSKLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
+// NewRunID mints the identifier shared by one bulk run's audit entries.
+func NewRunID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// maxNotedWorks bounds the ids a RunNote carries. A run over the whole catalog
+// would otherwise put thousands of them in one audit record.
+const maxNotedWorks = 100
+
+// RunNote is the note a bulk run's aggregate audit entry carries: the run's
+// counts and the records it rewrote, as JSON (tasks/239).
+//
+// The split is deliberate. A per-record entry's note is prose, because it is
+// read by a cataloger in that record's History tab. The aggregate entry appears
+// only on the Audit screen and exists to answer "what did that run touch?", so
+// it is machine-readable and names its records.
+//
+// It replaces a note built by marshalling the results and cutting the bytes at
+// 512, which past a handful of works stopped being parseable and could split a
+// UTF-8 rune at the boundary. This truncates the *list*, and says how many it
+// dropped.
+type RunNote struct {
+	Selection string   `json:"selection,omitempty"`
+	Matched   int      `json:"matched"`
+	Applied   int      `json:"applied"`
+	Rewritten int      `json:"rewritten"`
+	Failed    int      `json:"failed"`
+	Added     int      `json:"added"`
+	Removed   int      `json:"removed"`
+	Works     []string `json:"works"`
+	More      int      `json:"more,omitempty"`
+}
+
+// String renders the note as JSON, capping the work list and recording how many
+// ids it left out rather than dropping them silently.
+func (n RunNote) String() string {
+	if len(n.Works) > maxNotedWorks {
+		n.More = len(n.Works) - maxNotedWorks
+		n.Works = n.Works[:maxNotedWorks]
+	}
+	if n.Works == nil {
+		n.Works = []string{}
+	}
+	b, err := json.Marshal(n)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // QueueQuery filters the review queue.
@@ -352,12 +415,18 @@ func (s *Service) writeAudit(ctx context.Context, entry AuditEntry) {
 	}
 	key := store.Key{
 		PK: "AUDIT#" + now.Format("2006-01"),
-		SK: now.Format(time.RFC3339Nano) + "#" + hex.EncodeToString(suffix),
+		SK: now.Format(auditSKLayout) + "#" + hex.EncodeToString(suffix),
 	}
 	_, _ = s.db.Put(ctx, store.Record{Key: key, Data: data}, store.CondIfAbsent)
 }
 
 // Audit returns a month's audit trail, newest first.
+//
+// The sort is not redundant with the descending key scan. Entries written
+// before auditSKLayout keyed on time.RFC3339Nano, which trims trailing zeros
+// from the fractional second: ".16779Z" (167790ns) sorts above ".167792Z" in
+// lexicographic order, because 'Z' outranks '2'. Those keys are still in the
+// store, and sorting on the timestamp itself puts them back in order.
 func (s *Service) Audit(ctx context.Context, month string) ([]AuditEntry, error) {
 	var out []AuditEntry
 	for rec, err := range s.db.Query(ctx, "AUDIT#"+month, "", store.QueryOpt{Descending: true}) {
@@ -370,5 +439,6 @@ func (s *Service) Audit(ctx context.Context, month string) ([]AuditEntry, error)
 		}
 		out = append(out, e)
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At.After(out[j].At) })
 	return out, nil
 }

@@ -168,6 +168,8 @@ export interface AuditEntry {
   terms?: string[];
   note?: string;
   etag?: string;
+  /** Ties a bulk run's per-record entries to its aggregate entry (tasks/239). */
+  runId?: string;
 }
 
 export interface AuditPage {

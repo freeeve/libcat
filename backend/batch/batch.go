@@ -128,6 +128,13 @@ type IndexUpdater interface {
 	AppendFeed(ctx context.Context, paths ...string) error
 }
 
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 // Resolve expands a selection to its targets, owner-scoped for saved
 // queries. Ids resolve without titles (no corpus scan); search kinds carry
 // the summary title for preview listings.
@@ -251,6 +258,11 @@ func (s *Service) Run(ctx context.Context, sel Selection, ops []editor.Op, dryRu
 	}
 	result := RunResult{DryRun: dryRun, Matched: len(targets)}
 	var changed []string
+	// The records the run actually rewrote, captured here rather than read back
+	// off result.Results: maxItemDiffs nils the diff of every result past the
+	// 50th, so a later read could not tell a rewritten record from an untouched
+	// one, and record 51 would silently lose its audit entry (tasks/239).
+	var edited []ItemResult
 	for _, t := range targets {
 		item := s.runOne(ctx, t, ops, dryRun)
 		if item.Error != "" {
@@ -264,6 +276,9 @@ func (s *Service) Run(ctx context.Context, sel Selection, ops []editor.Op, dryRu
 		if item.Diff != nil {
 			result.Added += len(item.Diff.Added)
 			result.Removed += len(item.Diff.Removed)
+			if !dryRun && item.Error == "" && len(item.Diff.Added)+len(item.Diff.Removed) > 0 {
+				edited = append(edited, item)
+			}
 			if len(result.Results) >= maxItemDiffs {
 				item.Diff = nil
 				result.DiffsTruncated = true
@@ -284,10 +299,34 @@ func (s *Service) Run(ctx context.Context, sel Selection, ops []editor.Op, dryRu
 			_ = s.Index.AppendFeed(ctx, changed...)
 		}
 		if s.Queue != nil {
+			// One entry per rewritten record, as every other write path does
+			// (tasks/239). The aggregate entry alone named no work, so a bulk
+			// op was invisible in the History tab of every record it rewrote --
+			// and for the search and savedQuery kinds the matched set is not
+			// reconstructible afterwards, because the query's results move with
+			// the catalog. RunID ties the per-record rows to the aggregate.
+			runID := suggest.NewRunID()
+			note := fmt.Sprintf("%s selection, %d op%s", sel.Kind, len(ops), plural(len(ops)))
+			// A record whose diff is empty was selected but not rewritten, and
+			// claiming an edit in its history would be its own kind of lie. The
+			// aggregate entry below still records that the run touched it.
+			for _, item := range edited {
+				s.Queue.WriteAudit(ctx, suggest.AuditEntry{
+					WorkID: item.WorkID, Action: "BATCH_OPS", Actor: actor,
+					ETag: item.ETag, Note: note, RunID: runID,
+				})
+			}
+			rewritten := make([]string, 0, len(edited))
+			for _, item := range edited {
+				rewritten = append(rewritten, item.WorkID)
+			}
 			s.Queue.WriteAudit(ctx, suggest.AuditEntry{
-				Action: "BATCH_OPS", Actor: actor,
-				Note: fmt.Sprintf("%s selection: %d matched, %d applied, %d failed, +%d/-%d quads",
-					sel.Kind, result.Matched, result.Applied, result.Failed, result.Added, result.Removed),
+				Action: "BATCH_OPS", Actor: actor, RunID: runID,
+				Note: suggest.RunNote{
+					Selection: sel.Kind, Matched: result.Matched, Applied: result.Applied,
+					Rewritten: len(edited), Failed: result.Failed,
+					Added: result.Added, Removed: result.Removed, Works: rewritten,
+				}.String(),
 			})
 		}
 		if s.Trigger != nil && len(changed) > 0 {

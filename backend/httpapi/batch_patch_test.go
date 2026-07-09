@@ -5,13 +5,18 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/freeeve/libcodex/rdf"
 
 	"github.com/freeeve/libcat/bibframe"
 	"github.com/freeeve/libcat/storage/blob"
 
+	"github.com/freeeve/libcat/backend/auth"
 	"github.com/freeeve/libcat/backend/editor"
+	"github.com/freeeve/libcat/backend/store"
+	"github.com/freeeve/libcat/backend/suggest"
 )
 
 const otherWorkID = "wxyz789ghi012"
@@ -31,6 +36,20 @@ func seedOtherWork(t *testing.T, bs blob.Store) {
 	if _, err := bs.Put(t.Context(), bibframe.GrainPath(otherWorkID), nq, blob.PutOptions{}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// newRecordsAPIWithQueue is newRecordsAPI plus a reader over the same document
+// store, so a test can see the audit trail the handlers write.
+func newRecordsAPIWithQueue(t *testing.T) (http.Handler, blob.Store, *suggest.Service) {
+	t.Helper()
+	bs := blob.NewMem()
+	db := store.NewMem()
+	verifier := staffVerifier{
+		"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}},
+		"mod-token": {Email: "mod@example.org", Roles: []auth.Role{auth.RoleModerator}},
+	}
+	queue := suggest.New(db, nil, suggest.Caps{})
+	return New(Deps{Blob: bs, DB: db, Verifier: verifier, Suggest: queue}), bs, queue
 }
 
 type batchResults struct {
@@ -242,6 +261,72 @@ func TestPutWorkStillAcceptsItsOwnNodes(t *testing.T) {
 			t.Fatalf("subject %q refused with %d: %s", subject, rec.Code, rec.Body)
 		}
 		_, etag, _ = bs.Get(t.Context(), bibframe.GrainPath(editWorkID))
+	}
+}
+
+// tasks/239: POST /v1/batch wrote one audit entry carrying no work id, so every
+// record it rewrote read "0 entries" in its own History tab. Its note was a JSON
+// blob of the results cut at 512 bytes, which past ~7 works stops being
+// parseable and can split a UTF-8 rune at the boundary.
+func TestBatchPatchAuditsEveryChangedRecord(t *testing.T) {
+	h, bs, queue := newRecordsAPIWithQueue(t)
+	seedWorkGrain(t, bs)
+	seedOtherWork(t, bs)
+
+	code, _ := postBatch(t, h, subjectPatch("https://homosaurus.org/v4/batch"),
+		[]string{editWorkID, otherWorkID, "wmissing00001"}, false)
+	if code != http.StatusOK {
+		t.Fatalf("batch: %d", code)
+	}
+	entries, err := queue.Audit(t.Context(), time.Now().UTC().Format("2006-01"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	perWork := map[string]suggest.AuditEntry{}
+	var aggregate []suggest.AuditEntry
+	for _, e := range entries {
+		if e.Action != "BATCH_EDIT" {
+			continue
+		}
+		if e.WorkID == "" {
+			aggregate = append(aggregate, e)
+			continue
+		}
+		perWork[e.WorkID] = e
+	}
+	if len(aggregate) != 1 {
+		t.Fatalf("want one aggregate entry, got %d", len(aggregate))
+	}
+	if len(perWork) != 2 {
+		t.Fatalf("want a per-record entry for each of the two real works, got %d: %v", len(perWork), perWork)
+	}
+	if _, ok := perWork["wmissing00001"]; ok {
+		t.Fatal("the missing work was audited as edited")
+	}
+	for id, e := range perWork {
+		if e.ETag == "" || e.RunID == "" || e.RunID != aggregate[0].RunID {
+			t.Fatalf("%s entry = %+v (aggregate runId %q)", id, e, aggregate[0].RunID)
+		}
+	}
+	// The aggregate note stays valid JSON and names the records it rewrote.
+	note := aggregate[0].Note
+	if !utf8.ValidString(note) {
+		t.Fatalf("the aggregate note is not valid UTF-8: %q", note)
+	}
+	var parsed suggest.RunNote
+	if err := json.Unmarshal([]byte(note), &parsed); err != nil {
+		t.Fatalf("the aggregate note is not parseable JSON: %v\n%q", err, note)
+	}
+	if parsed.Matched != 3 || parsed.Rewritten != 2 || parsed.Failed != 1 {
+		t.Fatalf("aggregate note does not summarize the run: %+v", parsed)
+	}
+	for _, id := range []string{editWorkID, otherWorkID} {
+		if !strings.Contains(note, id) {
+			t.Fatalf("the aggregate note does not name %s: %q", id, note)
+		}
+	}
+	if strings.Contains(note, "wmissing00001") {
+		t.Fatalf("the aggregate note names the work it failed to write: %q", note)
 	}
 }
 
