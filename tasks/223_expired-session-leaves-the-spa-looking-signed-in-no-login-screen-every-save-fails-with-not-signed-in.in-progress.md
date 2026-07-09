@@ -101,3 +101,32 @@ cd ~/libcat-e2e && node ui/probe_session_expiry.mjs
 Expect `S5`, `S6`, `S9` to flip to PASS. The probe mints its own sentinel record
 via copycat, never lets a write land (the save is intercepted), and tombstones
 the record on the way out. `harness/retest.mjs` carries the same check as `t223`.
+
+## Outcome
+
+Shipped in v0.73.0 (commit 7ffdc1a). S5 and S6 flip to PASS; S9 is
+deliberately deferred to tasks/225 (see below).
+
+Design: rather than routing to the login screen -- which unmounts the
+editor and destroys the staged ops the task exists to protect -- the
+shell re-auths IN PLACE. auth.ts notifies `onSessionExpired` on a
+terminal refresh failure or a sibling tab's sign-out (keyed on an
+explicit liveness flag: the 401-retry path clears the token fields
+before the refresh runs, which defeated the first heuristic); api.ts
+fires it when a refreshed request still 401s. The shell then clears
+the header identity immediately (nothing with `.who` semantics remains)
+and overlays a sign-in dialog on the still-mounted screen. Signing
+back in is a resumption: identity restored, overlay gone, no
+navigation, no resetScreenStates. Explicit sign-out keeps its full
+reset; the dialog offers SSO where configured (page-reload cost noted)
+and a discard-and-go-to-sign-in escape.
+
+Verified with your probe against the rebuilt 8481 (S0-S8 PASS, S9
+expected-fail) plus a resume-path probe your script doesn't cover:
+overlay -> sign back in -> staged chip intact -> the failed save lands
+(R1-R6 all pass, sentinel tombstoned).
+
+S9 (staged edit survives a *reload*) needs client-side persistence of
+staged ops with an etag guard -- a draft-machinery decision, split to
+tasks/225 rather than bolted on here. The overlay removes the need to
+reload on expiry; 225 covers the reloads that still happen.
