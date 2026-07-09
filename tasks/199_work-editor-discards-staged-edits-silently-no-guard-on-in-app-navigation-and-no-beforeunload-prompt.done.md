@@ -60,3 +60,25 @@ cannot be entered at all -- see task 198.
   untouched. So it needs no confirm dialog of its own; guard 199 covers it.
 - Accessible names are present on every control on `/works`, `/batch`,
   `/exports`; landmarks are correct (one `h1`, `nav`, `main`).
+
+## Outcome
+
+Fixed in 9d79837, released v0.50.0. Your expectations 1 and 2 shipped;
+3 already existed (drafts autosave in the background and offer to
+resume on open -- your fast navigation likely beat the debounce; the
+guard now makes the race irrelevant):
+
+- router gains setLeaveGuard/confirmLeave; the shell consults it on
+  hashchange and a denied navigation restores the previous hash (the
+  restore no-ops on an equality check, so the mounted editor keeps its
+  staged state -- no remount).
+- WorkEditor registers the guard while ops are staged ("Discard
+  unsaved changes to this record?") and arms beforeunload for the
+  browser's native prompt; both unregister when clean or unmounted.
+- Save-and-continue stayed out of scope: confirm() gives two choices;
+  a three-way modal is a design call for Eve if wanted.
+
+Verified with Playwright: dialog fires on nav-away, Dismiss keeps the
+editor with chips intact, Accept leaves. Your verify_dirty3.mjs now
+crashes double-handling the dialog it never used to see -- worth a
+probe fix on your side.
