@@ -610,44 +610,28 @@ type projector struct {
 	extras  map[string]map[string]string // Work node IRI -> extra key -> value (tasks/026)
 }
 
-// mergedView builds the projector's feed+editorial view in one pass over
-// the dataset's quads: feed triples with overridden statements shadowed,
-// then editorial triples -- replacing the former split/shadow/merge
-// pipeline's up-to-three corpus copies with a single exactly-sized
-// allocation (tasks/209). Direct quad iteration rather than
-// GraphView.Triples(): at 12M+ quads the iterator's per-triple call
-// overhead measurably slows the no-editorial common case that this
-// function otherwise ties. Triple order matches the old pipeline: feed
-// first, editorial appended.
+// mergedView builds the projector's feed+editorial view: feed triples with
+// overridden statements shadowed, then editorial triples, in one exactly-
+// sized allocation (tasks/209). GraphViews rather than direct quad
+// iteration: libcodex v0.20.0's cached per-graph counts make Len free after
+// one shared pass and Empty skips the editorial walk entirely, so the view
+// version now beats the fused hand-written merge it replaced (tasks/216).
+// Triple order matches the old pipeline: feed first, editorial appended.
 func mergedView(ds *rdf.Dataset, feed, editorial rdf.Term, overrides bibframe.Overrides) *rdf.Graph {
-	nf, ne := 0, 0
-	for i := range ds.Quads {
-		switch ds.Quads[i].G {
-		case feed:
-			nf++
-		case editorial:
-			ne++
-		}
-	}
-	if nf+ne == 0 {
+	fv, ev := ds.GraphView(feed), ds.GraphView(editorial)
+	if fv.Empty() && ev.Empty() {
 		return nil
 	}
-	merged := &rdf.Graph{Triples: make([]rdf.Triple, 0, nf+ne)}
-	for i := range ds.Quads {
-		q := &ds.Quads[i]
-		if q.G != feed {
+	merged := &rdf.Graph{Triples: make([]rdf.Triple, 0, fv.Len()+ev.Len())}
+	for tr := range fv.Triples() {
+		if tr.S.IsIRI() && overrides.Shadows(tr.S.Value, tr.P.Value) {
 			continue
 		}
-		if q.S.IsIRI() && overrides.Shadows(q.S.Value, q.P.Value) {
-			continue
-		}
-		merged.Triples = append(merged.Triples, rdf.Triple{S: q.S, P: q.P, O: q.O})
+		merged.Triples = append(merged.Triples, tr)
 	}
-	if ne > 0 {
-		for i := range ds.Quads {
-			if q := &ds.Quads[i]; q.G == editorial {
-				merged.Triples = append(merged.Triples, rdf.Triple{S: q.S, P: q.P, O: q.O})
-			}
+	if !ev.Empty() {
+		for tr := range ev.Triples() {
+			merged.Triples = append(merged.Triples, tr)
 		}
 	}
 	return merged
@@ -911,25 +895,29 @@ func buildExtraIndex(ds *rdf.Dataset, feed, editorial rdf.Term) map[string]map[s
 	idx := map[string]map[string]string{}
 	// Feed pass first, editorial pass second: an editorial extra (an
 	// uploaded cover, tasks/215) overlays the feed's value for the same
-	// key, matching the override model everywhere else.
-	for _, graph := range []rdf.Term{feed, editorial} {
-		for _, q := range ds.Quads {
-			if q.G != graph || !q.S.IsIRI() || !q.O.IsLiteral() {
+	// key, matching the override model everywhere else. Empty views (no
+	// editorial extras is the common case) cost no walk (tasks/216).
+	for _, gv := range []*rdf.GraphView{ds.GraphView(feed), ds.GraphView(editorial)} {
+		if gv.Empty() {
+			continue
+		}
+		for tr := range gv.Triples() {
+			if !tr.S.IsIRI() || !tr.O.IsLiteral() {
 				continue
 			}
-			if !strings.HasPrefix(q.P.Value, bibframe.ExtraPred) {
+			if !strings.HasPrefix(tr.P.Value, bibframe.ExtraPred) {
 				continue
 			}
-			key := q.P.Value[len(bibframe.ExtraPred):]
+			key := tr.P.Value[len(bibframe.ExtraPred):]
 			if key == "" {
 				continue
 			}
-			m := idx[q.S.Value]
+			m := idx[tr.S.Value]
 			if m == nil {
 				m = map[string]string{}
-				idx[q.S.Value] = m
+				idx[tr.S.Value] = m
 			}
-			m[key] = q.O.Value
+			m[key] = tr.O.Value
 		}
 	}
 	if len(idx) == 0 {
