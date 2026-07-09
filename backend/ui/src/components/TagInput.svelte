@@ -65,8 +65,15 @@
     }
     options = [...merged.values()];
     highlight = 0;
-    open = options.length > 0;
+    // Open even with zero matches: the "Create tag" row makes minting a
+    // new tag a visible affordance, not an implicit keystroke (tasks/198).
+    open = options.length > 0 || trimmed !== "";
   }
+
+  // A typed value matching no suggestion is creatable -- free tagging is
+  // the point of the field (tasks/198).
+  const creatable = $derived(q.trim() !== "" && !options.some((o) => o.tag.toLowerCase() === q.trim().toLowerCase()));
+  const rowCount = $derived(options.length + (creatable ? 1 : 0));
 
   function choose(tag: string): void {
     q = tag;
@@ -76,17 +83,24 @@
   }
 
   function onKeydown(ev: KeyboardEvent): void {
+    if (ev.key === "Enter") {
+      // Enter always commits (tasks/198): the highlighted suggestion when
+      // one is picked, else the raw trimmed value as a new tag.
+      ev.preventDefault();
+      if (open && highlight < options.length && options[highlight]) {
+        choose(options[highlight].tag);
+      } else if (q.trim() !== "") {
+        choose(q.trim());
+      }
+      return;
+    }
     if (!open) return;
     if (ev.key === "ArrowDown") {
       ev.preventDefault();
-      highlight = Math.min(options.length - 1, highlight + 1);
+      highlight = Math.min(rowCount - 1, highlight + 1);
     } else if (ev.key === "ArrowUp") {
       ev.preventDefault();
       highlight = Math.max(0, highlight - 1);
-    } else if (ev.key === "Enter") {
-      ev.preventDefault();
-      const o = options[highlight];
-      if (o) choose(o.tag);
     } else if (ev.key === "Escape") {
       open = false;
     }
@@ -106,6 +120,13 @@
           </button>
         </li>
       {/each}
+      {#if creatable}
+        <li class:highlight={highlight === options.length}>
+          <button type="button" class="opt" onclick={() => choose(q.trim())} onfocus={() => (highlight = options.length)}>
+            <span class="name">Create tag “{q.trim()}”</span>
+          </button>
+        </li>
+      {/if}
     </ul>
   {/if}
 </div>
