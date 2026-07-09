@@ -116,6 +116,46 @@ Attachments are librarian-gated end to end, never projected to the public
 catalog, and served as `application/octet-stream` with `nosniff`, so an
 uploaded HTML file is a download and never a page.
 
+### Editing: op lists
+
+`POST /v1/works/{id}/ops` and `POST /v1/batch/ops` take the same op list.
+An op names a `resource`, a `path`, and an `action`:
+
+| `resource` | means | actions |
+|---|---|---|
+| `work` (or omitted) | the Work node | `add`, `remove`, `set`, `clear` |
+| an Instance id | that Instance node | `add`, `remove`, `set`, `clear` |
+| `items` | **every** `bf:Item` in the grain | `set`, `clear` |
+
+`add` and `remove` carry a singular `value`; `set` carries a `values` array;
+`clear` carries neither. An `add` with a `values` array is refused rather than
+guessed at.
+
+Item ops (tasks/058) are how a batch reaches holdings: item ids are minted per
+grain, so a selection cannot name them, but "every copy shelved in Stacks" is
+exactly what a batch relocation means. An item field holds one value, so `add`
+and `remove` are refused there. An optional `where` restricts the edit to items
+whose current value at `path` is exactly that string, which is what lets
+
+```json
+{"resource":"items","path":"location","action":"set",
+ "values":[{"v":"Annex"}],"where":"Stacks"}
+```
+
+move the Stacks copies and leave the Reference ones alone. An item that does not
+assert the field reads as `""`, so `"where":""` addresses exactly the items
+missing it. Items already holding the target value are skipped, not rewritten:
+a re-run reports an empty diff because it did nothing.
+
+The editable item fields are `callNumber`, `location`, and `note`. **`barcode`
+is not among them**: a barcode names one physical copy, so assigning one across
+a selection would mint duplicates.
+
+Batch runs refuse an op naming a specific Instance id -- that id belongs to one
+grain, so across a selection it would edit whichever record happened to own it.
+`items` is the one non-work resource a batch may name, because it addresses a
+set rather than a node.
+
 ### Public intake
 
 `POST /v1/suggestions` and `POST /v1/concerns` accept unauthenticated patron

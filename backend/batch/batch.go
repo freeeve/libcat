@@ -230,8 +230,12 @@ func (s *Service) Run(ctx context.Context, sel Selection, ops []editor.Op, dryRu
 		return RunResult{}, fmt.Errorf("%w: 1-%d ops per run", ErrValidation, maxOps)
 	}
 	for _, op := range ops {
-		if op.Resource != "" && op.Resource != "work" {
-			return RunResult{}, fmt.Errorf("%w: batch ops must target the work resource, not instance %q", ErrValidation, op.Resource)
+		// Instance ids are minted per grain, so naming one across a selection
+		// edits whichever record happens to own it. Items are addressed as a
+		// set (editor.ResourceItems), never by id, which is why they are the
+		// one non-work resource a batch may reach (tasks/058).
+		if op.Resource != "" && op.Resource != "work" && op.Resource != editor.ResourceItems {
+			return RunResult{}, fmt.Errorf("%w: batch ops must target the work or items resource, not instance %q", ErrValidation, op.Resource)
 		}
 	}
 	targets, err := s.Resolve(ctx, sel, actor)

@@ -19,7 +19,8 @@
   } from "../lib/api";
   import Modal from "../components/Modal.svelte";
   import { isReadOnly } from "../lib/config";
-  import type { BatchRunResult, BatchTarget, Macro, Op, Profile, SavedQuery, Selection } from "../lib/types";
+  import { ITEM_ACTIONS, ITEM_FIELDS, fieldKey, isItemField, itemOp, itemOpSummary, parseFieldKey, type ItemGuard } from "../lib/itemops";
+  import { RESOURCE_ITEMS, type BatchRunResult, type BatchTarget, type Macro, type Op, type Profile, type SavedQuery, type Selection } from "../lib/types";
 
   // initialMacro preselects a macro (deep link #/batch?macro=<id>).
   let { initialMacro = "" }: { initialMacro?: string } = $props();
@@ -47,11 +48,17 @@
   }
 
   interface OpRow {
-    path: string;
+    /** "<resource>:<path>" -- work fields and item fields share one picker. */
+    field: string;
     action: "add" | "remove" | "set" | "clear";
     value: string;
     lang: string;
+    /** Item rows only: which copies the edit reaches. */
+    guard: ItemGuard;
+    where: string;
   }
+
+  const emptyRow = (): OpRow => ({ field: "", action: "add", value: "", lang: "", guard: "all", where: "" });
 
   let kind = $state<Selection["kind"]>("search");
   let query = $state("");
@@ -71,7 +78,7 @@
    *  (tasks/231). The server treats "" the same way; this keeps the wire
    *  shape identical for both histories of the same blank field. */
   const sentParams = $derived(Object.fromEntries(Object.entries(paramValues).filter(([, v]) => v !== "")));
-  let opRows = $state<OpRow[]>([{ path: "", action: "add", value: "", lang: "" }]);
+  let opRows = $state<OpRow[]>([emptyRow()]);
 
   let result = $state<BatchRunResult | null>(null);
   // The payload the last dry run previewed. Execute is enabled only while the
@@ -121,19 +128,44 @@
     }
   }
 
+  /** Op rows as the wire sends them. An item row goes through itemOp, which
+   *  refuses the shapes the server would: an item field holds one value, so
+   *  only set and clear reach it. */
   function ops(): Op[] {
-    return opRows
-      .filter((r) => r.path && (r.action === "clear" || r.value))
-      .map((r) => {
-        const field = editableFields.find((f) => f.path === r.path);
-        const k = field?.valueSource?.kind;
-        const iri = k === "vocab" || k === "authority" || k === "entity";
-        const v = { v: r.value, ...(r.lang ? { lang: r.lang } : {}), ...(iri ? { iri: true } : {}) };
-        const op: Op = { resource: "work", path: r.path, action: r.action };
-        if (r.action === "set") op.values = [v];
-        else if (r.action !== "clear") op.value = v;
-        return op;
-      });
+    const out: Op[] = [];
+    for (const r of opRows) {
+      const { resource, path } = parseFieldKey(r.field);
+      if (!r.field) continue;
+      if (resource === RESOURCE_ITEMS) {
+        const op = itemOp(path, r.action, r.value, r.guard, r.where);
+        if (op) out.push(op);
+        continue;
+      }
+      if (r.action !== "clear" && !r.value) continue;
+      const field = editableFields.find((f) => f.path === path);
+      const k = field?.valueSource?.kind;
+      const iri = k === "vocab" || k === "authority" || k === "entity";
+      const v = { v: r.value, ...(r.lang ? { lang: r.lang } : {}), ...(iri ? { iri: true } : {}) };
+      const op: Op = { resource: "work", path, action: r.action };
+      if (r.action === "set") op.values = [v];
+      else if (r.action !== "clear") op.value = v;
+      out.push(op);
+    }
+    return out;
+  }
+
+  /** Plain-language reach of the staged item ops, shown before the dry run so
+   *  "every copy in the catalog" is never a surprise. */
+  const itemOpNotes = $derived(ops().filter((o) => o.resource === RESOURCE_ITEMS).map(itemOpSummary));
+
+  /** Switching a row between a work field and an item field resets the action:
+   *  "add" is legal on a work field and refused on an item one. */
+  function onFieldChange(row: OpRow): void {
+    if (isItemField(row.field) && !ITEM_ACTIONS.includes(row.action)) row.action = "set";
+    if (!isItemField(row.field)) {
+      row.guard = "all";
+      row.where = "";
+    }
   }
 
   /** The execute-relevant inputs, serialized; compared against `dryRunFor`. */
@@ -304,29 +336,61 @@
       </details>
     {:else}
       {#each opRows as row, i (i)}
+        {@const items = isItemField(row.field)}
         <div class="row">
-          <select aria-label="Field" bind:value={row.path}>
+          <select aria-label="Field" bind:value={row.field} onchange={() => onFieldChange(row)}>
             <option value="">field…</option>
-            {#each editableFields as f (f.path)}
-              <option value={f.path}>{f.label}</option>
-            {/each}
+            <optgroup label="Work">
+              {#each editableFields as f (f.path)}
+                <option value={fieldKey("work", f.path)}>{f.label}</option>
+              {/each}
+            </optgroup>
+            <optgroup label="Items (every copy)">
+              {#each ITEM_FIELDS as f (f.path)}
+                <option value={fieldKey(RESOURCE_ITEMS, f.path)}>{f.label}</option>
+              {/each}
+            </optgroup>
           </select>
           <select aria-label="Action" bind:value={row.action}>
-            <option value="add">add</option>
-            <option value="remove">remove</option>
-            <option value="set">set</option>
-            <option value="clear">clear</option>
+            {#if items}
+              <option value="set">set</option>
+              <option value="clear">clear</option>
+            {:else}
+              <option value="add">add</option>
+              <option value="remove">remove</option>
+              <option value="set">set</option>
+              <option value="clear">clear</option>
+            {/if}
           </select>
           {#if row.action !== "clear"}
             <input class="grow" aria-label="Value" bind:value={row.value} placeholder="value (or ${'{'}param{'}'})" />
-            <input class="lang" aria-label="Language" bind:value={row.lang} placeholder="lang" />
+            {#if !items}
+              <input class="lang" aria-label="Language" bind:value={row.lang} placeholder="lang" />
+            {/if}
           {/if}
           <button class="button button--quiet" onclick={() => (opRows = opRows.filter((_, j) => j !== i))}>Remove</button>
         </div>
+        {#if items}
+          <div class="row guard">
+            <select aria-label="Which items" bind:value={row.guard}>
+              <option value="all">on every item</option>
+              <option value="eq">only where the current value is</option>
+              <option value="empty">only where it is empty</option>
+            </select>
+            {#if row.guard === "eq"}
+              <input class="grow" aria-label="Current value" bind:value={row.where} placeholder="current value, e.g. Stacks" />
+            {/if}
+          </div>
+        {/if}
       {/each}
-      <button class="button button--quiet" onclick={() => (opRows = [...opRows, { path: "", action: "add", value: "", lang: "" }])}>
-        Add op
-      </button>
+      <button class="button button--quiet" onclick={() => (opRows = [...opRows, emptyRow()])}> Add op </button>
+      {#if itemOpNotes.length > 0}
+        <ul class="reach">
+          {#each itemOpNotes as note (note)}
+            <li>{note}</li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
   </section>
 
@@ -447,6 +511,16 @@
     align-items: center;
     flex-wrap: wrap;
     margin-bottom: 0.45rem;
+  }
+  .row.guard {
+    margin-left: 1.5rem;
+    margin-top: -0.2rem;
+  }
+  .reach {
+    margin: 0.6rem 0 0;
+    padding-left: 1.1rem;
+    color: var(--muted);
+    font-size: 0.9rem;
   }
   .grow {
     flex: 1;

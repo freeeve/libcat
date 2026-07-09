@@ -99,13 +99,18 @@ export interface OpValue {
 
 export type OpAction = "add" | "remove" | "set" | "clear";
 
+/** editor.ResourceItems -- addresses every bf:Item in the grain at once. */
+export const RESOURCE_ITEMS = "items";
+
 /** editor.Op -- one field-level edit in a POST /v1/works/{id}/ops batch. */
 export interface Op {
-  resource: string; // "work" or an instance id
+  resource: string; // "work", an instance id, or RESOURCE_ITEMS
   path: string;
   action: OpAction;
   value?: OpValue; // add / remove
   values?: OpValue[]; // set
+  /** Items only: edit just the items whose current value is exactly this. */
+  where?: string;
 }
 
 /** editor.Diff -- the exact N-Quads delta a save makes (dry-run preview). */

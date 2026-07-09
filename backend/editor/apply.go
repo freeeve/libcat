@@ -36,16 +36,25 @@ type OpValue struct {
 // backs drafts, macros, and batch templates (the plan's
 // everything-is-an-operation-list rule).
 type Op struct {
-	// Resource is "work" or an Instance id.
+	// Resource is "work", an Instance id, or ResourceItems.
 	Resource string `json:"resource"`
-	// Path names the profile field.
+	// Path names the profile field, or an item field for ResourceItems.
 	Path string `json:"path"`
 	// Action: "add" one value, "remove" one matching value, "set" the whole
 	// value set, "clear" every value.
 	Action string    `json:"action"`
 	Value  *OpValue  `json:"value,omitempty"`  // add / remove
 	Values []OpValue `json:"values,omitempty"` // set
+	// Where guards a ResourceItems op: only items whose current value at Path
+	// is exactly this string are edited. Meaningless on the other resources.
+	Where *string `json:"where,omitempty"`
 }
+
+// ResourceItems addresses every bf:Item in the grain at once (tasks/058). It
+// is the only resource an op list can name that is not a single node: item
+// ids are minted per grain, so a selection cannot name them, but "every copy
+// shelved in Stacks" is exactly what a batch relocation means.
+const ResourceItems = "items"
 
 // ApplyOps edits a grain through the profile mapper, translating field
 // operations into the editorial write shapes of ARCHITECTURE §5:
@@ -73,8 +82,15 @@ func ApplyOps(m *Mapper, grainNQ []byte, workID string, ops []Op, labels LabelRe
 		return nil, err
 	}
 	patch := bibframe.Patch{}
+	seenItemField := map[string]bool{}
 	for i, op := range ops {
-		if err := applyOne(m, doc, workID, op, &patch); err != nil {
+		var err error
+		if op.Resource == ResourceItems {
+			err = applyItemOp(grainNQ, op, seenItemField, &patch)
+		} else {
+			err = applyOne(m, doc, workID, op, &patch)
+		}
+		if err != nil {
 			return nil, fmt.Errorf("editor: op %d (%s %s.%s): %w", i, op.Action, op.Resource, op.Path, err)
 		}
 	}
