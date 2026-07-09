@@ -8,7 +8,7 @@ is a UI/plumbing layer over machinery that exists.
 
 ## Scope
 
-1. **Concerns**: `CONCERN` queue item type (freetext + workId + reporter),
+1. **Concerns** (DONE -> tasks/210, v0.61.0; convert-to-edit deferred): `CONCERN` queue item type (freetext + workId + reporter),
    anonymous report-a-problem endpoint sharing the suggestion anti-abuse
    challenge, review-screen actions resolve / dismiss / convert-to-edit.
 2. **Covers/attachments**: upload to the blob store + `lcat:coverImage`
