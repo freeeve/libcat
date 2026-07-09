@@ -1100,7 +1100,15 @@ func (p *projector) instances(w rdf.Term) []Instance {
 			}
 		}
 		sort.Strings(i.Series)
-		i.SeriesEnumeration, _ = p.view.Literal(inst, pSeriesEnum)
+		// libcodex v0.21.0 pairs enumerations to statements positionally and
+		// pads with EMPTY literals for 490s that carried no $v -- placeholders,
+		// not data. First non-empty wins (the editor's max-1 shape).
+		for _, s := range p.view.Objects(inst, pSeriesEnum) {
+			if s.IsLiteral() && s.Value != "" {
+				i.SeriesEnumeration = s.Value
+				break
+			}
+		}
 		i.Items = p.items(inst)
 		i.Held = len(i.Items) > 0
 		if !i.Held && !withdrawn {

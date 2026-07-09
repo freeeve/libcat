@@ -472,6 +472,7 @@ _:ta <http://id.loc.gov/ontologies/bibframe/mainTitle> "The Whole" <feed:overdri
 <#waaWork> <http://id.loc.gov/ontologies/bibframe/hasInstance> <#iaaInstance> <feed:overdrive> .
 <#iaaInstance> <http://id.loc.gov/ontologies/bibframe/instanceOf> <#waaWork> <feed:overdrive> .
 <#iaaInstance> <http://id.loc.gov/ontologies/bibframe/seriesStatement> "Big Series" <editorial:> .
+<#iaaInstance> <http://id.loc.gov/ontologies/bibframe/seriesEnumeration> "" <editorial:> .
 <#iaaInstance> <http://id.loc.gov/ontologies/bibframe/seriesEnumeration> "v. 2" <editorial:> .
 <#waaWork> <http://id.loc.gov/ontologies/bibframe/hasPart> <#wbbWork> <editorial:> .
 <#waaWork> <http://id.loc.gov/ontologies/bibframe/hasPart> <#whiddenWork> <editorial:> .
