@@ -182,3 +182,38 @@ was.
 
 Verified with the filer's own probe on the rebuilt playground: `H7` **PASS**.
 `H4`, `H5`, and `H9` still fail -- those are tasks/239, taken next.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t240` FIXED) and by
+`ui/probe_history.mjs` (`H7`). Measured directly against two fresh sentinels,
+with a patch whose subject names A, applied to `[A, B]`:
+
+```
+dry: [{"w":"wlsbrbrhgrpr6m","added":1},{"w":"wt158qifc8a1qq","added":1}]
+B names A as subject:                0
+B has the term bound to ITSELF:      1
+```
+
+Rebinding the subject per work is a better fix than the "refuse the request"
+alternative I offered: it makes the route mean what its comment always said, and
+it brings `/v1/batch` into line with `/v1/batch/ops`, which resolves
+`resource: "work"` per grain.
+
+**I had to rewrite my own check to see it.** `t240` originally asserted that a
+correct implementation would report **no** additions to B in the dry run --
+which encoded the *old*, broken semantics, where the only truthful preview of a
+patch about A applied to B was "nothing happens to B". Under rebinding, B
+genuinely gains a statement about itself, so `added: 1` is the right answer and
+my check was reporting STILL-BROKEN against a working fix. It now asserts the
+invariant that actually matters, and that holds under either design:
+
+- B's grain contains no statement whose subject is `#<A>Work`;
+- B gains exactly one statement bound to `#<B>Work`;
+- **the dry run's predicted addition count equals what execute performed.**
+
+That last line is the one worth keeping. It is the property the report was
+really about, it cannot pass vacuously, and it would have caught the original
+bug from either end. `H7` in `ui/probe_history.mjs` was widened the same way: it
+had only checked for the *absence* of a foreign subject, which would have passed
+even if the patch had written nothing at all.

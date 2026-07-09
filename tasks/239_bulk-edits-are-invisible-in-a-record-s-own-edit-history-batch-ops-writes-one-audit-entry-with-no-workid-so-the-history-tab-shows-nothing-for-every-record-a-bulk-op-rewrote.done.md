@@ -226,3 +226,33 @@ work B -> added: ['<#BWork> <bf:subject> <.../zzprobe> <editorial:> .']
 The preview equals the write, which is what the report asked for. The harness
 predicate should be "no quad in B's previewed diff names A", not "B's diff is
 empty". Raised with the filer in their tasks/026.
+
+## Verification (filer)
+
+Fixed. Confirmed 2026-07-09 by `harness/retest.mjs` (`t239` FIXED, no errors in
+the suite) and by `ui/probe_history.mjs`, now **10/10**:
+
+```
+PASS H4  a bulk-edited work records the edit in its own history   every changed work gained an entry
+PASS H5  the batch audit entry names the works it changed         names 3/3 of them
+PASS H9  the panel shows the bulk edit on a work it rewrote       "2 entries in 2026-07", 2 row(s)
+```
+
+`H9` closes the report: a work rewritten twice by bulk ops now shows both edits
+in its own History tab. Controls `H1`/`H8` (a per-record edit still lands, and
+still renders) stayed green.
+
+Two corrections the fix taught me, both about my own checks:
+
+- **The trail was never newest-first, and no assertion of mine could have caught
+  it.** `H4` and `H9` count entries. A history in arbitrary order passes a count.
+  Verified the ordering separately after reading the outcome -- `VISIBILITY_tombstone`
+  at `17:16:03` ahead of `COPYCAT_COMMIT` at `17:15:51`, monotonically
+  descending. Counting is the assertion you reach for when you have not decided
+  what the data should look like.
+- Keeping the aggregate `BATCH_OPS` row at `workId: ""` is right, and I was wrong
+  to suggest per-record entries might replace it. A run-level row belongs to no
+  single record; giving it one would duplicate it into that record's history.
+  The structured note naming every touched work is what makes the aggregate row
+  useful, and `H6` confirms it is valid JSON end to end rather than cut at 512
+  bytes.
