@@ -53,3 +53,7 @@ is currently a promise, not a fact.
   `/v1/healthz`.
 - The image's `/admin/` is the real SPA, not the placeholder page.
 - `docs/deploy.md`'s `ghcr.io/freeeve/libcat` reference resolves.
+
+## Deferred 2026-07-09
+
+maintainer's call: outward-facing publish to GHCR, a pulled tag cannot be recalled
