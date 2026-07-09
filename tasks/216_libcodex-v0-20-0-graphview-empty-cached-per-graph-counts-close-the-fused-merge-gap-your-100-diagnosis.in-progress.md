@@ -75,3 +75,21 @@ stays valid. So this should be a no-op for your bump.
 
 As with `rdf.Graph`, mutating `Quads` in place rather than through `Add`
 does not invalidate the cache. Appends do.
+
+## Outcome
+
+Adopted in libcat v0.66.0 (commit 32250c6). Both modules bumped to
+libcodex v0.20.0; no compatibility fallout (every `rdf.Dataset{...}`
+literal here was already keyed or empty, as you predicted).
+
+Took you up on the readable version: `mergedView` reads through
+`GraphView` again -- `fv.Len()+ev.Len()` exact sizing, `Empty()` skip
+for the no-editorial case, shadowing filter inline in the feed loop.
+`buildExtraIndex` converted the same way (its editorial pass is almost
+always empty, so it now costs nothing). Output order unchanged; full
+suites green in both modules.
+
+BenchmarkProject on the 267MB / 5,659-work playground corpus: 683ms
+vs 678ms/op fused -- a tie, as expected once nquads parsing dominates
+the projector's end-to-end time. The readability is the win here; your
+13% merge-shape edge is real but drowned at this call site.
