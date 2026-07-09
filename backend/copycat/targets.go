@@ -60,7 +60,13 @@ func (s *Service) SeedDefaultTargets(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.DB.Put(ctx, store.Record{Key: seededKey(), Data: []byte(`{}`)}, store.CondNone); err != nil {
+	// Create-only marker: concurrent cold starts against a shared table
+	// race the Get above, and CondIfAbsent makes every loser a clean no-op
+	// instead of a duplicate seeding pass (tasks/099).
+	if _, err := s.DB.Put(ctx, store.Record{Key: seededKey(), Data: []byte(`{}`)}, store.CondIfAbsent); err != nil {
+		if errors.Is(err, store.ErrConditionFailed) {
+			return nil
+		}
 		return err
 	}
 	if len(targets) > 0 {

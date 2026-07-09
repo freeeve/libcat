@@ -88,6 +88,32 @@ cold instances have separate in-memory stores, so token *refresh* can miss acros
 instances -- use a generous access-token TTL. The **writable** production stack
 (below) is a separate deployment (tasks/099).
 
+## Writable production on Lambda (DynamoDB + S3)
+
+The read-only demo above skips persistence and workers. The writable shape
+(tasks/099) adds three things on top of the same `cmd/lcatd-lambda` binary:
+
+1. **Persistence**: set `LCATD_DYNAMO_TABLE` and `LCATD_S3_BUCKET`; the
+   terraform stack provisions the table (pk/sk, `expireAt` TTL), bucket, and
+   IAM. TTL expiry is lazy on DynamoDB (documented in `store/dynamo`); every
+   `expireAt` consumer treats it as a floor on invisibility -- the windowed
+   rate-limit keys carry exact semantics and the supporter dedup marker
+   fails conservative (a re-support inside the reap lag reads as duplicate,
+   never double-counts).
+2. **Queued-work drain**: container tickers freeze between invocations, so
+   set the terraform `drain_schedule` variable (e.g. `rate(1 minute)`); the
+   EventBridge rule invokes the function with `{"lcatd":"drain"}` and the
+   entrypoint runs the vocab-download and export-job drains once per firing.
+   Read-only demos leave it empty.
+3. **Work index snapshot**: seed `data/workindex.snapshot` next to the
+   grains (`lcatd workindex-snapshot --s3-bucket <bucket>`, tasks/154) so a
+   cold start loads the index instead of scanning the corpus; publishes keep
+   it current and the change feed gives cross-container read-your-writes.
+
+Cold-start seeding (`SeedDefaultTargets`) is race-free against a shared
+table: the seed marker is create-only, so concurrent cold starts collapse to
+one seeding pass.
+
 ## Terraform (AWS reference)
 
 ```sh

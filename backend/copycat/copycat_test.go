@@ -424,3 +424,30 @@ func TestIndexedMatchEqualsFallbackAndSkipsCorpusReads(t *testing.T) {
 		}
 	}
 }
+
+// TestSeedDefaultTargetsConcurrent covers tasks/099: cold starts sharing one
+// table race the seed; exactly one wins the create-only marker and the rest
+// no-op, so the target set comes out exactly once regardless.
+func TestSeedDefaultTargetsConcurrent(t *testing.T) {
+	svc, _, _ := newService(t)
+	ctx := t.Context()
+	const racers = 8
+	errs := make(chan error, racers)
+	start := make(chan struct{})
+	for range racers {
+		go func() {
+			<-start
+			errs <- svc.SeedDefaultTargets(ctx)
+		}()
+	}
+	close(start)
+	for range racers {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	targets, err := svc.Targets(ctx)
+	if err != nil || len(targets) != len(copycat.DefaultTargets) {
+		t.Fatalf("targets after concurrent seed = %d, %v", len(targets), err)
+	}
+}

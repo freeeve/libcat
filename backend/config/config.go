@@ -124,6 +124,12 @@ type Config struct {
 	// Default "overdrive".
 	Provider string
 
+	// DisableTickers skips the container-shaped background workers (the
+	// 15s vocab-download and export-job drains). Set programmatically by
+	// serverless entrypoints, which drain on scheduled invocations instead
+	// -- a frozen Lambda never advances a ticker goroutine (tasks/099).
+	DisableTickers bool
+
 	// OrgCode is the deployment's MARC organization code. When set, MARC
 	// surfaces (the MARC view, exports) derive each record's 040 cataloging
 	// source from graph facts at decode time (tasks/192): locally edited

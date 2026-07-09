@@ -37,3 +37,9 @@ variable "rebuild_events" {
   type        = bool
   default     = true
 }
+
+variable "drain_schedule" {
+  description = "EventBridge schedule expression for the queued-work drain on a writable deployment (e.g. rate(1 minute)); empty disables the rule. Read-only demos leave it empty (tasks/099)."
+  type        = string
+  default     = ""
+}

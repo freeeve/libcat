@@ -1,0 +1,33 @@
+# Runs the store/dynamo conformance suite against DynamoDB Local (tasks/099):
+# the suite self-provisions its pk/sk + expireAt-TTL table and skips without
+# DYNAMO_ENDPOINT, so this job is the only place it executes for real.
+name: dynamo-conformance
+on:
+  push:
+    paths:
+      - "backend/store/**"
+      - ".github/workflows/dynamo-conformance.yml"
+  pull_request:
+    paths:
+      - "backend/store/**"
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - name: conformance
+        working-directory: backend
+        env:
+          DYNAMO_ENDPOINT: http://localhost:8000
+          AWS_ACCESS_KEY_ID: local
+          AWS_SECRET_ACCESS_KEY: local
+          AWS_REGION: us-east-1
+        run: go test ./store/dynamo/ -v

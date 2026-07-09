@@ -43,3 +43,29 @@ resource "aws_sqs_queue_policy" "rebuild" {
     }]
   })
 }
+
+# Scheduled queued-work drain for the writable Lambda shape (tasks/099):
+# container tickers freeze between invocations, so an EventBridge schedule
+# invokes the function with the constant {"lcatd":"drain"} payload and the
+# entrypoint runs the vocab-download and export-job drains once per firing.
+resource "aws_cloudwatch_event_rule" "drain" {
+  count               = var.drain_schedule != "" ? 1 : 0
+  name                = "${var.name}-drain"
+  schedule_expression = var.drain_schedule
+}
+
+resource "aws_cloudwatch_event_target" "drain_lambda" {
+  count = var.drain_schedule != "" ? 1 : 0
+  rule  = aws_cloudwatch_event_rule.drain[0].name
+  arn   = aws_lambda_function.api.arn
+  input = jsonencode({ lcatd = "drain" })
+}
+
+resource "aws_lambda_permission" "drain_events" {
+  count         = var.drain_schedule != "" ? 1 : 0
+  statement_id  = "AllowDrainSchedule"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.drain[0].arn
+}
