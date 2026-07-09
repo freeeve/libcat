@@ -80,3 +80,21 @@ python3 harness/freshness2.py
 
 Note the single-record path requires an `If-Match` etag (returns 428 without
 one); the batch path requires none.
+
+## Outcome
+
+Fixed in 7b0dccc, released v0.48.0, exactly along your suggested seam:
+batch.Service gains a narrow IndexUpdater (the workindex.Index
+Apply/AppendFeed surface, appdeps passes the shared index with a
+typed-nil guard). runOne calls Apply per successfully CAS-written
+grain with the etag it already reports; Run publishes ONE AppendFeed
+over all changed paths (batched rather than per-record -- fewer feed
+writes, same read-your-writes result). Dry runs and failed records
+never touch the index; your chained-selection hazard is covered since
+Resolve reads the now-exact index.
+
+Verified with your own harness against the rebuilt 8481 playground:
+harness/freshness2.py reports batch=0.00s single=0.00s ratio=1x
+(was 16.8s/28.3s). Unit coverage: TestRunUpdatesIndex (fake updater
+asserting per-record etags, single feed append, dry-run/failure
+no-ops).
