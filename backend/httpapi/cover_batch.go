@@ -154,6 +154,15 @@ func applyBatchCover(r *http.Request, bs blob.Store, ix *workindex.Index, byISBN
 		res.Skipped = "unreadable entry"
 		return res
 	}
+	// The zip entry's name claimed the format; the bytes have to agree.
+	switch sniffed := sniffCover(img); {
+	case sniffed == "":
+		res.Skipped = "not a jpeg, png, or webp image"
+		return res
+	case coverTypes[sniffed] != ext:
+		res.Skipped = "image is " + sniffed + ", not the ." + ext + " its name claims"
+		return res
+	}
 	url := "covers/" + workID + "." + ext
 	if _, err := mutateWorkGrain(r, bs, ix, workID, func(g []byte) ([]byte, error) {
 		return bibframe.SetCover(g, workID, url)
@@ -165,6 +174,7 @@ func applyBatchCover(r *http.Request, bs blob.Store, ix *workindex.Index, byISBN
 		res.Skipped = "cover store failed"
 		return res
 	}
+	sweepStaleCovers(r, bs, workID, ext)
 	res.Cover = url
 	return res
 }

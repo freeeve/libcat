@@ -72,10 +72,11 @@ func TestCoverBatch(t *testing.T) {
 	seedWorkGrain(t, bs)
 	seedISBNGrain(t, bs, "9781250313195")
 	png := []byte("\x89PNG\r\n\x1a\nfakebytes")
+	jpg := []byte("\xff\xd8\xff\xe0fakebytes")
 
 	zipBytes := buildZip(t, map[string][]byte{
 		editWorkID + ".png":        png,
-		"978-1-250-31319-5.jpg":    png, // resolves via normalized ISBN
+		"978-1-250-31319-5.jpg":    jpg, // resolves via normalized ISBN
 		"covers/nonsense.png":      png, // not an id or isbn
 		"wzzzz00phantom.png":       png, // id-shaped but no grain
 		editWorkID + ".gif":        png, // bad type
