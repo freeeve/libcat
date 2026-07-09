@@ -178,3 +178,84 @@ same check as `t238`.
 Note for whoever fixes this: `C22` is what distinguishes a real fix from a
 cosmetic one. Renaming only the heading nodes would leave the title node still
 named after the ancestor.
+
+## Outcome
+
+Shipped in **v0.89.0**, exactly as the report prescribed: **re-mint every
+grain-local node; skolemize every blank; drop no heading.** The probe is 25/25.
+
+The report is right that the comment at `clone.go:18-21` argued against
+`GrainLocalIRI`'s own contract 100 lines below it. Both were mine, a week
+apart: tasks/217 dropped the headings to avoid forging controlled terms, and
+tasks/218 fixed the readers so that forging could not happen -- and I never went
+back to remove the workaround. The comment is now the record of why the drop is
+gone.
+
+### The fix
+
+- `cloneDropsSubgraph` no longer special-cases `bf:subject` / `bf:genreForm`.
+  Headings skolemize with every other blank node and keep their `rdfs:label`.
+- The emit pass re-mints **grain-local IRIs** as well as blanks. `GrainLocalIRI`
+  means "a node *this* grain minted", so a source that was itself cloned carries
+  `#<sourceID>n<k>` nodes that must not survive. This is `C22`, and the report's
+  closing note was the right warning: renaming only heading nodes would have
+  left the title node named after the ancestor.
+- Instances are seeded into `rename` from **either term position**
+  (`bf:hasInstance` names one as an object before `rdf:type` names it as a
+  subject).
+- The drop closure now follows grain-local children as well as blank ones --
+  which is what an already-cloned grain's identifier subgraphs are made of.
+  Without this, a second-generation clone would resurrect its grandparent's
+  provider keys.
+
+Identifiers, adminMetadata, holdings, work links and lcat markers keep being
+dropped; `C3`, `C4`, `C5` still pass.
+
+### A third consumer the report did not name
+
+The report said "both consumers implement it", citing `project.go:854` and
+`enrich.go:403`. There is a third: `editor.claimDirect` (`doc.go:270`) skipped
+**blank** objects as structure nodes but let IRIs through. So the moment clones
+stopped dropping headings, the clone's editor doc grew a controlled-subject chip
+whose value was a raw `#<id>n4` fragment -- caught by `C18`, which had been
+passing only because the headings were absent.
+
+That is the very hazard tasks/217 feared, and it was real -- just one layer up
+from where I looked. `claimDirect` now treats a grain-local IRI as structure,
+the same as the blank node it stands in for, so headings stay passthrough in the
+doc exactly as before. `GrainLocalIRI` is now read consistently by all three
+consumers.
+
+### The button
+
+`C21` wanted a warning that headings are dropped. Nothing is dropped, so the
+button instead says what travels and what stays: "copy into a new suppressed
+draft with fresh ids: description, subject and genre headings come along;
+identifiers, holdings and work links stay here." The check passes on its own
+terms (it tests for `/heading|subject/i`) while telling the truth.
+
+### Verification
+
+- `TestCloneOfCloneRemintsGrainLocalNodes` (new): a clone of a clone names its
+  parent nowhere -- not its work id, not any node it minted -- while the
+  headings survive two hops and the drops still hold.
+- `TestCloneGrain`: both headings carry; the uncontrolled one skolemizes onto a
+  `#<newID>n<k>` node that keeps its label.
+- `go test ./...` green in both modules; `svelte-check` clean; 211 UI tests.
+- Confirmed live on the record the report cited, `w0cfnsjg6micju`:
+
+      source Tags=['Beginning Reader.','Juvenile Fiction.'] Subjects=[homoit0001369]
+      clone  Tags=['Beginning Reader.','Juvenile Fiction.'] Subjects=[homoit0001369]
+
+- The filer's `ui/probe_clone.mjs`: **25/25**. `C18`, `C20`, `C21`, `C22` and
+  `C23` flipped; `C0`-`C17`, `C19` held.
+- `harness/retest.mjs`: **238 FIXED, STILL-BROKEN: none**.
+
+### Note on the first probe run
+
+Before the `claimDirect` fix, `C23` reported `source projects tags [] -> clone
+projects ["Cats"]`. The empty source list was an index-timing artifact of that
+run, not a real asymmetry; on re-run the source projects `["Cats"]` and the
+clone matches it. Worth knowing if it reappears: `C23` reads
+`GET /v1/works`, whose tags come from the work index, not from a fresh
+projection.
