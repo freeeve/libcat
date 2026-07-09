@@ -50,3 +50,22 @@ export function resolve(routes: RouteDef[], hash: string): RouteMatch {
 export function navigate(path: string): void {
   location.hash = path.startsWith("#") ? path : "#" + path;
 }
+
+// The active leave guard (tasks/199): a screen holding unsaved work
+// registers one; the shell consults it before applying an in-app hash
+// navigation. One guard at a time -- only one screen is mounted.
+let leaveGuard: (() => boolean) | null = null;
+
+/** Registers fn as the leave guard; it returns false to block navigation.
+ *  Returns the unregister function (idempotent, guard-scoped). */
+export function setLeaveGuard(fn: () => boolean): () => void {
+  leaveGuard = fn;
+  return () => {
+    if (leaveGuard === fn) leaveGuard = null;
+  };
+}
+
+/** True when navigation may proceed: no guard, or the guard consents. */
+export function confirmLeave(): boolean {
+  return leaveGuard === null || leaveGuard();
+}

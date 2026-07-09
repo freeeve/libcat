@@ -22,6 +22,7 @@
   import { isReadOnly } from "../lib/config";
   import { createEditorSession } from "../lib/editor";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
+  import { setLeaveGuard } from "../lib/router";
 
   let { workId }: { workId: string } = $props();
 
@@ -31,6 +32,22 @@
   // The mount is keyed on workId in App.svelte, so one session per work.
   // svelte-ignore state_referenced_locally
   const session = createEditorSession(workId);
+
+  // Staged-ops guard (tasks/199): in-app navigation asks before discarding
+  // and beforeunload arms the browser's native leave prompt while dirty.
+  // The background draft autosave usually makes a discard recoverable; the
+  // prompt keeps it deliberate.
+  const dirty = $derived($session.ops.length > 0);
+  $effect(() => {
+    if (!dirty) return;
+    const unregister = setLeaveGuard(() => confirm("Discard unsaved changes to this record?"));
+    const onBeforeUnload = (ev: BeforeUnloadEvent) => ev.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      unregister();
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  });
 
   let tab = $state<"native" | "marc" | "history">("native");
   // The live MARC pane (tasks/070): read-only, side by side on wide screens.

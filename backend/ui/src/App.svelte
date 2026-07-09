@@ -6,7 +6,7 @@
   import { loadConfig } from "./lib/config";
   import { CALLBACK_PATH, canAdmin, getToken, handleOidcCallback, logout, session } from "./lib/auth";
   import { initTheme, toggleTheme, type Theme } from "./lib/theme";
-  import { resolve, navigate, type RouteDef } from "./lib/router";
+  import { resolve, navigate, type RouteDef, confirmLeave } from "./lib/router";
   import { configStore, sessionStore } from "./lib/stores";
   import { bindKeys, GLOBAL_SCOPE } from "./lib/keyboard";
   import { resetScreenStates } from "./lib/screenState.svelte";
@@ -116,7 +116,18 @@
     }
     sessionStore.set(session());
     ready = true;
+    // A screen holding unsaved work registers a leave guard (tasks/199):
+    // a denied navigation restores the previous hash; the restore fires a
+    // second hashchange that no-ops on the equality check, so the mounted
+    // screen keeps its state.
+    let currentHash = location.hash;
     window.addEventListener("hashchange", () => {
+      if (location.hash === currentHash) return;
+      if (!confirmLeave()) {
+        location.hash = currentHash;
+        return;
+      }
+      currentHash = location.hash;
       route = resolve(routes, location.hash);
     });
     route = resolve(routes, location.hash);
