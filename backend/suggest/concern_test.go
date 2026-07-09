@@ -48,7 +48,7 @@ func TestConcernLifecycle(t *testing.T) {
 	}
 
 	// Resolve (approve) -- and the publisher's worklist must not see it.
-	err = svc.Review(ctx, []Decision{{
+	_, err = svc.Review(ctx, []Decision{{
 		WorkID: concern.WorkID, Term: concern.Term, Type: TypeConcern, Approve: true, Note: "fixed the summary",
 	}}, "mod@example.org")
 	if err != nil {
@@ -73,7 +73,7 @@ func TestConcernLifecycle(t *testing.T) {
 		if page.Items[i].Type != TypeConcern {
 			continue
 		}
-		if err := svc.Review(ctx, []Decision{{
+		if _, err := svc.Review(ctx, []Decision{{
 			WorkID: page.Items[i].WorkID, Term: page.Items[i].Term, Type: TypeConcern, Approve: false,
 		}}, "mod@example.org"); err != nil {
 			t.Fatal(err)

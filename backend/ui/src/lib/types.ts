@@ -337,11 +337,16 @@ export interface Decision {
 
 /** POST /v1/review response; publish fields appear when publish was set. */
 export interface ReviewResponse {
+  /** Decisions actually applied -- not the number submitted. */
   reviewed: number;
   published?: number;
+  /** Suggestions the publisher skipped. Nothing to do with staleDecisions. */
   skipped?: number;
   approvedPending?: number;
   publishNote?: string;
+  /** Decisions another moderator resolved first, so they were discarded
+   *  rather than applied (tasks/257). */
+  staleDecisions?: Decision[];
 }
 
 /** POST /v1/publish response (also the shape merged into ReviewResponse). */

@@ -168,8 +168,17 @@
       if (res.published !== undefined) parts.push(`published ${res.published}`);
       if (res.skipped) parts.push(`skipped ${res.skipped}`);
       if (res.publishNote) parts.push(res.publishNote);
+      // Decisions another moderator resolved first were discarded. Say so, and
+      // keep them staged against their new status rather than clearing the
+      // moderator's work away with nothing on screen to contradict the notice
+      // (tasks/257).
+      const stale = res.staleDecisions ?? [];
+      if (stale.length > 0) {
+        parts.push(`${stale.length} already decided by someone else`);
+      }
       notice = parts.join(" · ");
       decisions.clear();
+      for (const d of stale) decisions.stage(d);
       await load(true);
     } catch (e) {
       error = e instanceof ApiError ? `apply failed: ${e.message}` : "apply failed";

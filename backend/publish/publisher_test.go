@@ -93,7 +93,7 @@ func TestPublishApproved(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := queue.Review(t.Context(), []suggest.Decision{{
+	if _, err := queue.Review(t.Context(), []suggest.Decision{{
 		WorkID: workID, Term: vocab.TermRef{Scheme: vocab.FolkScheme, ID: "cozy fantasy"},
 		Type: suggest.TypeAdd, Approve: true,
 	}}, "lib"); err != nil {

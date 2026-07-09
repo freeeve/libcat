@@ -193,6 +193,26 @@ chip renderer and the published site's term pages both read them.
 
 ### Everything else
 
+### `POST /v1/review`: `reviewed` means applied
+
+The review queue is a shared worklist, so two moderators routinely stage
+decisions against the same suggestion. A decision that arrives after someone
+else has already resolved that suggestion is **discarded** -- the optimistic
+concurrency check the queue needs -- and the response says so:
+
+```json
+{ "reviewed": 1, "staleDecisions": [ { "workId": "...", "term": {...}, "type": "ADD", "approve": true } ] }
+```
+
+`reviewed` counts the decisions **applied**, never the decisions submitted. The
+discarded ones come back in `staleDecisions` so a client can re-stage them
+against their new status and tell the human, rather than reporting work that did
+not happen (tasks/257).
+
+`staleDecisions` is deliberately not called `skipped`: when `publish: true`, the
+publisher's own `skipped` count is merged into this same object and means
+something else entirely (suggestions it did not publish).
+
 ### Health probes: `/v1/healthz` and `/v1/readyz`
 
 Two probes that answer different questions, and must be wired to different

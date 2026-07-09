@@ -100,7 +100,8 @@ func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.Toke
 			writeError(w, http.StatusForbidden, "publishing requires the librarian role")
 			return
 		}
-		if err := svc.Review(r.Context(), req.Decisions, id.Email); err != nil {
+		result, err := svc.Review(r.Context(), req.Decisions, id.Email)
+		if err != nil {
 			if errors.Is(err, suggest.ErrBadTerm) {
 				writeError(w, http.StatusBadRequest, "unknown substitute term")
 				return
@@ -108,7 +109,17 @@ func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.Toke
 			writeError(w, http.StatusInternalServerError, "review failed")
 			return
 		}
-		resp := map[string]any{"reviewed": len(req.Decisions)}
+		// "reviewed" means reviewed: a decision another moderator resolved
+		// first is reported separately (tasks/257).
+		//
+		// The stale decisions are NOT called "skipped": publish.Result already
+		// owns that key in this same object, and the maps.Copy below would
+		// overwrite ours -- on exactly the "Apply & publish" path where both
+		// halves have something to say.
+		resp := map[string]any{"reviewed": result.Applied}
+		if len(result.Skipped) > 0 {
+			resp["staleDecisions"] = result.Skipped
+		}
 		if req.Publish {
 			pubResp, ok := runPublish(w, r, id.Email)
 			if !ok {

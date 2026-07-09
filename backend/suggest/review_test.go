@@ -32,7 +32,7 @@ func TestQueueAndReview(t *testing.T) {
 		{WorkID: "wabc123def456", Term: controlled(transURI), Type: TypeAdd, Approve: true, Note: "fits"},
 		{WorkID: "wzzz999zzz999", Term: folk("cozy fantasy"), Type: TypeAdd, Approve: false, Tombstone: true},
 	}
-	if err := svc.Review(t.Context(), decisions, "lib@example.org"); err != nil {
+	if _, err := svc.Review(t.Context(), decisions, "lib@example.org"); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
 	// Queue drained.
@@ -53,7 +53,7 @@ func TestQueueAndReview(t *testing.T) {
 		t.Fatalf("tombstoned resubmit: %v", err)
 	}
 	// Re-reviewing a resolved item is a no-op, not an error.
-	if err := svc.Review(t.Context(), decisions[:1], "other@example.org"); err != nil {
+	if _, err := svc.Review(t.Context(), decisions[:1], "other@example.org"); err != nil {
 		t.Fatalf("re-review: %v", err)
 	}
 	items, _ = svc.ForWork(t.Context(), "wabc123def456")
@@ -72,7 +72,7 @@ func TestReviewSubstitute(t *testing.T) {
 	svc, _ := newService(t)
 	submit(t, svc, "wabc123def456", controlled(transURI), TypeAdd, "h1")
 	sub := controlled("https://homosaurus.org/v4/homoit0000508")
-	err := svc.Review(t.Context(), []Decision{{
+	_, err := svc.Review(t.Context(), []Decision{{
 		WorkID: "wabc123def456", Term: controlled(transURI), Type: TypeAdd,
 		Approve: true, SubstituteTerm: &sub,
 	}}, "lib")
@@ -86,7 +86,7 @@ func TestReviewSubstitute(t *testing.T) {
 	// Unknown substitute rejected.
 	bad := vocab.TermRef{Scheme: "homosaurus", ID: "https://homosaurus.org/v4/nope"}
 	submit(t, svc, "wzzz999zzz999", controlled(transURI), TypeAdd, "h2")
-	err = svc.Review(t.Context(), []Decision{{
+	_, err = svc.Review(t.Context(), []Decision{{
 		WorkID: "wzzz999zzz999", Term: controlled(transURI), Type: TypeAdd,
 		Approve: true, SubstituteTerm: &bad,
 	}}, "lib")

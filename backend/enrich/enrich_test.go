@@ -84,7 +84,7 @@ func TestQueueMode(t *testing.T) {
 		t.Fatalf("re-run duplicated: %+v", page.Items)
 	}
 	// A rejected+tombstoned pair never comes back.
-	if err := queue.Review(t.Context(), []suggest.Decision{{
+	if _, err := queue.Review(t.Context(), []suggest.Decision{{
 		WorkID: item.WorkID, Term: item.Term, Type: suggest.TypeAdd, Tombstone: true,
 	}}, "lib"); err != nil {
 		t.Fatal(err)

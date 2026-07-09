@@ -176,12 +176,23 @@ func (s *Service) Queue(ctx context.Context, q QueueQuery) (QueuePage, error) {
 	return page, nil
 }
 
+// ReviewResult reports what a Review batch actually did. Skipped carries the
+// decisions that lost the race -- another moderator had already resolved the
+// suggestion, or it no longer exists -- so a caller can tell the human whose
+// decision was discarded rather than counting the request back to them
+// (tasks/257).
+type ReviewResult struct {
+	Applied int        `json:"applied"`
+	Skipped []Decision `json:"skipped,omitempty"`
+}
+
 // Review applies a batch of staff decisions. Each decision flips a
 // PENDING/DISPUTED aggregate to APPROVED or REJECTED, stamps the reviewer,
 // and writes an audit entry. Rejections may tombstone the pair. Decisions
 // against already-resolved items are skipped, not errors -- two reviewers
-// may race on a hot queue.
-func (s *Service) Review(ctx context.Context, decisions []Decision, actor string) error {
+// may race on a hot queue -- and the ReviewResult says which.
+func (s *Service) Review(ctx context.Context, decisions []Decision, actor string) (ReviewResult, error) {
+	var res ReviewResult
 	now := s.now().UTC()
 	for _, d := range decisions {
 		to, action := StatusRejected, "REVIEW_REJECT"
@@ -200,10 +211,10 @@ func (s *Service) Review(ctx context.Context, decisions []Decision, actor string
 		}
 		if d.Approve && d.SubstituteTerm != nil {
 			if s.vocab == nil {
-				return ErrBadTerm
+				return res, ErrBadTerm
 			}
 			if _, ok := s.vocab.Lookup(d.SubstituteTerm.Scheme, d.SubstituteTerm.ID); !ok {
-				return fmt.Errorf("%w: substitute %s:%s", ErrBadTerm, d.SubstituteTerm.Scheme, d.SubstituteTerm.ID)
+				return res, fmt.Errorf("%w: substitute %s:%s", ErrBadTerm, d.SubstituteTerm.Scheme, d.SubstituteTerm.ID)
 			}
 		}
 		key := store.Key{PK: workPK(d.WorkID), SK: suggSK(d.Term, d.Type)}
@@ -216,23 +227,27 @@ func (s *Service) Review(ctx context.Context, decisions []Decision, actor string
 				sg.SubstituteTerm = &sub
 			}
 		})
+		// Someone else resolved it first, or it is gone. The decision is
+		// discarded; say so rather than counting it as reviewed.
 		if errors.Is(err, errAlreadyResolved) || errors.Is(err, store.ErrNotFound) {
+			res.Skipped = append(res.Skipped, d)
 			continue
 		}
 		if err != nil {
-			return fmt.Errorf("suggest: review %s/%s: %w", d.WorkID, d.Term.ID, err)
+			return res, fmt.Errorf("suggest: review %s/%s: %w", d.WorkID, d.Term.ID, err)
 		}
 		if !d.Approve && d.Tombstone {
 			if err := s.WriteTombstone(ctx, d.WorkID, d.Term, actor); err != nil {
-				return err
+				return res, err
 			}
 		}
 		s.writeAudit(ctx, AuditEntry{
 			WorkID: d.WorkID, Action: action, Actor: actor,
 			Terms: []string{d.Term.Scheme + ":" + d.Term.ID}, Note: d.Note,
 		})
+		res.Applied++
 	}
-	return nil
+	return res, nil
 }
 
 // ManualTerm lets a librarian add a term patrons and pipelines missed. The
