@@ -69,3 +69,14 @@ node ui/verify_taginput.mjs
 
 - The staged edit this field produces is then discarded without warning on
   navigation -- see task 199.
+
+## Outcome
+
+Fixed in 79a3126, released v0.50.0, exactly per your Expected section:
+Enter always commits -- the highlighted suggestion when one is picked,
+else the raw trimmed value as a new tag -- and your suggested
+'Create tag "foo"' row renders as the menu's last option (the menu now
+opens on any non-empty query, so minting is visible, mouse- and
+keyboard-reachable). Verified with your verify_taginput.mjs: the novel
+tag now stages ("zz-brand-new-tag adds on save ✕ undo") and the
+existing-suggestion path is unchanged.
