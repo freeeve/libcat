@@ -24,6 +24,11 @@ import { invalidateAccess, loginLocal } from "./lib/auth";
 import { setConfig } from "./lib/config";
 import { bindKeys, GLOBAL_SCOPE, pushScope, resetKeyboard } from "./lib/keyboard";
 import { sessionStore } from "./lib/stores";
+
+/** identity.keySep -- the unit separator joining a cluster key's parts. Built
+ *  from its code point rather than typed as a raw byte: a control character in
+ *  the source makes the whole file binary to grep and git diff (tasks/241). */
+const KEY_SEP = String.fromCharCode(0x1f);
 import type { QueuePage, Suggestion, WorkDoc } from "./lib/types";
 
 const fixtureDoc: WorkDoc = {
@@ -710,7 +715,7 @@ describe("a11y", () => {
           json({
             groups: [
               {
-                key: "muir tamsyngideon the nintheng",
+                key: `muir tamsyn${KEY_SEP}gideon the ninth${KEY_SEP}eng`,
                 works: [
                   { workId: "wdupa0000001", title: "Gideon the Ninth" },
                   { workId: "wdupb0000001", title: "Gideon the Ninth" },

@@ -314,7 +314,11 @@ const termCache = new Map<string, Promise<Term>>();
  *  the same broader/narrower/related URIs repeatedly. Failures stay uncached
  *  so a transient error does not poison the entry. */
 export function resolveTerm(scheme: string, id: string): Promise<Term> {
-  const key = `${scheme} ${id}`;
+  // "|" cannot occur in a scheme or in an IRI, so it separates the two without
+  // a control byte in the source: a raw NUL here made the whole file binary to
+  // grep and git diff, and a silent grep miss reads as "the symbol is not
+  // there" rather than "I did not look" (tasks/241).
+  const key = `${scheme}|${id}`;
   let p = termCache.get(key);
   if (!p) {
     p = fetchTerm(scheme, id).catch((e: unknown) => {
