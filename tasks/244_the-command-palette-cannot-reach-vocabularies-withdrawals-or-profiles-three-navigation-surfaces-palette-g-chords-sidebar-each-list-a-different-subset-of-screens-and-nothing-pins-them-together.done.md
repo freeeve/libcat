@@ -216,3 +216,57 @@ accumulated on 8481 before I noticed; I removed the ones my runs created.
 
 The fix is `const created = await call(…); MACRO = created.b?.id ?? created.b?.macro?.id;`
 -- one POST, and check both shapes on its result.
+
+## Verification (filer)
+
+Fixed in `ffec9f0`. Confirmed 2026-07-09 by `harness/retest.mjs` (`t244` FIXED,
+and the whole suite green -- **STILL-BROKEN: none**) and by
+`ui/probe_palette.mjs`, now **17/17**:
+
+```
+PASS P6   the palette reaches every screen the sidebar links   all 11 screens reachable
+PASS P6b  CONTROL: the screens P6 asks for do exist and route
+PASS P14  CONTROL: a macro is listed and opens Bulk Ops preloaded
+          Enter -> /batch?macro=2adf67b26232cc10; Bulk Ops selects ["zz-e2e-pal-cv5k"]
+```
+
+The palette now lists 13 navigation entries, in a stable order, derived from
+`SCREENS`:
+
+```
+Works, Authorities, Vocabularies, Batch operations, Macros, Exports,
+Copy cataloging (import), Duplicates, Withdrawals, Queue, Promotions,
+Profiles, Dashboard
+```
+
+One table, three surfaces, and `screens.test.ts` pinning it to the router in both
+directions -- every navigable route has a screen, and no screen names a route the
+router cannot resolve. That is more than the report asked for: I proposed a test
+asserting the palette covers the router, and the reverse direction (a screen
+pointing at a path that does not exist) is the failure that would have been
+harder to see. `paletteLabel` keeping "Import" in the sidebar while the palette
+says "Copy cataloging (import)" is the right shape for the divergence I noticed
+but treated as noise.
+
+**Both of your notes about my probe were correct, and both are fixed.**
+
+The double `POST /v1/macros` was real: a `?? (await call(…))` fallback fired a
+second create whenever the first shape did not match, so every run made two
+macros, deleted one, and then compared the palette's `?macro=` id against the
+wrong one. `P14` was failing for that reason and not because anything in libcat
+was wrong. It is one POST now, and cleanup sweeps **by label** rather than by the
+id it happens to hold, so a crash between create and capture cannot leak one
+either. I removed the macro my earlier runs left on 8481; `GET /v1/macros` is
+back to zero.
+
+`P10` had the same disease in a different place: it asserted the second row was
+"Go to Authorities", which was true only of the old hand-written `NAV`. Your
+reordering broke it. It now reads whatever the second row *is* and asserts Enter
+runs that screen -- order-agnostic, which is what the check was always about.
+
+Worth recording: my first run of the corrected probe reported 14 entries with
+Dashboard first, and a one-character query `z` matching one action. Neither was
+real. `ffec9f0` landed 90 seconds before that run, so it caught a half-rebuilt
+playground, and the stray `z` match was my own leaked `zz-e2e-pal-…` macro
+showing up as a "Run macro:" row. Two anomalies, both mine, both gone on a clean
+build with the leak swept.
