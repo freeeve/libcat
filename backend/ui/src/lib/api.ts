@@ -381,6 +381,11 @@ export function splitWork(from: string, instances: string[]): Promise<{ newWork:
   return call("POST", "/v1/works/split", { from, instances });
 }
 
+/** Clones a work into a fresh suppressed editorial-only draft (librarian). */
+export function cloneWork(from: string): Promise<{ workId: string; from: string; etag: string }> {
+  return call("POST", `/v1/works/${encodeURIComponent(from)}/clone`);
+}
+
 /** Configured external search targets (librarian). */
 export function fetchCopycatTargets(): Promise<{ targets: CopycatTarget[] }> {
   return call("GET", "/v1/copycat/targets");

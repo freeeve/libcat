@@ -154,6 +154,7 @@ func New(deps Deps) http.Handler {
 		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier, deps.OrgCode)
 		registerMaintenance(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
 		registerCovers(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
+		registerClone(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)
 		wl := registerWorksList(mux, ix, deps.Verifier, deps.ExtraFacets, deps.Vocab)
 		registerTags(mux, wl, deps.Verifier)
 	}

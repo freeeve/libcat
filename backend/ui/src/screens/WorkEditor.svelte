@@ -18,12 +18,12 @@
   import SubjectLookup from "../components/SubjectLookup.svelte";
   import VisibilityPanel from "../components/VisibilityPanel.svelte";
   import CoverPanel from "../components/CoverPanel.svelte";
-  import { fetchIdentifierKinds, fetchItems, splitWork, ApiError } from "../lib/api";
+  import { cloneWork, fetchIdentifierKinds, fetchItems, splitWork, ApiError } from "../lib/api";
   import type { SubjectCandidate } from "../lib/types";
   import { isReadOnly } from "../lib/config";
   import { createEditorSession } from "../lib/editor";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
-  import { setLeaveGuard } from "../lib/router";
+  import { navigate, setLeaveGuard } from "../lib/router";
 
   let { workId }: { workId: string } = $props();
 
@@ -65,6 +65,21 @@
       session.stage({ resource: "work", path: "tags", action: "add", value: { v: c.heading } });
     }
   }
+  let cloneError = $state("");
+
+  /** Clones the saved grain into a fresh suppressed draft and opens it.
+   *  Disabled while edits are staged: the clone copies the store's bytes,
+   *  so unsaved ops would silently stay behind. */
+  async function doClone(): Promise<void> {
+    cloneError = "";
+    try {
+      const res = await cloneWork(workId);
+      navigate(`/works/${res.workId}`);
+    } catch (e) {
+      cloneError = e instanceof ApiError ? e.message : "clone failed";
+    }
+  }
+
   let splitPick = $state<Record<string, boolean>>({});
   let splitNotice = $state("");
   let splitError = $state("");
@@ -138,7 +153,20 @@
           <span class="stagedct">{$session.ops.length} staged</span>
         {/if}
         {#if $session.busy}<span class="muted meta" role="status">working…</span>{/if}
+        {#if !readOnly}
+          <button
+            class="button button--quiet"
+            onclick={() => void doClone()}
+            disabled={$session.busy || $session.ops.length > 0}
+            title={$session.ops.length > 0 ? "save or discard staged edits first" : "copy into a new suppressed draft with fresh ids"}
+          >
+            Clone
+          </button>
+        {/if}
       </header>
+      {#if cloneError}
+        <p class="error" role="alert">{cloneError}</p>
+      {/if}
       <details class="vis">
         <summary>Visibility</summary>
         <VisibilityPanel {workId} />
