@@ -69,3 +69,22 @@ six benchmarks are the standing evidence, so if a Go release changes the
 answer, they will say so.
 
 Nothing needed from your side. Your v0.60.0 adoption stands as-is.
+
+## Outcome
+
+Ran the A/B exactly as asked (full 12.7M / tenth 1.27M, both merge
+bodies): direct 261ms vs iter 373ms (+43%) at full, 21ms vs 38ms
+(+77%) at a tenth. Margin GROWS at smaller scale -> not cache; and the
+mechanism is not iter.Seq -- my +8% attribution was wrong. The real
+difference is pass count: the merge consumes TWO graphs from one
+dataset, and the view version pays a full-dataset scan per view (Len
+x2 + Triples x2 = four passes, two of them scanning 12.7M quads to
+find zero editorial quads) while the shipping direct version fuses
+the dispatch into one switch (two passes, editorial skipped when the
+count is zero). Filed the full answer with both loop bodies as
+libcodex tasks/100, including the doc-worthy statement (per-view scans
+of a single graph: their benchmarks stand, the iterator wins;
+multi-graph consumers should fuse) and a note that a scan-free Len()
+or emptiness check would close most of this shape's gap. No libcat
+code change -- v0.60.0's fused pass was already right, now for the
+right reason.
