@@ -33,7 +33,7 @@ changes.
 |-----|-------|-------|
 | 001 | Control number | |
 | 006 / 007 | Additional/physical coded elements | since libcodex v0.12.0 -- folded into media/carrier both ways (upstream tasks/082) |
-| 008 | Fixed-length data elements | since libcodex v0.9.0 -- reconstructed from typed properties (tasks/053) |
+| 008 | Fixed-length data elements | since libcodex v0.9.0 -- reconstructed from typed properties (tasks/053). Caveat (tasks/230): the reconstruction mirrors only the country (15-17); a provision date renders into 260 $c, not back into 07-10, and language is not re-rendered into 35-37 -- semantic survival, not positional. libcodex tasks/103 asks for the date/language mirror. |
 | 020 | ISBN | qualifier text (e.g. `(electronic bk)`) rides in the value |
 | 100 / 700 | Primary / added agent | 700 present on the audiobook sample |
 | 245 | Title statement | |
