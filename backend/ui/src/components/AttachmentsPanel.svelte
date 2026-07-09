@@ -4,7 +4,7 @@
   // never projected publicly. Writes are immediate (like items and covers),
   // not staged ops. Downloads go through fetch so the bearer rides along.
   import { onMount } from "svelte";
-  import { deleteAttachment, fetchAttachmentBlob, fetchAttachments, humanApiMessage, putAttachment, safeAttachmentName } from "../lib/api";
+  import { attachmentNameError, deleteAttachment, fetchAttachmentBlob, fetchAttachments, humanApiMessage, putAttachment } from "../lib/api";
   import { isReadOnly } from "../lib/config";
 
   let { workId }: { workId: string } = $props();
@@ -27,15 +27,18 @@
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
-    const name = safeAttachmentName(file.name);
-    if (!name) {
-      error = "that filename has no usable characters -- rename and retry";
+    // The name is stored as it arrived, in any script. Only names no encoding
+    // can rescue are refused, and they are refused rather than rewritten: a
+    // second upload must never land on the first one's bytes (tasks/236).
+    const why = attachmentNameError(file.name);
+    if (why) {
+      error = `${why} -- rename the file and retry`;
       return;
     }
     busy = true;
     error = "";
     try {
-      await putAttachment(workId, file, name);
+      await putAttachment(workId, file, file.name);
       await load();
     } catch (e) {
       error = humanApiMessage(e, "attachment upload failed");

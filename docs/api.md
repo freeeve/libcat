@@ -88,6 +88,25 @@ through the loaded term index (tasks/233); the machine-readable formats carry
 authority IRIs. See [marc-fidelity](marc-fidelity.md) for what survives a MARC
 round trip.
 
+### Attachments
+
+`POST /v1/works/{id}/attachments?name=<filename>` stores a staff working file
+(20MB cap) and records an editorial `lcat:attachment` statement. The name is
+the filename **as the cataloger's file carries it**, in any script; it is a
+display name, not a path. The blob segment is derived from it by an injective
+encoding, so two different filenames can never address the same bytes
+(tasks/236).
+
+An upload whose name is already attached refuses with `409`. Replacing is
+deliberate: `DELETE` first, or `POST …&replace=true`. A name with a slash, a
+control character, or over 100 bytes refuses with `400` -- and is refused
+rather than rewritten, because a silent rename is how two documents came to
+share one file.
+
+Attachments are librarian-gated end to end, never projected to the public
+catalog, and served as `application/octet-stream` with `nosniff`, so an
+uploaded HTML file is a download and never a page.
+
 ### Public intake
 
 `POST /v1/suggestions` and `POST /v1/concerns` accept unauthenticated patron

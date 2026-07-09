@@ -23,7 +23,10 @@
 
   async function load(): Promise<void> {
     try {
-      rel = await fetchRelations(workId);
+      // An empty relation list arrives as a Go nil slice, i.e. null; normalize
+      // so the panel indexes them the way fetchWorkDoc normalizes its own.
+      const got = await fetchRelations(workId);
+      rel = { hasPart: got?.hasPart ?? [], partOf: got?.partOf ?? [] };
     } catch (e) {
       error = humanApiMessage(e, "loading relationships failed");
     }

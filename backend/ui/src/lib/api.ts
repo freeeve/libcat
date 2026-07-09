@@ -781,16 +781,24 @@ export async function putAttachment(workId: string, file: File, name = file.name
   );
 }
 
-/** Folds an arbitrary filename onto the server's safe-name shape: ASCII
- *  letters/digits/dot/dash/underscore, leading alphanumeric, <=100 chars.
- *  Returns "" when nothing survivable remains. */
-export function safeAttachmentName(name: string): string {
-  const folded = name
-    .normalize("NFKD")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[^A-Za-z0-9]+/, "")
-    .slice(0, 100);
-  return /^[A-Za-z0-9]/.test(folded) ? folded : "";
+/** Reports why a filename cannot be attached, or "" when it can (tasks/236).
+ *
+ *  Attachments keep the name the cataloger's file already has, in whatever
+ *  script it is written in; the server derives a safe blob path from the name
+ *  rather than forcing the name to be a safe path. So this rejects only what
+ *  no encoding can rescue -- emptiness, path separators, control characters,
+ *  reserved names, and the server's 100-byte cap -- and never rewrites the
+ *  name. A silent rename is how two documents came to share one file. */
+export function attachmentNameError(name: string): string {
+  if (!name) return "that file has no name";
+  if (name === "." || name === "..") return "that filename is reserved";
+  if (/[/\\]/.test(name)) return "a filename cannot contain a slash";
+  for (const ch of name) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp < 0x20 || cp === 0x7f) return "that filename contains control characters";
+  }
+  if (new TextEncoder().encode(name).length > 100) return "that filename is too long (100 bytes maximum)";
+  return "";
 }
 
 /** Removes one staff attachment: statement and bytes (librarian). */
