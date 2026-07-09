@@ -15,6 +15,7 @@ func sampleItem() Item {
 		Title:       "Herculine",
 		Subtitle:    "A Novel",
 		Edition:     "Unabridged",
+		Description: "<p><b>A stunning debut.</b></p><p>Herculine leaves the city&#8212;and her past.<br />What follows is&nbsp;unforgettable.</p>",
 		Type:        NamedID{ID: "audiobook", Name: "Audiobook"},
 		Publisher:   &NamedID{ID: "36805", Name: "Simon & Schuster Audio"},
 		PublishDate: "2025-10-07T00:00:00Z",

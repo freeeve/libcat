@@ -37,6 +37,14 @@ func TestBIBFRAMECrosswalk(t *testing.T) {
 		c[0].Label != "Fiction / LGBTQ+ / Transgender" {
 		t.Errorf("Work.Classifications = %+v, want one BISAC code with source %q and the heading label (tasks/142)", bib.Work.Classifications, SourceBISAC)
 	}
+	// The HTML description plain-texts into bf:summary (tasks/126).
+	wantSummary := "A stunning debut.\n\nHerculine leaves the city—and her past.\nWhat follows is unforgettable."
+	if s := bib.Work.Summary; len(s) != 1 || s[0] != wantSummary {
+		t.Errorf("Work.Summary = %q, want [%q]", s, wantSummary)
+	}
+	if s := (Item{Type: NamedID{ID: "ebook"}}).Work().Summary; s != nil {
+		t.Errorf("empty description grew a summary: %q", s)
+	}
 
 	if n := len(bib.Work.Contributions); n != 2 {
 		t.Fatalf("Contributions count = %d, want 2", n)

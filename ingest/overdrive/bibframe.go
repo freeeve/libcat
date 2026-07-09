@@ -62,6 +62,11 @@ func (it Item) Work() codexbf.Work {
 				codexbf.Classification{Class: "Classification", Value: b.Code, Label: b.Description, Source: SourceBISAC})
 		}
 	}
+	// The feed description is an HTML fragment; bf:summary carries plain
+	// text (tasks/126, same promotion the Hardcover blurb got in tasks/124).
+	if text := htmlText(it.Description); text != "" {
+		w.Summary = []string{text}
+	}
 	return w
 }
 

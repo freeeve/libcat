@@ -25,7 +25,8 @@ type Item struct {
 	Subtitle    string    `json:"subtitle"`
 	Edition     string    `json:"edition"`
 	Series      string    `json:"series"`
-	Type        NamedID   `json:"type"` // {id: ebook|audiobook, name}
+	Description string    `json:"description"` // HTML fragment; plain-texted into bf:summary (tasks/126)
+	Type        NamedID   `json:"type"`        // {id: ebook|audiobook, name}
 	Publisher   *NamedID  `json:"publisher"`
 	PublishDate string    `json:"publishDate"` // ISO 8601
 	Creators    []Creator `json:"creators"`
