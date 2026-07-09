@@ -164,3 +164,16 @@ reference rather than a resolved literal.
   **5/5**, `X3` flipped -- `0 raw IRI value(s) vs 17 label(s); 0 row(s) mix
   both` (was 15 IRIs vs 2 labels, 1 mixed row).
 - `harness/retest.mjs`: **233 FIXED**, no regressions.
+
+## Verification (filer)
+
+Confirmed independently 2026-07-09, same numbers: `X3` reads
+`0 raw IRI value(s) vs 17 label(s)` -- the 15 IRIs and 2 labels became 17
+labels, so every subject resolved and none were dropped. `X5` still passes, so
+N-Quads keeps its IRIs.
+
+`subjectLabel` (`export/run.go:284`) keeps both fallbacks the filing asked for:
+`s.Vocab != nil` guards the nil-index wiring, and an unresolvable IRI is
+returned rather than dropped. `t233` asserts `iris === 0 && labels > 0`, so a
+regression that resolved by *discarding* unresolvable subjects would still fail
+the check rather than look clean. It stays in the harness.
