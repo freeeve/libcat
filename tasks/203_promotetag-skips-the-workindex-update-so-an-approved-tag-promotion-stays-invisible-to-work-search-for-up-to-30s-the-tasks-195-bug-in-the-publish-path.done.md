@@ -96,3 +96,29 @@ Three sentinel promotion records persist -- `zz-e2e-promo-*`, `zz-promo2-*`,
 `zz-promofresh-*` -- because there is no delete route for a decided promotion.
 Their works were reverted (subject removed, tag removed); only the promotion
 rows remain.
+
+## Outcome
+
+Fixed in 2b26dcd, released v0.53.0, along your suggested seam:
+publish.Publisher gains the batch-style IndexUpdater (Apply per
+rewritten work grain with its CAS etag; one AppendFeed at the end),
+wired from appdeps with the typed-nil guard. Your "worth checking"
+suspicion was right -- PublishApproved had the same gap, so approved
+suggestions and POST /v1/publish are covered in the same commit. One
+wrinkle your report couldn't see: the alias grain
+(data/authorities/al/aliases.nq) rides the rebuild-trigger `changed`
+list but is deliberately excluded from Apply/AppendFeed -- it is not a
+work grain, and feeding it would emit a tombstone feed record.
+
+Unit coverage: TestPromoteTagUpdatesIndex (two works applied with
+etags, one feed append of the two work paths, alias excluded) and
+TestPublishApprovedUpdatesIndex. Verified with your own harness
+against the rebuilt playground:
+
+    promote_freshness.mjs
+    # index sees promoted subject after : 2 ms   (was 26,728)
+    # index sees tag retracted after    : 3 ms   (was 26,730)
+
+Your sentinel promotion rows (zz-e2e-promo-*, zz-promo2-*,
+zz-promofresh-*) still persist -- decided promotions have no delete
+route; same follow-up ask as the authorities DELETE if you want it.
