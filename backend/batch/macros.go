@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/freeeve/libcat/backend/editor"
@@ -174,8 +175,11 @@ func validateMacro(m Macro) error {
 	return nil
 }
 
-// CreateQuery stores a named search for owner.
+// CreateQuery stores a named search for owner. Label and query validate
+// after normalization: a whitespace-only query would persist a selection
+// that forever resolves to the entire catalog (tasks/205).
 func (s *Service) CreateQuery(ctx context.Context, label, query, owner string) (SavedQuery, error) {
+	label, query = strings.TrimSpace(label), normQuery(query)
 	if label == "" || query == "" {
 		return SavedQuery{}, fmt.Errorf("%w: a saved query needs a label and a query", ErrValidation)
 	}

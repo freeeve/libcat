@@ -390,3 +390,39 @@ func TestRunUpdatesIndex(t *testing.T) {
 		t.Fatalf("failed record indexed: %+v (applied %d -> %d)", mixed, before, len(ix.applied))
 	}
 }
+
+// TestWhitespaceQueriesRejected covers tasks/205: a query that normalizes
+// to nothing is refused everywhere -- resolve, run, saved-query creation,
+// and legacy saved queries at resolution -- so only KindAll can select the
+// whole catalog.
+func TestWhitespaceQueriesRejected(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	ctx := t.Context()
+	blanks := []string{"", " ", "  ", "\t", "\n", " \t\n "}
+
+	for _, q := range blanks {
+		if _, err := svc.Resolve(ctx, batch.Selection{Kind: batch.KindSearch, Query: q}, "x"); !errors.Is(err, batch.ErrValidation) {
+			t.Errorf("Resolve(%q) err = %v, want ErrValidation", q, err)
+		}
+		if _, err := svc.Run(ctx, batch.Selection{Kind: batch.KindSearch, Query: q}, summarySetOps("nope"), true, "x"); !errors.Is(err, batch.ErrValidation) {
+			t.Errorf("Run(%q) err = %v, want ErrValidation", q, err)
+		}
+		if _, err := svc.CreateQuery(ctx, "zz-ws", q, "x"); !errors.Is(err, batch.ErrValidation) {
+			t.Errorf("CreateQuery(%q) err = %v, want ErrValidation", q, err)
+		}
+	}
+	if _, err := svc.CreateQuery(ctx, "   ", "real query", "x"); !errors.Is(err, batch.ErrValidation) {
+		t.Errorf("whitespace label accepted: %v", err)
+	}
+
+	// KindAll remains the explicit whole-catalog path.
+	all, err := svc.Resolve(ctx, batch.Selection{Kind: batch.KindAll}, "x")
+	if err != nil || len(all) == 0 {
+		t.Fatalf("KindAll = %d targets, err %v", len(all), err)
+	}
+	// A real search still scopes.
+	scoped, err := svc.Resolve(ctx, batch.Selection{Kind: batch.KindSearch, Query: " Ninth "}, "x")
+	if err != nil || len(scoped) == 0 || len(scoped) >= len(all) {
+		t.Fatalf("scoped search = %d of %d, err %v", len(scoped), len(all), err)
+	}
+}

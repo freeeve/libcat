@@ -151,10 +151,16 @@ func (s *Service) Resolve(ctx context.Context, sel Selection, owner string) ([]T
 		}
 		return targets, nil
 	case KindSearch:
-		if sel.Query == "" {
+		// Validate the NORMALIZED query: the scan trims and lowercases, so
+		// a raw check let " " through and an empty normalized query means
+		// no filter at all -- a whitespace-only search silently selected
+		// the entire catalog (tasks/205). KindAll is the only way to say
+		// "everything".
+		q := normQuery(sel.Query)
+		if q == "" {
 			return nil, fmt.Errorf("%w: search selection needs a query", ErrValidation)
 		}
-		return s.scan(ctx, sel.Query)
+		return s.scan(ctx, q)
 	case KindSavedQuery:
 		if sel.SavedQueryID == "" {
 			return nil, fmt.Errorf("%w: savedQuery selection needs an id", ErrValidation)
@@ -163,9 +169,15 @@ func (s *Service) Resolve(ctx context.Context, sel Selection, owner string) ([]T
 		if err != nil {
 			return nil, err
 		}
-		return s.scan(ctx, sq.Query)
+		// A legacy saved query that normalizes to nothing fails closed
+		// here instead of meaning "entire catalog" forever (tasks/205).
+		q := normQuery(sq.Query)
+		if q == "" {
+			return nil, fmt.Errorf("%w: saved query %q has an empty query", ErrValidation, sq.Label)
+		}
+		return s.scan(ctx, q)
 	case KindAll:
-		return s.scan(ctx, "")
+		return s.scanAll(ctx)
 	case KindImportBatch:
 		return nil, fmt.Errorf("%w: importBatch selections arrive with copy cataloging (tasks/050)", ErrValidation)
 	}
@@ -174,18 +186,36 @@ func (s *Service) Resolve(ctx context.Context, sel Selection, owner string) ([]T
 
 // scan resolves the corpus summaries (shared index when wired, fresh walk
 // otherwise) and filters by the shared summary matcher, so a batch search
-// selects exactly what the works search shows.
+// selects exactly what the works search shows. An empty normalized query is
+// refused outright -- only scanAll (KindAll's path) selects unfiltered, so
+// "no query" can never silently mean "everything" (tasks/205).
 func (s *Service) scan(ctx context.Context, query string) ([]Target, error) {
+	q := normQuery(query)
+	if q == "" {
+		return nil, fmt.Errorf("%w: search selection needs a query", ErrValidation)
+	}
 	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")
 	if err != nil {
 		return nil, err
 	}
-	q := normQuery(query)
 	var targets []Target
 	for _, summary := range summaries {
-		if q != "" && !summary.Matches(q) {
+		if !summary.Matches(q) {
 			continue
 		}
+		targets = append(targets, Target{WorkID: summary.WorkID, Title: summary.Title, path: paths[summary.WorkID]})
+	}
+	return targets, nil
+}
+
+// scanAll is the deliberate whole-catalog selection behind KindAll.
+func (s *Service) scanAll(ctx context.Context) ([]Target, error) {
+	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]Target, 0, len(summaries))
+	for _, summary := range summaries {
 		targets = append(targets, Target{WorkID: summary.WorkID, Title: summary.Title, path: paths[summary.WorkID]})
 	}
 	return targets, nil
