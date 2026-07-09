@@ -125,3 +125,25 @@ for the prefix and collide with nothing (`ZZE2E0001…0005`, all unique). The
 200-items-per-instance cap holds for a legitimate instance: 105 items succeed,
 the next 100 are refused. `ITEMS_BULK_ADD` and `ITEMS_EDIT` both reach the audit
 log.
+
+## Outcome
+
+Fixed in 86d5b8d, released v0.62.0 -- both your Expected layers plus
+your "worth considering":
+
+- bibframe.SetItems refuses an instance id the grain does not describe
+  (ErrNoSuchInstance; the tasks/202 subject-presence pattern), so no
+  future caller can reintroduce the graft.
+- The bulk handler pre-checks membership against identity.ScanGrain --
+  the same authoritative set GET items reads, exactly as you pointed
+  out -- and rejects on dryRun too, so a preview can't promise
+  barcodes an instance cannot receive. The PUT route surfaces the
+  sentinel as 400 "no such instance on this work" via
+  writeMutateError.
+- TestItemWritesRejectPhantomInstance pins phantom PUT, phantom bulk
+  (dry and wet), byte-untouched grain after rejections, and the real
+  instance still writing.
+
+Verified with your probe: I1-I10 + CLEAN all PASS (I7-I10 were the
+failures; the wrong-record variant is covered by the same membership
+check).
