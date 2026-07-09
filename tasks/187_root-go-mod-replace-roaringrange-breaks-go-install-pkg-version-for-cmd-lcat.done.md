@@ -13,3 +13,15 @@ builds without the sibling checkout resolve roaringrange v0.30.0 from
 the proxy -- decide whether any current work depends on unreleased
 roaringrange before flipping. Adopters go-installing lcat (queerbooks'
 deploy builds it from source today) are the beneficiaries.
+
+## Outcome
+
+Fixed in eedc1ab, released v0.40.0. roaringrange pushed v0.30.0 today
+(local ~/roaringrange HEAD verified identical to the pushed tag), so
+the require now resolves for real: the root replace is gone, go.sum
+records the published hashes, and sibling co-dev moves to the
+untracked go.work next to the tasks/185 backend wiring. go mod tidy
+also promoted BurntSushi/toml to the direct require it is (cmd/lcat
+imports it). Verified both modes build (GOWORK=off pinned + workspace)
+and `go install github.com/freeeve/libcat/cmd/lcat@v0.40.0` resolves
+and builds from the public tag.
