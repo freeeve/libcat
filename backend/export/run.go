@@ -274,6 +274,27 @@ func (s *Service) emitJSONLD(ctx context.Context, w io.Writer, paths []string) (
 	return count, err
 }
 
+// subjectLabel renders one controlled subject for the human-facing CSV
+// (tasks/233). The grain's own skos:prefLabel wins; otherwise the loaded term
+// index resolves the authority IRI, which is why a subject reads as a word
+// whether or not its authority terms happen to have been appended to that
+// particular grain. The IRI is the last resort, not the default: a term no
+// index can resolve stays visible in the column rather than vanishing from
+// the row, and a deployment with no index loaded exports exactly as before.
+func (s *Service) subjectLabel(subj project.Subject) string {
+	if l := vocab.PickLabel(subj.Labels); l != "" {
+		return l
+	}
+	if s.Vocab != nil {
+		if t, ok := s.Vocab.Resolve(subj.ID); ok {
+			if l := vocab.PickLabel(t.Labels); l != "" {
+				return l
+			}
+		}
+	}
+	return subj.ID
+}
+
 // emitCSV projects each grain with the real projector and writes one row per
 // Work -- the Koha "export search results" analog over the projected shape.
 // Projection is per grain (tasks/108): a grain carries all of its works'
@@ -296,11 +317,7 @@ func (s *Service) emitCSV(ctx context.Context, w io.Writer, paths []string) (int
 			}
 			subjects := make([]string, 0, len(work.Subjects))
 			for _, subj := range work.Subjects {
-				label := subj.ID
-				if l := vocab.PickLabel(subj.Labels); l != "" {
-					label = l
-				}
-				subjects = append(subjects, label)
+				subjects = append(subjects, s.subjectLabel(subj))
 			}
 			classifications := make([]string, 0, len(work.Classifications))
 			for _, cl := range work.Classifications {
