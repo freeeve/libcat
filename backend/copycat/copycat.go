@@ -349,12 +349,20 @@ func (s *Service) Review(ctx context.Context, id, policy string, decisions map[i
 // Commit runs a batch's importable records through the shared store-backed
 // ingest pipeline: matches are re-resolved against the current corpus, the
 // overlay policy filters, and grains land via CAS with editorial preserved.
-// Committing an already-committed batch re-runs the same records -- the
-// pipeline is byte-stable, so unchanged grains are untouched.
+// A COMMITTED batch refuses to commit again: the grain pipeline is
+// byte-stable across a re-commit, but the undo bookkeeping is not -- a
+// double commit re-derived Created from the now-existing grains, poisoning
+// the revert set so revert reported success while leaving the created works
+// live (tasks/213). Committing a REVERTED batch stays allowed: it is the
+// redo of an undone import, and at that point the store again holds the
+// true prior state, so the undo set re-derives correctly.
 func (s *Service) Commit(ctx context.Context, id, actor string) (Batch, error) {
 	b, records, err := s.GetBatch(ctx, id)
 	if err != nil {
 		return Batch{}, err
+	}
+	if b.Status == StatusCommitted {
+		return Batch{}, fmt.Errorf("%w: batch %s is already COMMITTED; revert it before committing again", ErrValidation, id)
 	}
 	// Re-match against the corpus as it is now (staging may be stale). A
 	// commit's match accuracy decides the overlay policy, so the shared

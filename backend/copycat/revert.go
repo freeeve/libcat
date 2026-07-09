@@ -101,7 +101,9 @@ func (s *Service) preCommitSnapshot(ctx context.Context, fresh []StagedRecord) (
 }
 
 // writeRevertSet records the commit's grain-level undo information. A
-// re-commit replaces the previous set wholesale.
+// re-commit replaces the previous set wholesale -- reachable only after a
+// revert (Commit refuses a COMMITTED batch, tasks/213), when the store
+// again holds the true prior state and the re-derivation is correct.
 func (s *Service) writeRevertSet(ctx context.Context, batchID string, changed []string, existed map[string]bool, priors map[string][]byte) error {
 	for rec, err := range s.DB.Query(ctx, "CCREV#"+batchID, "", store.QueryOpt{}) {
 		if err != nil {

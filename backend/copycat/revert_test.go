@@ -208,3 +208,67 @@ func TestProfilesCRUD(t *testing.T) {
 		t.Fatalf("double delete err = %v", err)
 	}
 }
+
+// TestCommitRefusesNonStaged covers tasks/213: a second commit of a
+// COMMITTED batch used to poison the revert set (Created re-derived from
+// the now-existing grains), so revert reported success while leaving the
+// created work live. Commit-after-revert stays allowed -- the redo of an
+// undone import (TestRevertRestoresOverlayBytesAndSkipsEdited exercises
+// it).
+func TestCommitRefusesNonStaged(t *testing.T) {
+	svc, bs, _ := newService(t)
+	ctx := t.Context()
+	batch, _, err := svc.StageMARC(ctx, "load", sampleMRC(t), "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Commit(ctx, batch.ID, "lib@example.org"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Commit(ctx, batch.ID, "lib@example.org"); !errors.Is(err, copycat.ErrValidation) {
+		t.Fatalf("second commit err = %v, want ErrValidation", err)
+	}
+	res, err := svc.Revert(ctx, batch.ID, "lib@example.org")
+	if err != nil || res.Reverted == 0 {
+		t.Fatalf("revert after refused re-commit = %+v, %v", res, err)
+	}
+	// The created works really retire -- the exact corruption 213 measured.
+	for entry, err := range bs.List(ctx, "data/works/") {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(entry.Path, ".nq") {
+			continue
+		}
+		grain, _, _ := bs.Get(ctx, entry.Path)
+		workID := strings.TrimSuffix(entry.Path[strings.LastIndex(entry.Path, "/")+1:], ".nq")
+		if vis, _ := bibframe.Visibility(grain, workID); !vis.Tombstoned {
+			t.Fatalf("work %s live after revert", workID)
+		}
+	}
+	// A reverted batch MAY commit again (redo). For a created-work batch
+	// the redo is grain-stable: the tombstone is editorial and the pipeline
+	// preserves editorial, so the work STAYS retired and the redo records
+	// no changed grains -- reverting it again correctly refuses for having
+	// nothing to undo. (The overlay redo shape, which does change bytes, is
+	// exercised by TestRevertRestoresOverlayBytesAndSkipsEdited.)
+	if _, err := svc.Commit(ctx, batch.ID, "lib@example.org"); err != nil {
+		t.Fatalf("redo commit after revert: %v", err)
+	}
+	if _, err := svc.Revert(ctx, batch.ID, "lib@example.org"); !errors.Is(err, copycat.ErrValidation) {
+		t.Fatalf("revert of no-op redo err = %v, want ErrValidation", err)
+	}
+	for entry, err := range bs.List(ctx, "data/works/") {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(entry.Path, ".nq") {
+			continue
+		}
+		grain, _, _ := bs.Get(ctx, entry.Path)
+		workID := strings.TrimSuffix(entry.Path[strings.LastIndex(entry.Path, "/")+1:], ".nq")
+		if vis, _ := bibframe.Visibility(grain, workID); !vis.Tombstoned {
+			t.Fatalf("work %s resurrected by no-op redo", workID)
+		}
+	}
+}
