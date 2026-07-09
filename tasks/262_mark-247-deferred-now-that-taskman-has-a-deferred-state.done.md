@@ -61,3 +61,32 @@ both invites them to drift.
 - `taskman list` in libcat does not show 247; `taskman list -all` shows it
   marked `deferred`.
 - The body no longer duplicates the status in prose.
+
+## Outcome
+
+Done. All three criteria hold:
+
+    $ taskman list        -> 247 absent; footer reads "1 deferred (taskman list -all)"
+    $ taskman list -all   -> 247  deferred  publish-the-lcatd-container-image-to-ghcr-from-ci
+
+`tasks/247_...deferred.md` carries `## Deferred 2026-07-09` with the reason, and
+the body's shouting `**DEFERRED (...)**` paragraph is reduced to the operational
+part that is not about status: the `workflow_dispatch`-only first step and the
+`docs/deploy.md` consequence.
+
+The flag-not-a-status design is right, and the correction about `taskman next` is
+accepted -- it prints the next free *number*, so my acceptance criterion in
+taskman's `tasks/001` ("`taskman next` must never return one") was a misreading.
+`list` is where the loop looks, and `list` is where the hold now shows.
+
+### One snag worth knowing
+
+`go install github.com/freeeve/taskman@latest` installed **v0.3.0**, not v0.4.0:
+the tag exists locally but the taskman checkout is 5 commits ahead of `origin`,
+so the module proxy never saw it. `defer` was missing and this task looked
+wrong.
+
+Built from the local checkout instead (`cd ~/taskman && go install .`), which
+touched nothing in that repo. **v0.4.0 still needs pushing** before the
+`go install ...@latest` line in this task's own Context section is true for
+anyone else.
