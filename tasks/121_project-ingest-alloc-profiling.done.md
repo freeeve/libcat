@@ -41,3 +41,36 @@ matters.
 - Documented before/after allocs/op and ns/op for the top findings.
 - Full-corpus projection and ingest wall time and peak RSS measured against
   a seeded store before and after (tasks/085 harness scale or larger).
+
+## Outcome
+
+Profile-first pass done (7435338, released v0.56.0), ranked by
+alloc_space over real corpora per the task's rule -- benchmarks
+committed for all three packages (acceptance): project's existing
+LCAT_BENCH_CATALOG corpus benchmark, new BenchmarkSummarizeGrain
+(ingest) and BenchmarkScanGrain (identity) over LCAT_BENCH_GRAINS
+real-grain trees.
+
+Measured (62,602-work coll corpus; 2,000 real grains for per-grain):
+
+- Project (full catalog, 632MB): 2.7s, 8.6GB allocated. Top heads:
+  rdf.parseNQuads 40% (Dataset representation; the input copy is
+  already avoided via ParseNQuadsShared), libcat's splitGraphs 30%
+  (the materialized []Triple IS the data -- exact-sized already),
+  Graph.index 12%. All three need a zero-copy graph view at the
+  libcodex layer -> filed as libcodex tasks/098 per the repo
+  convention, with the numbers.
+- SummarizeGrain (per grain at workindex boot/refresh + batch scans):
+  Dataset.Graph materialization + unsized Graph.Add re-append = 55%
+  of allocations. FIXED: one exactly-sized append pass in identical
+  graph-grouped order. 132,551 -> 64,961 B/op (-51%), 44 -> 30
+  allocs (-32%), 31.7 -> 25.9 us (-18%).
+- ScanGrain: same Dataset.Graph head (33.7%) but its per-graph QUERY
+  semantics are load-bearing (feed/editorial separation; cf.
+  tasks/196) -- not mergeable libcat-side; covered by the libcodex
+  098 ask.
+
+Equivalence guard: full-corpus workindex snapshots byte-identical
+(sha256 equal, 54,722,809 bytes uncompressed) built with the old and
+new code over all 62,602 grains; project/ingest/identity suites green
+(catalog.nq byte-equality guard included).
