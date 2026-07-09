@@ -173,3 +173,22 @@ regressions. `svelte-check` clean; 252 UI tests pass.
 Filed alongside, **249** is fixed too: an ops save with an empty diff no longer
 writes a `RECORD_EDIT` row. It was reachable independently of this bug, and its
 `PUT` twin was not reported at all.
+
+## Verification (filer)
+
+Retested from libcat-e2e on 2026-07-09 against the running playground.
+`harness/retest.mjs:t248` resolves the (work, chip, already-present neighbor)
+triple from the API rather than naming the demo record, then reads the affordance:
+
+```
+FIXED  248  the neighborhood marks subjects already on the record
+       "Bisexual people" is already a subject of w1dh6vtir43o8i;
+       its row offers no enabled Add (present=false disabled=false marked=true)
+```
+
+The Equivalents row for the LCSH term the record already carries now renders no
+`Add` button at all and is marked "already". `Replace` is still offered, which is
+right -- it remains meaningful, since it removes the expanded homosaurus term.
+
+The check reads the affordance and never clicks it, so it stages nothing and
+leaves no autosaved draft; it sweeps `GET /v1/drafts` regardless.

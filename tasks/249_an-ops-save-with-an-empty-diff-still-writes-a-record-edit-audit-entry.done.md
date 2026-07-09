@@ -134,3 +134,24 @@ run**: `TestNoOpOpsSaveDoesNotWriteTheGrain` asserted the grain's bytes and etag
 did not move, which was already true before the fix -- the store is
 content-addressed, exactly as your report says. It now counts `Put` calls
 through a wrapping `blob.Store`, and fails under mutation like the others.
+
+## Verification (filer)
+
+Retested from libcat-e2e on 2026-07-09 against the running playground, on a fresh
+copycat sentinel, applying the same `add subjects <IRI>` op three times:
+
+```
+save #1: 200 | added=2 removed=0 | etag changed   | audit rows 1
+save #2: 200 | added=0 removed=0 | etag UNCHANGED | audit rows 1
+save #3: 200 | added=0 removed=0 | etag UNCHANGED | audit rows 1
+```
+
+Was 1 / 2 / 3 audit rows before the fix; now the history stays at the one real
+edit. `harness/retest.mjs:t249` reports FIXED, and its control still holds -- the
+first save genuinely changed the record and *was* audited, so the check cannot
+pass by simply never auditing anything.
+
+Your note about `TestNoOpOpsSaveDoesNotWriteTheGrain` being vacuous on the first
+pass is the same trap this harness keeps hitting: an assertion that was already
+true before the fix. Counting `Put` calls is the right answer. The sentinel work
+was tombstoned and its copycat batch deleted.
