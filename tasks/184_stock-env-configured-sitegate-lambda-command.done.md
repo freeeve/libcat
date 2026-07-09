@@ -32,3 +32,26 @@ script becomes: extract/copy the [sitegate] table, cross-compile the stock
 command (`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go install
 github.com/freeeve/libcat/backend/cmd/sitegate-lambda@vX`), zip bootstrap +
 sitegate.toml.
+
+## Outcome
+
+Shipped `backend/cmd/sitegate-lambda` (ae4ef73, released v0.38.0): the
+stock Function-URL gate command; adopters write no Go.
+
+- Config exactly as asked: `[sitegate]` table from SITEGATE_CONFIG
+  (default ./sitegate.toml), kebab-case keys mirroring sitegate.Config
+  (issuer, client-id, site-domain, key-pair-id; optional site-name,
+  min-role, role-claim, role-map subtable, jwks-url, scopes,
+  path-prefix, session-ttl as a Go duration string). Optional keys stay
+  zero so sitegate.New applies its defaults; role-map values are
+  validated against known roles at load (a typo fails startup, not
+  silently at login).
+- Signer key from SITEGATE_PRIVATE_KEY_PEM, raw PEM or base64-of-PEM
+  (decode-by-prefix helper taken from your main.go as offered).
+- main is two lines around a testable buildGate; coverage 84%,
+  linux/arm64 CGO_ENABLED=0 cross-compile verified.
+- Deploy recipe from the ask works as written:
+  `GOOS=linux GOARCH=arm64 CGO_ENABLED=0
+  go install github.com/freeeve/libcat/backend/cmd/sitegate-lambda@backend/v0.38.0`,
+  zip bootstrap + sitegate.toml. Filed the adoption note back to
+  queerbooks-demo.
