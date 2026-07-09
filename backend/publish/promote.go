@@ -105,7 +105,7 @@ func (p *Publisher) recordAlias(ctx context.Context, promo suggest.Promotion) er
 		if len(old) == 0 {
 			old = []byte{}
 		}
-		graph := bibframe.AuthorityGraph("aliases")
+		graph := bibframe.AliasGraph()
 		return bibframe.ApplyPatch(old, graph, bibframe.Patch{
 			Add: []rdf.Quad{bibframe.TagAliasQuad(promo.Term.ID, promo.Tag)},
 		})

@@ -447,3 +447,34 @@ func TestResolveHomosaurusRelease(t *testing.T) {
 		t.Error("Lookup accepted a non-installed release IRI (must stay exact)")
 	}
 }
+
+// TestDebrisNeverMintsScheme covers tasks/204: label-less bookkeeping in an
+// authority-class graph (the legacy authority:aliases tagAlias statements)
+// neither registers a scheme nor shadows the term's real vocabulary.
+func TestDebrisNeverMintsScheme(t *testing.T) {
+	data, err := os.ReadFile("testdata/authorities.nq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	debris := `<http://id.loc.gov/authorities/subjects/sh85118553> <https://github.com/freeeve/libcat/ns#tagAlias> "space opera" <authority:aliases> .` + "\n"
+	st := blob.NewMem()
+	if _, err := st.Put(t.Context(), "data/authorities/ho/vocab.nq", data, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Put(t.Context(), "data/authorities/al/aliases.nq", []byte(debris), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Load(t.Context(), st, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range ix.Schemes() {
+		if s == "aliases" {
+			t.Fatalf("debris minted a scheme: %v", ix.Schemes())
+		}
+	}
+	term, ok := ix.Resolve("http://id.loc.gov/authorities/subjects/sh85118553")
+	if !ok || term.Scheme != "lcsh" || term.Labels["en"] != "Science fiction" {
+		t.Fatalf("resolve shadowed: %+v (ok=%v)", term, ok)
+	}
+}

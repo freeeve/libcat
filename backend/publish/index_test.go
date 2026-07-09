@@ -2,6 +2,7 @@ package publish
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/freeeve/libcat/bibframe"
@@ -69,6 +70,16 @@ func TestPromoteTagUpdatesIndex(t *testing.T) {
 		if p == aliasGrainPath {
 			t.Fatal("alias grain fed to the index feed")
 		}
+	}
+
+	// The alias bookkeeping lands OUTSIDE the authority: namespace, so the
+	// vocab loader can never mint an "aliases" scheme from it (tasks/204).
+	alias, _, err := grains.Get(t.Context(), aliasGrainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(alias), "<lcat:aliases>") || strings.Contains(string(alias), "<authority:aliases>") {
+		t.Fatalf("alias grain graph wrong:\n%s", alias)
 	}
 }
 

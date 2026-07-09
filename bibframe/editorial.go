@@ -42,12 +42,20 @@ func SubjectQuad(workID, termURI string) rdf.Quad {
 }
 
 // PredTagAlias records that a controlled term subsumes an uncontrolled tag:
-// <termURI> lcat:tagAlias "tag" in an authority-class graph. Written when a
+// <termURI> lcat:tagAlias "tag" in the alias graph. Written when a
 // folksonomy/feed tag is promoted to a controlled term (tasks/044); the
 // projector then suppresses the tag on Works that carry the aliasing subject
 // (the tag "became" the subject), and pickers auto-suggest the controlled
-// term when the tag is typed.
+// term when the tag is typed. The projector indexes the predicate across
+// every graph, so the statement's home graph is bookkeeping only.
 const PredTagAlias = LcatNS + "tagAlias"
+
+// AliasGraph names the graph tag-alias bookkeeping lives in. Deliberately
+// OUTSIDE the authority:<vocab> namespace: the vocab loader routes every
+// authority:-prefixed graph to a scheme, and alias statements carry no
+// labels, so an authority-class home minted a bogus labelless "aliases"
+// vocabulary that shadowed the promoted terms (tasks/204).
+func AliasGraph() rdf.Term { return rdf.NewIRI("lcat:aliases") }
 
 // TagAliasQuad builds the alias statement.
 func TagAliasQuad(termURI, tag string) rdf.Quad {

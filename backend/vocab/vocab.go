@@ -305,6 +305,21 @@ func buildSnapshot(ctx context.Context, st blob.Store, prefix string, schemes []
 			delete(snap.sidecar, scheme)
 		}
 	}
+	// Non-heading debris guard (tasks/202/204): a subject in an authority
+	// graph carrying no labels at all is bookkeeping (a merge marker on an
+	// absent node, a legacy authority:aliases tagAlias statement), not a
+	// heading -- indexed, it shadows the term's real scheme on Resolve and
+	// mints bogus schemes. Drop such terms, then schemes left empty.
+	for scheme, terms := range snap.schemes {
+		for id, t := range terms {
+			if len(t.Labels) == 0 && len(t.AltLabels) == 0 {
+				delete(terms, id)
+			}
+		}
+		if len(terms) == 0 && snap.sidecar[scheme] == nil {
+			delete(snap.schemes, scheme)
+		}
+	}
 	snap.finish()
 	return snap, nil
 }
