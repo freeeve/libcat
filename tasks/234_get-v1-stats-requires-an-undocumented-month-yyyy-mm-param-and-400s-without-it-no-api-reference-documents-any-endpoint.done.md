@@ -98,3 +98,63 @@ curl -s -H "Authorization: Bearer $TOKEN" localhost:8481/v1/stats?month=2026-07 
 returns 200 with a `month` field equal to the current UTC month, and that a
 malformed `month` still returns 400. It is a read-only check -- `/v1/stats`
 writes nothing.
+
+## Outcome
+
+Shipped in **v0.84.0**. Both pieces, and the filer's framing of the first --
+"the distinction is between *absent* and *wrong*" -- is the invariant the code
+now states.
+
+### 1. The month default
+
+`requestMonth(r)` in `backend/httpapi/review_handlers.go`: absent (or empty,
+which is what a cleared form field sends) yields the current UTC month; a
+malformed value refuses with `400 "month must be YYYY-MM, e.g. month=2026-07"`,
+naming the example the task asked for.
+
+Applied to **both** `/v1/stats` and `/v1/audit`. The task named only `/v1/stats`,
+but `/v1/audit` is the same month-keyed librarian read with the same required
+parameter; fixing one and leaving the other would have created the
+inconsistency the next probe would file.
+
+### 2. `docs/api.md`, generated from the router
+
+122 routes: method, path, minimum role, source file, plus prose for the
+endpoints worth explaining (auth and the role hierarchy, the error and
+concurrency conventions, the reporting endpoints, export download tokens, the
+public intake behind the proof-of-work challenge).
+
+`TestAPIReferenceMatchesRouter` (`backend/httpapi/apidoc_test.go`) is the drift
+gate. It parses every `mux.Handle` / `mux.HandleFunc` registration in the
+package and diffs against the table, reporting both directions ("missing from
+docs/api.md" / "documented but not registered"). `-update-apidoc` regenerates.
+**An endpoint cannot ship undocumented.**
+
+The subtlety was the role column. Resolving it from the middleware variable's
+name would have been wrong in five places: `staff` is
+`auth.Require(verifier, auth.RoleModerator)` and `adminOnly` is plain
+`auth.RoleAdmin`. So roles are read from each `auth.Require(...)` initializer
+and **propagated through helpers that receive a middleware as a parameter**
+(`registerDrafts`, `registerItemsBulk` take `librarian func(http.Handler)
+http.Handler`), iterating to a fixpoint. Without that propagation those six
+routes would have been documented as public -- exactly the kind of quiet lie a
+reference is supposed to prevent. The gate reports what the router enforces,
+never what a variable is called.
+
+The gate covers method, path, and role: the machine-checkable parts. Parameters
+and response shapes stay prose, as the task allowed ("whatever the form").
+
+### Verification
+
+- `TestMonthDefaultsToCurrentUTC` -- bare `/v1/stats` and `/v1/audit` return
+  200 with `month` equal to the current UTC month; `?month=nope` still 400s and
+  the message carries an example; `?month=` (empty) reads as absent.
+- `TestAPIReferenceMatchesRouter` -- confirmed to *fail* on a hand-corrupted
+  role before being restored, so the gate is known to bite rather than assumed
+  to.
+- `go test ./...` green in both modules.
+- Live against 8481: bare `/v1/stats` -> `{"month":"2026-07",…}`, `?month=bogus`
+  -> `400 "month must be YYYY-MM, e.g. month=2026-07"`, anon -> `401`.
+- `harness/retest.mjs`: **234 FIXED**, no regressions.
+
+README now points at `docs/api.md` alongside ARCHITECTURE and ROADMAP.
