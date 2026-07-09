@@ -6,7 +6,8 @@
   import { loadConfig } from "./lib/config";
   import { CALLBACK_PATH, canAdmin, getToken, handleOidcCallback, logout, onSessionExpired, session } from "./lib/auth";
   import { initTheme, toggleTheme, type Theme } from "./lib/theme";
-  import { resolve, navigate, type RouteDef, confirmLeave } from "./lib/router";
+  import { resolve, navigate, ROUTES, confirmLeave } from "./lib/router";
+  import { chordMap, isCurrent, sidebarScreens } from "./lib/screens";
   import { configStore, sessionStore } from "./lib/stores";
   import { bindKeys, GLOBAL_SCOPE } from "./lib/keyboard";
   import { resetScreenStates } from "./lib/screenState.svelte";
@@ -33,26 +34,7 @@
   import CommandPalette from "./components/CommandPalette.svelte";
   import ReauthDialog from "./components/ReauthDialog.svelte";
 
-  const routes: RouteDef[] = [
-    { name: "dashboard", pattern: "/" },
-    { name: "login", pattern: "/login" },
-    { name: "callback", pattern: "/callback" },
-    { name: "works", pattern: "/works" },
-    { name: "work", pattern: "/works/:id" },
-    { name: "authorities", pattern: "/authorities" },
-    { name: "authority", pattern: "/authorities/:id" },
-    { name: "vocabsources", pattern: "/vocabularies" },
-    { name: "batch", pattern: "/batch" },
-    { name: "macros", pattern: "/macros" },
-    { name: "exports", pattern: "/exports" },
-    { name: "copycat", pattern: "/copycat" },
-    { name: "newrecord", pattern: "/copycat/new" },
-    { name: "duplicates", pattern: "/duplicates" },
-    { name: "withdrawals", pattern: "/withdrawals" },
-    { name: "queue", pattern: "/queue" },
-    { name: "promotions", pattern: "/promotions" },
-    { name: "profiles", pattern: "/profiles" },
-  ];
+  const routes = ROUTES;
 
   let route = $state(resolve(routes, location.hash));
   let theme = $state<Theme>(initTheme());
@@ -89,20 +71,7 @@
   // Signed-in-only global keys: the palette chord plus "g <letter>" jumps to
   // every screen, including the ones the top nav leaves out.
   function bindGlobalKeys(): () => void {
-    const goTo: Record<string, [string, string]> = {
-      "g d": ["/", "go to the dashboard"],
-      "g w": ["/works", "go to works"],
-      "g a": ["/authorities", "go to authorities"],
-      "g v": ["/vocabularies", "go to vocabularies"],
-      "g q": ["/queue", "go to the queue"],
-      "g b": ["/batch", "go to batch operations"],
-      "g m": ["/macros", "go to macros"],
-      "g e": ["/exports", "go to exports"],
-      "g i": ["/copycat", "go to import"],
-      "g u": ["/duplicates", "go to duplicates"],
-      "g t": ["/withdrawals", "go to withdrawals"],
-      "g p": ["/promotions", "go to promotions"],
-    };
+    const goTo = chordMap();
     const specs: Parameters<typeof bindKeys>[1] = {
       "mod+k": {
         description: "open the command palette",
@@ -199,19 +168,9 @@
   <header class="top">
     <a class="brand" href="#/">libcat</a>
     <nav aria-label="Primary">
-      <a href="#/works" class:current={route.name === "works" || route.name === "work"}>Works</a>
-      <a href="#/authorities" class:current={route.name === "authorities" || route.name === "authority"}>Authorities</a>
-      <a href="#/vocabularies" class:current={route.name === "vocabsources"}>Vocabularies</a>
-      <a href="#/batch" class:current={route.name === "batch"}>Batch</a>
-      <a href="#/macros" class:current={route.name === "macros"}>Macros</a>
-      <a href="#/exports" class:current={route.name === "exports"}>Exports</a>
-      <a href="#/copycat" class:current={route.name === "copycat"}>Import</a>
-      <a href="#/duplicates" class:current={route.name === "duplicates"}>Duplicates</a>
-      <a href="#/withdrawals" class:current={route.name === "withdrawals"}>Withdrawals</a>
-      <a href="#/queue" class:current={route.name === "queue"}>Queue</a>
-      {#if canAdmin($sessionStore)}
-        <a href="#/profiles" class:current={route.name === "profiles"}>Profiles</a>
-      {/if}
+      {#each sidebarScreens(canAdmin($sessionStore)) as s (s.route)}
+        <a href="#{s.path}" class:current={isCurrent(s, route.name)}>{s.label}</a>
+      {/each}
     </nav>
     <span class="side">
       {#if $sessionStore}

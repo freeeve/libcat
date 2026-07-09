@@ -13,6 +13,35 @@ export interface RouteDef {
   pattern: string; // e.g. "/works/:id"
 }
 
+/** Every route the SPA resolves, in match order. Lives here rather than in
+ *  App.svelte so the navigable ones can be pinned against lib/screens.ts: three
+ *  hand-maintained navigation lists had drifted apart (tasks/244). */
+export const ROUTES: RouteDef[] = [
+  { name: "dashboard", pattern: "/" },
+  { name: "login", pattern: "/login" },
+  { name: "callback", pattern: "/callback" },
+  { name: "works", pattern: "/works" },
+  { name: "work", pattern: "/works/:id" },
+  { name: "authorities", pattern: "/authorities" },
+  { name: "authority", pattern: "/authorities/:id" },
+  { name: "vocabsources", pattern: "/vocabularies" },
+  { name: "batch", pattern: "/batch" },
+  { name: "macros", pattern: "/macros" },
+  { name: "exports", pattern: "/exports" },
+  { name: "copycat", pattern: "/copycat" },
+  { name: "newrecord", pattern: "/copycat/new" },
+  { name: "duplicates", pattern: "/duplicates" },
+  { name: "withdrawals", pattern: "/withdrawals" },
+  { name: "queue", pattern: "/queue" },
+  { name: "promotions", pattern: "/promotions" },
+  { name: "profiles", pattern: "/profiles" },
+];
+
+/** Routes nothing navigates to by name: auth callbacks and detail pages a user
+ *  reaches by clicking a record, never by asking for "that screen". Everything
+ *  else must appear in SCREENS. */
+export const NON_SCREEN_ROUTES = new Set(["login", "callback", "work", "authority", "newrecord"]);
+
 /** Splits "#/works/w1?tab=2" into path and query. */
 export function parseHash(hash: string): { path: string; query: URLSearchParams } {
   let h = hash.startsWith("#") ? hash.slice(1) : hash;

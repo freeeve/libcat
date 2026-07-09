@@ -8,6 +8,7 @@
   import { popScope, pushScope } from "../lib/keyboard";
   import { sequencer } from "../lib/sequence";
   import { navigate } from "../lib/router";
+  import { paletteLabel, SCREENS } from "../lib/screens";
   import Modal from "./Modal.svelte";
   import RowList from "./RowList.svelte";
   import type { Macro, WorkSummary } from "../lib/types";
@@ -25,18 +26,15 @@
   const DEBOUNCE_MS = 200;
   const seq = sequencer();
 
-  const NAV: Entry[] = [
-    { id: "nav-works", label: "Go to Works", run: () => navigate("/works") },
-    { id: "nav-authorities", label: "Go to Authorities", run: () => navigate("/authorities") },
-    { id: "nav-queue", label: "Go to Queue", run: () => navigate("/queue") },
-    { id: "nav-promotions", label: "Go to Promotions", run: () => navigate("/promotions") },
-    { id: "nav-batch", label: "Go to Batch operations", run: () => navigate("/batch") },
-    { id: "nav-macros", label: "Go to Macros", run: () => navigate("/macros") },
-    { id: "nav-exports", label: "Go to Exports", run: () => navigate("/exports") },
-    { id: "nav-copycat", label: "Go to Copy cataloging (import)", run: () => navigate("/copycat") },
-    { id: "nav-duplicates", label: "Go to Duplicates", run: () => navigate("/duplicates") },
-    { id: "nav-dashboard", label: "Go to Dashboard", run: () => navigate("/") },
-  ];
+  // Derived from the one screen table, so a new screen is reachable here the
+  // day it routes -- the palette used to be a hand-maintained subset, and
+  // answered "No matching commands." for three screens that existed
+  // (tasks/244).
+  const NAV: Entry[] = SCREENS.map((s) => ({
+    id: `nav-${s.route}`,
+    label: `Go to ${paletteLabel(s)}`,
+    run: () => navigate(s.path),
+  }));
 
   let q = $state("");
   let macros = $state<Macro[]>([]);
