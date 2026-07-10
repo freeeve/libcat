@@ -630,6 +630,7 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `POST` | `/v1/users` | admin | `auth_handlers.go` |
 | `DELETE` | `/v1/users/{email}` | admin | `auth_handlers.go` |
 | `PUT` | `/v1/users/{email}/roles` | admin | `auth_handlers.go` |
+| `DELETE` | `/v1/vocabcache` | librarian | `vocabsources_handlers.go` |
 | `POST` | `/v1/vocabcache` | librarian | `vocabsources_handlers.go` |
 | `GET` | `/v1/vocabsources` | librarian | `vocabsources_handlers.go` |
 | `POST` | `/v1/vocabsources` | admin | `vocabsources_handlers.go` |

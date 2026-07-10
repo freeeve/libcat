@@ -392,10 +392,8 @@ func (s *Service) RemoveSnapshot(ctx context.Context, name string) (InstallInfo,
 	if err := json.Unmarshal(meta, &info); err != nil {
 		return InstallInfo{}, fmt.Errorf("vocabsrc: install meta for %q is unreadable, so its sidecar cannot be located: %w", name, err)
 	}
-	if info.Scheme != "" {
-		if err := vocab.RemoveSidecar(ctx, s.Blob, s.prefix(), info.Scheme); err != nil {
-			return InstallInfo{}, err
-		}
+	if err := s.sweepScheme(ctx, info.Scheme); err != nil {
+		return InstallInfo{}, err
 	}
 	if err := s.Blob.Delete(ctx, s.snapshotPath(name)); err != nil && !errors.Is(err, blob.ErrNotFound) {
 		return InstallInfo{}, err
@@ -404,6 +402,21 @@ func (s *Service) RemoveSnapshot(ctx context.Context, name string) (InstallInfo,
 		return InstallInfo{}, err
 	}
 	return info, s.Reload(ctx)
+}
+
+// sweepScheme removes everything a scheme leaves behind in the tree: its sidecar
+// artifacts and its live-pick cache. RemoveSnapshot uses it so an uninstall
+// leaves neither eight orphan sidecar files (tasks/252) nor a cache directory
+// that holds the scheme dirty in the reload set (tasks/267) -- "uninstall" means
+// uninstall.
+func (s *Service) sweepScheme(ctx context.Context, scheme string) error {
+	if scheme == "" {
+		return nil
+	}
+	if err := vocab.RemoveSidecar(ctx, s.Blob, s.prefix(), scheme); err != nil {
+		return err
+	}
+	return s.removeCacheDir(ctx, scheme)
 }
 
 // SourceView is the list surface: a source plus its install state and its
@@ -417,6 +430,13 @@ type SourceView struct {
 	// source to act on, and answers 404 without one (tasks/255). An empty
 	// SnapshotURL is not a proxy for this -- an upload-only source has none either.
 	Orphan bool `json:"orphan,omitempty"`
+	// Sidecar reports whether the scheme is served from artifacts on disk rather
+	// than resident maps, and ResidentTerms is the count it still holds in memory
+	// (the whole scheme when map-backed, just the live-pick overlay when
+	// sidecar-backed). They explain a process's memory profile scheme by scheme
+	// (tasks/267); Installed.Terms is the snapshot size regardless of backend.
+	Sidecar       bool `json:"sidecar,omitempty"`
+	ResidentTerms int  `json:"residentTerms,omitempty"`
 }
 
 // Views assembles the download-list screen's rows.
@@ -463,6 +483,13 @@ func (s *Service) Views(ctx context.Context) ([]SourceView, error) {
 	for name, info := range byName {
 		if !registered[name] {
 			views = append(views, SourceView{Source: Source{Name: name, Scheme: info.Scheme}, Installed: &info, Orphan: true})
+		}
+	}
+	// How each scheme is actually served, so an operator can see which schemes
+	// hold terms resident and which serve from a sidecar (tasks/267).
+	for i := range views {
+		if views[i].Scheme != "" {
+			views[i].Sidecar, views[i].ResidentTerms = s.Index.SchemeStats(views[i].Scheme)
 		}
 	}
 	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })

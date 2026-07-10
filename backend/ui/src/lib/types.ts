@@ -686,6 +686,12 @@ export interface VocabSourceView extends VocabSource {
   /** The row is synthesized from an install with no source record behind it, so
    *  only Remove can act on it -- everything else answers 404 (tasks/255). */
   orphan?: boolean;
+  /** The scheme serves from sidecar artifacts on disk rather than resident
+   *  maps (tasks/267). */
+  sidecar?: boolean;
+  /** Terms this scheme holds resident in memory -- the whole scheme when
+   *  map-backed, just the live-pick overlay when sidecar-backed (tasks/267). */
+  residentTerms?: number;
 }
 
 /** httpapi.subjectCandidate -- one external heading found by ISBN lookup

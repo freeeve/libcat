@@ -248,6 +248,14 @@
               {#if s.installed}
                 {s.installed.terms.toLocaleString()} terms
                 <span class="muted">({new Date(s.installed.installedAt).toLocaleDateString()})</span>
+                <!-- How the scheme is served, so a memory profile has a per-row
+                     answer (tasks/267): sidecar-backed schemes keep their terms
+                     on disk, holding only a live-pick overlay resident. -->
+                {#if s.sidecar}
+                  <span class="badge" title="Served from sidecar artifacts on disk; {(s.residentTerms ?? 0).toLocaleString()} terms resident (live-pick overlay)">sidecar</span>
+                {:else if s.residentTerms}
+                  <span class="muted">· {s.residentTerms.toLocaleString()} resident</span>
+                {/if}
               {:else if s.snapshotUrl}
                 <span class="muted">not installed</span>
               {:else}

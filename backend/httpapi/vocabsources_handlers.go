@@ -141,6 +141,20 @@ func registerVocabSources(mux *http.ServeMux, svc *vocabsrc.Service, verifier au
 		writeJSON(w, http.StatusOK, map[string]bool{"cached": true})
 	})))
 
+	// Undo a cached live pick (tasks/267): removing the scheme's last pick drops
+	// it from the reload set. Librarian-gated like the POST, and audited -- a
+	// pick joins the crosswalk data every cataloger then resolves through.
+	mux.Handle("DELETE /v1/vocabcache", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		scheme := r.URL.Query().Get("scheme")
+		id := r.URL.Query().Get("id")
+		if err := svc.RemoveCachedTerm(r.Context(), scheme, id); err != nil {
+			writeVocabSrcError(w, err)
+			return
+		}
+		audit(r, "VOCAB_CACHE_REMOVE", fmt.Sprintf("%s: %s", scheme, id))
+		writeJSON(w, http.StatusOK, map[string]bool{"removed": true})
+	})))
+
 	mux.Handle("GET /v1/vocabsuggest", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("source")
 		q := r.URL.Query().Get("q")

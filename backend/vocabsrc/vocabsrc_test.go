@@ -919,3 +919,81 @@ func TestFastURI(t *testing.T) {
 		}
 	}
 }
+
+// TestVocabCacheEvictionAndSweep covers tasks/267: a cached live pick can be
+// evicted one at a time, uninstalling a snapshot sweeps the scheme's cache and
+// sidecar together, and Views reports how each scheme is served.
+func TestVocabCacheEvictionAndSweep(t *testing.T) {
+	s := newService(t)
+	ctx := t.Context()
+	ix, err := vocab.Load(ctx, s.Blob, s.AuthoritiesPrefix, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Index = ix
+	if err := s.PutSource(ctx, Source{Name: "zzc", Scheme: "zzc"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InstallUpload(ctx, "zzc", strings.NewReader(zzleakNT)); err != nil {
+		t.Fatal(err)
+	}
+	sidecarAfterInstall := blobPaths(t, s.Blob, s.prefix()+"sidecar/")
+	if len(sidecarAfterInstall) == 0 {
+		t.Fatal("install built no sidecar artifacts")
+	}
+
+	// Two live picks under the scheme.
+	for _, id := range []string{"http://example.org/c/1", "http://example.org/c/2"} {
+		if err := s.CacheTerm(ctx, Suggestion{Scheme: "zzc", ID: id, Label: "L"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cp := blobPaths(t, s.Blob, s.prefix()+"cache/zzc/"); len(cp) != 2 {
+		t.Fatalf("cache holds %d picks, want 2", len(cp))
+	}
+	// A cache write must not disturb the sidecar (the M9 guarantee).
+	if sc := blobPaths(t, s.Blob, s.prefix()+"sidecar/"); len(sc) != len(sidecarAfterInstall) {
+		t.Errorf("a cache write changed the sidecar: %d -> %d", len(sidecarAfterInstall), len(sc))
+	}
+
+	// GET-list fields mirror the index's own view of the scheme.
+	wantSidecar, wantResident := s.Index.SchemeStats("zzc")
+	views, err := s.Views(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var zzc *SourceView
+	for i := range views {
+		if views[i].Scheme == "zzc" {
+			zzc = &views[i]
+		}
+	}
+	if zzc == nil {
+		t.Fatal("zzc missing from views")
+	}
+	if zzc.Sidecar != wantSidecar || zzc.ResidentTerms != wantResident {
+		t.Errorf("view sidecar/resident = %v/%d, want %v/%d", zzc.Sidecar, zzc.ResidentTerms, wantSidecar, wantResident)
+	}
+
+	// Evict one pick; the other survives. Re-evicting is NotFound, not a lie.
+	if err := s.RemoveCachedTerm(ctx, "zzc", "http://example.org/c/1"); err != nil {
+		t.Fatal(err)
+	}
+	if cp := blobPaths(t, s.Blob, s.prefix()+"cache/zzc/"); len(cp) != 1 {
+		t.Fatalf("after evicting one, cache holds %d, want 1", len(cp))
+	}
+	if err := s.RemoveCachedTerm(ctx, "zzc", "http://example.org/c/1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("re-evict = %v, want ErrNotFound", err)
+	}
+
+	// Uninstalling sweeps the cache AND the sidecar -- uninstall means uninstall.
+	if _, err := s.RemoveSnapshot(ctx, "zzc"); err != nil {
+		t.Fatal(err)
+	}
+	if cp := blobPaths(t, s.Blob, s.prefix()+"cache/zzc/"); len(cp) != 0 {
+		t.Errorf("RemoveSnapshot left %d cache picks behind: %v", len(cp), cp)
+	}
+	if sc := blobPaths(t, s.Blob, s.prefix()+"sidecar/"); len(sc) != 0 {
+		t.Errorf("RemoveSnapshot left %d sidecar artifacts behind: %v", len(sc), sc)
+	}
+}

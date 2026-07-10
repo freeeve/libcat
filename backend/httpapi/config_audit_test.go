@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -110,5 +111,34 @@ func TestVocabSourceChangesAreAudited(t *testing.T) {
 	}
 	if e := byAction["VOCAB_SOURCE_CREATE"]; e.Actor != "admin@example.org" {
 		t.Errorf("VOCAB_SOURCE_CREATE actor = %q", e.Actor)
+	}
+}
+
+// tasks/267: evicting a cached live pick is librarian-gated and audited -- a pick
+// joins the crosswalk data every cataloger then resolves through.
+func TestVocabCacheRemoveIsAudited(t *testing.T) {
+	queue := suggest.New(store.NewMem(), nil, suggest.Caps{})
+	vsvc := &vocabsrc.Service{DB: store.NewMem(), Blob: blob.NewMem(), AuthoritiesPrefix: "data/authorities/"}
+	h := New(Deps{Verifier: adminVerifier(), VocabSources: vsvc, Suggest: queue})
+
+	id := "http://example.org/c/1"
+	if rec := request(t, h, http.MethodPost, "/v1/vocabcache", "admin-token", "", map[string]any{
+		"scheme": "zzc", "id": id, "label": "One",
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("cache = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := request(t, h, http.MethodDelete, "/v1/vocabcache?scheme=zzc&id="+url.QueryEscape(id), "admin-token", "", nil); rec.Code != http.StatusOK {
+		t.Fatalf("uncache = %d %s", rec.Code, rec.Body.String())
+	}
+	e, ok := auditByAction(t, queue)["VOCAB_CACHE_REMOVE"]
+	if !ok {
+		t.Fatal("DELETE /v1/vocabcache wrote no VOCAB_CACHE_REMOVE audit entry")
+	}
+	if e.Actor != "admin@example.org" || !strings.Contains(e.Note, "zzc") {
+		t.Fatalf("VOCAB_CACHE_REMOVE = %+v", e)
+	}
+	// Evicting an absent pick is a 404, not a silent success.
+	if rec := request(t, h, http.MethodDelete, "/v1/vocabcache?scheme=zzc&id="+url.QueryEscape(id), "admin-token", "", nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("re-evict = %d, want 404", rec.Code)
 	}
 }

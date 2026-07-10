@@ -538,6 +538,20 @@ func (ix *Index) Schemes() []string {
 	return ix.load().schemeNames()
 }
 
+// SchemeStats reports how a scheme is served: sidecar is true when it is
+// artifact-backed (its terms stay on disk), and residentTerms is the count held
+// in resident maps -- the whole scheme for a map-backed one, or just the
+// live-pick overlay for a sidecar-backed one. Together they turn an unexplained
+// process RSS into a one-line answer per scheme (tasks/267). Nil-safe: a nil
+// index reports (false, 0).
+func (ix *Index) SchemeStats(scheme string) (sidecar bool, residentTerms int) {
+	if ix == nil {
+		return false, 0
+	}
+	s := ix.load()
+	return s.sidecar[scheme] != nil, len(s.schemes[scheme])
+}
+
 // schemeNames is the sorted union of the two backends' scheme names.
 //
 // A scheme appears in both maps once it carries a sidecar and an overlay of
