@@ -211,6 +211,21 @@ This is why `total` is not "everything in the catalog": under the default it is
 the number of live records. A client filtering the response instead would report
 `matched: 4` and render one row.
 
+#### Facets always list what the request selected
+
+The open-ended facet groups (`subject`, `tag`, and any configured extras) are
+capped at the top 20 values by count. **A value the request filtered by is always
+present in its group, with its true count, including `0`** (tasks/253).
+
+Two things used to hide one. A selected value can rank below the cap. And because
+a group's counts honour every *other* group's filter but not its own, a selection
+that matches nothing under those other filters never reaches the counter at all.
+Either way the query carried a filter the rail did not show, so a client could
+not offer to remove it -- and any count read off that screen described a
+population the user could not see.
+
+A pinned value does not consume a cap slot, so a group can return 21 values.
+
 ### Everything else
 
 ### `POST /v1/review`: `reviewed` means applied

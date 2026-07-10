@@ -207,16 +207,20 @@ const facetTopN = 20
 // value; open-ended groups list the top facetTopN by count then value. A
 // scheme-annotated group (subjects, tasks/174) caps per scheme instead, so
 // every vocabulary keeps a presence in the rail.
+//
+// A value the request selected is always listed, whatever its count and
+// whatever the cap (tasks/253). The rail is the client's only account of what
+// the query is: a filter that is applied but not displayed cannot be removed,
+// and it silently corrupts every number read off that screen. Two ways a
+// selection used to disappear, both covered here -- it ranks below the cap, or
+// (because a group's counts honour every OTHER group's filter) it matches
+// nothing at all under them and never reaches the counter.
 func (c *facetCounter) result() map[string][]facetCount {
 	out := map[string][]facetCount{}
 	for i, group := range c.groups {
 		list := make([]facetCount, 0, len(c.counts[i]))
 		for v, n := range c.counts[i] {
-			fc := facetCount{Value: v, Count: n}
-			if group.schemeOf != nil {
-				fc.Scheme = group.schemeOf(v)
-			}
-			list = append(list, fc)
+			list = append(list, c.facet(group, v, n))
 		}
 		sort.Slice(list, func(a, b int) bool {
 			if list[a].Count != list[b].Count {
@@ -231,13 +235,41 @@ func (c *facetCounter) result() map[string][]facetCount {
 				list = list[:facetTopN]
 			}
 		}
-		out[group.name] = list
+		out[group.name] = c.appendMissingSelections(list, i)
 	}
 	return out
 }
 
+// facet builds one response value, annotating its vocabulary scheme when the
+// group carries one (tasks/174).
+func (c *facetCounter) facet(group facetGroup, value string, count int) facetCount {
+	fc := facetCount{Value: value, Count: count}
+	if group.schemeOf != nil {
+		fc.Scheme = group.schemeOf(value)
+	}
+	return fc
+}
+
+// selectedSet is the group's filter values keyed the way its counts are keyed
+// (folded for case-insensitive groups), so a selection typed in any case pins
+// the bucket it actually filters by.
+func selectedSet(group facetGroup) map[string]bool {
+	set := make(map[string]bool, len(group.selected))
+	for _, v := range group.selected {
+		if group.fold {
+			v = strings.ToLower(v)
+		}
+		set[v] = true
+	}
+	return set
+}
+
 // capPerScheme keeps the top n values of each scheme, preserving the overall
 // count-then-value order.
+//
+// The cap is deliberately not selection-aware: a truncated selection is put back
+// by appendMissingSelections, which has to run anyway for selections that never
+// reached the counter. One mechanism, not two that each half-cover the case.
 func capPerScheme(list []facetCount, n int) []facetCount {
 	kept := make([]facetCount, 0, len(list))
 	perScheme := map[string]int{}
@@ -249,4 +281,30 @@ func capPerScheme(list []facetCount, n int) []facetCount {
 		kept = append(kept, fc)
 	}
 	return kept
+}
+
+// appendMissingSelections adds any selected value the scan never counted, with
+// its true count of zero. Without this a selection that matches nothing under
+// the other groups' filters is absent rather than merely truncated -- and zero
+// is the honest answer, not a reason to hide the filter.
+//
+// The appended values are sorted so the response is a function of the request,
+// not of Go's map iteration order.
+func (c *facetCounter) appendMissingSelections(list []facetCount, i int) []facetCount {
+	group := c.groups[i]
+	present := make(map[string]bool, len(list))
+	for _, fc := range list {
+		present[fc.Value] = true
+	}
+	var missing []string
+	for v := range selectedSet(group) {
+		if !present[v] {
+			missing = append(missing, v)
+		}
+	}
+	sort.Strings(missing)
+	for _, v := range missing {
+		list = append(list, c.facet(group, v, c.counts[i][v]))
+	}
+	return list
 }
