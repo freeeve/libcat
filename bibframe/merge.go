@@ -169,6 +169,50 @@ func AddSplitMarkers(grainNQ []byte, newWork, fromWork string, instanceIDs []str
 	return ApplyEditorialPatch(grainNQ, patch)
 }
 
+// SplitTargetFor returns the Work id a prior split already assigned to exactly the
+// given instances in this grain, or "" if there is none. A retried or double-clicked
+// split reuses that id instead of minting a fresh one, so AddSplitMarkers finds every
+// marker already present and no-ops -- the endpoint is idempotent, and the grain never
+// ends up with two workAssignment pins for one instance (tasks/323).
+//
+// The match is on the exact instance set: a split of [i1] and a later split of
+// [i1, i2] are different operations, not a retry of the first, so the second mints its
+// own Work rather than folding i2 into the first split. Only when the requested set is
+// precisely the set some earlier split already pinned to one Work is that Work reused.
+func SplitTargetFor(grainNQ []byte, instanceIDs []string) (string, error) {
+	pins, err := ScanPins(grainNQ)
+	if err != nil {
+		return "", err
+	}
+	want := make(map[string]bool, len(instanceIDs))
+	for _, inst := range instanceIDs {
+		want[inst] = true
+	}
+	byWork := map[string]map[string]bool{}
+	for _, p := range pins {
+		if byWork[p.Work] == nil {
+			byWork[p.Work] = map[string]bool{}
+		}
+		byWork[p.Work][p.Instance] = true
+	}
+	for work, insts := range byWork {
+		if len(insts) != len(want) {
+			continue
+		}
+		matches := true
+		for inst := range want {
+			if !insts[inst] {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return work, nil
+		}
+	}
+	return "", nil
+}
+
 // addUnique appends a quad to the dataset only if it is not already present.
 func addUnique(ds *rdf.Dataset, s, p, o, g rdf.Term) {
 	for _, q := range ds.Quads {

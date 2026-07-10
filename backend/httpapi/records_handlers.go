@@ -332,8 +332,23 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeError(w, http.StatusBadRequest, "split needs a source work and instance ids")
 			return
 		}
-		newWork := identity.Mint(identity.WorkPrefix)
+		// Reuse the work a prior split already assigned to these instances rather
+		// than minting a fresh id every call: a retry, a double-click, or a lost
+		// response would otherwise leave two contradictory workAssignment pins for
+		// one instance, and the resolver would pick one by IRI sort order (tasks/323).
+		// Decided inside the mutation so a split that lands between this read and the
+		// CAS write is seen on retry -- concurrent double-submits converge on one id.
+		var newWork string
 		etag, err := mutateWorkGrain(r, bs, ix, req.From, func(grain []byte) ([]byte, error) {
+			reuse, err := bibframe.SplitTargetFor(grain, req.Instances)
+			if err != nil {
+				return nil, err
+			}
+			if reuse != "" {
+				newWork = reuse
+			} else {
+				newWork = identity.Mint(identity.WorkPrefix)
+			}
 			return bibframe.AddSplitMarkers(grain, newWork, req.From, req.Instances)
 		})
 		if err != nil {

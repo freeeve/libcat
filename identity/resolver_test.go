@@ -108,6 +108,33 @@ func TestSplitPinOverridesCluster(t *testing.T) {
 	}
 }
 
+// TestConflictingPinIsReportedNotSilentlyDropped covers the resolver half of
+// tasks/323: two pins for one instance (a split written twice before the endpoint was
+// idempotent, or a hand-edited grain) must not let quad sort order silently decide the
+// winner. The first pin seen wins deterministically, the second is surfaced as a
+// conflict, and the discarded Work id is not reserved.
+func TestConflictingPinIsReportedNotSilentlyDropped(t *testing.T) {
+	r := NewResolver()
+	r.SeedPin("i2", "wfirst")
+	r.SeedPin("i2", "wsecond")
+
+	if got := r.pinByInst["i2"]; got != "wfirst" {
+		t.Errorf("pin = %s, want wfirst (first seen wins deterministically)", got)
+	}
+	if len(r.Conflicts()) != 1 {
+		t.Fatalf("conflicts = %v, want one entry naming the double pin", r.Conflicts())
+	}
+	// The discarded id denotes nothing; reserving it would burn it out of the space.
+	if r.usedWork["wsecond"] {
+		t.Error("the discarded Work id was reserved")
+	}
+	// A repeated identical pin is not a conflict.
+	r.SeedPin("i2", "wfirst")
+	if len(r.Conflicts()) != 1 {
+		t.Errorf("an identical re-pin was counted as a conflict: %v", r.Conflicts())
+	}
+}
+
 // TestEmptyKeyNeverClusters checks that records with no main title (an empty
 // access-point key, tasks/101) each mint their own Work instead of all
 // clustering onto the first one, in both fresh-resolve and seeded form.

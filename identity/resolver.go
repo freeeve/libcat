@@ -111,7 +111,19 @@ func (r *Resolver) SeedMerge(from, to string) {
 // workID regardless of the computed clustering key, so an over-merge the key would
 // otherwise recreate stays split across re-ingest. The pinned Work id is reserved
 // so it is never minted for anything else.
+//
+// Two pins for one instance is a data-integrity event (a split written twice before
+// tasks/323 made the endpoint idempotent, or a hand-edited grain). The first pin seen
+// wins deterministically -- pins arrive in canonical quad order, so the choice no
+// longer depends on which random Work id sorts higher -- and the second is reported
+// rather than silently dropped. The discarded id is not reserved: it denotes nothing,
+// and reserving it would burn an id out of the space for good.
 func (r *Resolver) SeedPin(instanceID, workID string) {
+	if prev, ok := r.pinByInst[instanceID]; ok && prev != workID {
+		r.conflicts = append(r.conflicts,
+			fmt.Sprintf("instance %s is pinned to both %s and %s; keeping %s", instanceID, prev, workID, prev))
+		return
+	}
 	r.pinByInst[instanceID] = workID
 	r.usedWork[workID] = true
 }

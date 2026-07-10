@@ -46,6 +46,49 @@ func TestAddSplitMarkersIdempotent(t *testing.T) {
 	}
 }
 
+// TestSplitTargetForReusesAPriorSplit is the idempotency seam (tasks/323): a split of
+// exactly the instances an earlier split already pinned reuses that Work, so a retry
+// mints nothing; a different instance set, or an unsplit grain, does not.
+func TestSplitTargetForReusesAPriorSplit(t *testing.T) {
+	base := []byte("<#wsharedWork> <http://id.loc.gov/ontologies/bibframe/mainTitle> \"x\" <feed:overdrive> .\n" +
+		"<#isame1Instance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:overdrive> .\n" +
+		"<#isame2Instance> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Instance> <feed:overdrive> .\n")
+
+	// Control: nothing split yet, so nothing to reuse.
+	if got, err := SplitTargetFor(base, []string{"isame2"}); err != nil || got != "" {
+		t.Fatalf("unsplit grain: got %q err %v, want \"\"", got, err)
+	}
+
+	split, err := AddSplitMarkers(base, "wnew", "wshared", []string{"isame2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := SplitTargetFor(split, []string{"isame2"}); err != nil || got != "wnew" {
+		t.Fatalf("retry of the same split: got %q err %v, want wnew", got, err)
+	}
+	// A different instance set is a different operation, not a retry.
+	if got, err := SplitTargetFor(split, []string{"isame1"}); err != nil || got != "" {
+		t.Fatalf("different instance: got %q err %v, want \"\"", got, err)
+	}
+	if got, err := SplitTargetFor(split, []string{"isame1", "isame2"}); err != nil || got != "" {
+		t.Fatalf("request is a superset of the split: got %q err %v, want \"\"", got, err)
+	}
+
+	// A prior split of BOTH instances must not be reused for a request for just one:
+	// a single-instance re-split is a different operation than the two-instance split,
+	// and folding it in would silently move only part of the earlier split.
+	both, err := AddSplitMarkers(base, "wboth", "wshared", []string{"isame1", "isame2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := SplitTargetFor(both, []string{"isame2"}); err != nil || got != "" {
+		t.Fatalf("request is a subset of the split: got %q err %v, want \"\"", got, err)
+	}
+	if got, err := SplitTargetFor(both, []string{"isame1", "isame2"}); err != nil || got != "wboth" {
+		t.Fatalf("retry of the two-instance split: got %q err %v, want wboth", got, err)
+	}
+}
+
 // TestSplitReingest is the over-merge half of the tasks/001 gate: a recorded split
 // pins one Instance of an over-merged Work onto a new Work, and the split
 // reproduces (and stays byte-stable) across re-ingest.

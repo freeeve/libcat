@@ -86,6 +86,10 @@
   let splitPick = $state<Record<string, boolean>>({});
   let splitNotice = $state("");
   let splitError = $state("");
+  // Guards the split button while the request is in flight: the server makes a
+  // repeated split idempotent (tasks/323), but there is no reason to fire the second
+  // request at all, and a live button after a click reads as "nothing happened".
+  let splitBusy = $state(false);
 
   const splitCount = $derived(Object.values(splitPick).filter(Boolean).length);
 
@@ -93,14 +97,17 @@
     const instances = Object.entries(splitPick)
       .filter(([, v]) => v)
       .map(([k]) => k);
-    if (instances.length === 0) return;
+    if (instances.length === 0 || splitBusy) return;
     splitError = "";
+    splitBusy = true;
     try {
       const res = await splitWork(workId, instances);
       splitNotice = `split recorded -- ${instances.length} instance${instances.length === 1 ? "" : "s"} pin to ${res.newWork}; the new work materializes on the next ingest`;
       splitPick = {};
     } catch (e) {
       splitError = e instanceof ApiError ? e.message : "split failed";
+    } finally {
+      splitBusy = false;
     }
   }
 
@@ -298,7 +305,7 @@
             {/each}
             {#if doc.instances.length > 1 && !readOnly}
               <p class="split-bar">
-                <button class="button button--quiet" onclick={() => void doSplit()} disabled={splitCount === 0}>
+                <button class="button button--quiet" onclick={() => void doSplit()} disabled={splitCount === 0 || splitBusy}>
                   Split {splitCount || ""} selected instance{splitCount === 1 ? "" : "s"} into a new work
                 </button>
                 <span aria-live="polite">

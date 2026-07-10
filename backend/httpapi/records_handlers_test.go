@@ -258,6 +258,55 @@ func TestMergeSplitBatch(t *testing.T) {
 	}
 }
 
+// TestSplitIsIdempotent is the tasks/323 gate: splitting the same instance twice --
+// a retry, a double-click, a lost response -- must reuse the first split's Work rather
+// than mint a second, so the source grain never carries two contradictory
+// workAssignment pins for one instance.
+func TestSplitIsIdempotent(t *testing.T) {
+	h, bs := newRecordsAPI(t)
+	feed := bibframe.FeedGraph("overdrive")
+	ds := &rdf.Dataset{}
+	ds.Add(rdf.NewIRI(bibframe.WorkIRI(editWorkID)), rdf.NewIRI("http://id.loc.gov/ontologies/bibframe/title"), rdf.NewLiteral("A Book", "", ""), feed)
+	ds.Add(rdf.NewIRI(bibframe.InstanceIRI("i1")), rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), rdf.NewIRI("http://id.loc.gov/ontologies/bibframe/Instance"), feed)
+	grain, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), bibframe.GrainPath(editWorkID), grain, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	split := func() string {
+		rec := request(t, h, http.MethodPost, "/v1/works/split", "lib-token", "", map[string]any{
+			"from": editWorkID, "instances": []string{"i1"},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("split: %d %s", rec.Code, rec.Body)
+		}
+		var out struct{ NewWork string }
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return out.NewWork
+	}
+
+	first := split()
+	second := split()
+	if first != second {
+		t.Errorf("second split minted %s, want the first split's %s reused", second, first)
+	}
+
+	got, _, _ := bs.Get(t.Context(), bibframe.GrainPath(editWorkID))
+	pins, err := bibframe.ScanPins(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pins) != 1 {
+		t.Fatalf("grain carries %d workAssignment pins, want 1: %v", len(pins), pins)
+	}
+	if pins[0].Instance != "i1" || pins[0].Work != first {
+		t.Errorf("pin = %+v, want i1 -> %s", pins[0], first)
+	}
+}
+
 func TestDraftsCRUD(t *testing.T) {
 	h, _ := newRecordsAPI(t)
 	rec := request(t, h, http.MethodPost, "/v1/drafts", "lib-token", "", map[string]any{
