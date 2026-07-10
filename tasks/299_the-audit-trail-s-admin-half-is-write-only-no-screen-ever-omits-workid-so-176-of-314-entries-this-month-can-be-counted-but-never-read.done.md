@@ -205,3 +205,43 @@ curl -s -H "Authorization: Bearer $TOK" "localhost:8481/v1/audit?month=$(date -u
 ```
 
 Then open the SPA and look for the screen that shows any of the `NO workId` rows.
+
+## Outcome
+
+Shipped in **libcat v0.144.0** (minor -- a new screen to adopt). Built the reader
+the trail never had; kept the correct server-side per-work filter untouched.
+
+**The screen.** A librarian-gated `/audit` route + `Audit.svelte`: a month picker,
+`fetchAudit(month)` with **no** `workId` (the whole month), and actor/action
+filters whose options are the values actually present that month. Work-bearing
+entries link into the work's editor. A batch run's `RunNote` JSON note is unpacked
+into what the run did (`selection`, `matched`, `applied`, `rewritten`, `failed`,
+`added`, `removed`, works) instead of shown as raw JSON -- so `RunID`/`RunNote`
+finally have a reader (Expected bullet 4, satisfied by rendering them). Added to
+the router, `SCREENS` (chord `g l`, so the palette and sidebar carry it -- the
+`screens.test.ts` invariant pins that), and the primary nav.
+
+**Dashboard link.** The Editing-activity counts were dead ends; each cataloger row
+now links to `/audit?month=…&actor=…`, and a header link opens the month's log.
+
+**Kept the `workId` filter.** A work's History still shows only that work; the
+verification asserts no admin rows leak into it (the probe's U2).
+
+**Deferred to tasks/334.** Bullet 2 -- give `COPYCAT_COMMIT` a per-work entry so
+an imported record's History tab shows its import -- is a backend audit-emission
+change, filed separately. The reader here already renders both shapes, so 334 is
+purely about giving the per-work entry a `WorkID`.
+
+### Verified
+
+- Full UI suite 324/324 (a new a11y test mounts the screen: the no-workId
+  `USER_ROLES` entry renders, the `RunNote` shows "matched 6 · applied 6" not raw
+  JSON, a work-bearing entry links to `#/works/w-77`, zero axe violations); the
+  `screens.test.ts` route/screen invariant passes with the new entry.
+- Live on `:8481` (Playwright), signed in as admin, after seeding the four
+  no-workId admin actions the probe uses: the nav offers **Audit**; the screen
+  issues `GET /v1/audit` with no `workId`; **every** system-level action present
+  in the API (USER_CREATE/ROLES/DELETE, COPYCAT_COMMIT/STAGE/REVERT, PROFILE_EDIT/
+  REVERT, BATCH_OPS -- the invariant set) renders; filtering by action gives
+  "Showing 3 of 32"; and `GET /v1/audit?workId=…` still scopes to one work with no
+  foreign or admin rows.
