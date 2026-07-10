@@ -3,6 +3,14 @@
 // slug does not match the page Hugo minted (e.g. a `+`/`/` in a subject/tag label that a
 // CDN would 404). Not shipped: Hugo consumes only the templates and assets, never this.
 //
+// It checks `src` as well as `href`, and it fails on any *document-relative* reference
+// (one with no leading slash). Both gaps hid tasks/285: every cover rendered
+// `src="covers/<id>.jpg"`, which resolves against the page's own directory, so the same
+// string 404'd differently on every page -- and this file scanned only `href`, then
+// skipped anything not starting with `/`. It passed clean on a build where no cover
+// loaded. A relative reference is never right in this site: Hugo's relURL emits a leading
+// slash, so one appearing in the output means a template forgot to call it.
+//
 // Usage: node link_check.cjs <built-site-dir>   (e.g. exampleSite/public)
 "use strict";
 const fs = require("fs");
@@ -41,16 +49,22 @@ function resolves(href) {
 const files = walk(root, []);
 const broken = [];
 const plusPaths = new Set();
-const hrefRe = /href="([^"]+)"/g;
+const relative = [];
+const refRe = /(?:href|src)="([^"]+)"/g;
 
 for (const f of files) {
   const html = fs.readFileSync(f, "utf8");
   let m;
-  while ((m = hrefRe.exec(html)) !== null) {
+  while ((m = refRe.exec(html)) !== null) {
     const href = m[1];
     if (/^(https?:|mailto:|tel:|#|data:)/i.test(href)) continue;
     const clean = decode(href).split("#")[0].split("?")[0];
-    if (!clean.startsWith("/") || clean.startsWith("//")) continue;
+    if (clean.startsWith("//")) continue; // protocol-relative: an external host
+    if (clean !== "" && !clean.startsWith("/")) {
+      relative.push({ file: path.relative(root, f), href: decode(href) });
+      continue;
+    }
+    if (!clean.startsWith("/")) continue;
     // /pagefind/ assets are emitted by the post-build `pagefind` step, not Hugo, so they
     // legitimately do not exist in a Hugo-only build -- skip them here (tasks/017).
     if (clean.startsWith("/pagefind/")) continue;
@@ -78,6 +92,17 @@ if (broken.length) {
   }
 }
 
+if (relative.length) {
+  failed = true;
+  console.error(`\n${relative.length} document-relative reference(s) -- these resolve against the page's own directory, so they 404 differently on every page:`);
+  const seen = new Set();
+  for (const r of relative) {
+    if (seen.has(r.href)) continue;
+    seen.add(r.href);
+    console.error(`  ${r.href}  (e.g. in ${r.file})`);
+  }
+}
+
 if (failed) process.exit(1);
 console.log(`===== ${files.length} pages checked =====`);
-console.log("All internal facet/term/work links resolve; no CDN-unsafe '+' paths.");
+console.log("All internal href/src references resolve, are root-relative, and carry no CDN-unsafe '+' paths.");

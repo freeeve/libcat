@@ -39,8 +39,21 @@
 {{- range .AllTranslations }}
 <link rel="alternate" hreflang="{{ .Language.Lang }}" href="{{ .Permalink }}">
 {{- end }}
-{{- /* Open Graph + Twitter. Prefer a work cover; else the optional site image. */ -}}
-{{- $image := .Params.cover | default "" -}}
+{{- /* Open Graph + Twitter. Prefer a work cover; else the optional site image.
+
+       The cover is absolutized: a scraper has no context to resolve a relative
+       URL against beyond the page URL, and the projector emits site-relative
+       "covers/<id>.jpg", which against /works/<id>/ is a 404. absURL is a no-op
+       on the absolute CDN URLs some deployments carry (tasks/285).
+
+       It is also gated on site.Params.covers, the same switch page.html uses for
+       the <img>: a catalog that does not publish covers must not publish them to
+       Facebook. That gate is what keeps twitter:card honest too -- with no image
+       to show, the card falls back to "summary" rather than promising a large
+       one that 404s. */ -}}
+{{- $image := "" -}}
+{{- if site.Params.covers }}{{ $image = (.Params.cover | default "" ) -}}
+{{- if $image }}{{ $image = ($image | absURL) }}{{ end }}{{ end -}}
 {{- if and (not $image) site.Params.ogImage }}{{ $image = (site.Params.ogImage | absURL) }}{{ end }}
 <meta property="og:site_name" content="{{ site.Title }}">
 <meta property="og:title" content="{{ if .IsHome }}{{ site.Title }}{{ else }}{{ $title }}{{ end }}">
@@ -96,7 +109,10 @@
 {{- with .Params.tagLabels }}{{ $ld = merge $ld (dict "genre" .) }}{{ end -}}
 {{- with $subjects }}{{ $ld = merge $ld (dict "about" .) }}{{ end -}}
 {{- with $desc }}{{ $ld = merge $ld (dict "description" .) }}{{ end -}}
-{{- with .Params.cover }}{{ $ld = merge $ld (dict "image" .) }}{{ end -}}
+{{- /* Google resolves Book.image from the feed, not the page, so it must be
+       absolute -- and it must not exist at all on a site with covers off. $image
+       already carries both rules. */ -}}
+{{- if and site.Params.covers .Params.cover }}{{ $ld = merge $ld (dict "image" (.Params.cover | absURL)) }}{{ end -}}
 {{- with $editions }}{{ $ld = merge $ld (dict "workExample" .) }}{{ end }}
 <script type="application/ld+json">{{ $ld | jsonify | safeJS }}</script>
 {{- end -}}

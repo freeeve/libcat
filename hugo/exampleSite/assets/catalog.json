@@ -93,7 +93,8 @@
    ],
    "held": true,
    "extra": {
-    "sources": "Mombian, Queer Lit"
+    "sources": "Mombian, Queer Lit",
+    "cover": "covers/wexampleone.jpg"
    },
    "relations": {
     "hasPart": [
@@ -225,7 +226,8 @@
    ],
    "held": true,
    "extra": {
-    "sources": "Queer Books Database, Queer Lit"
+    "sources": "Queer Books Database, Queer Lit",
+    "cover": "https://img1.od-cdn.com/ImageType-100/example.jpg"
    }
   }
  ]
