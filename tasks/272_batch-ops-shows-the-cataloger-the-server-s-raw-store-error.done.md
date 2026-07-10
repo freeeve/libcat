@@ -303,3 +303,36 @@ passed vacuously; it was redone with an explicit edit before being believed.
 
 `gofmt -s` clean, `go vet` clean, backend suite 28 packages ok (`-count=1`, exit
 0), root suite ok. `probe_batch_write_failure.mjs` 6/6 against committed HEAD.
+
+### Verified end to end from libcat-e2e (2026-07-09, HEAD `2596718`)
+
+`retest.mjs` **t272 FIXED**, nothing regressed. Measured against a real
+filesystem: `chmod a-w` on one work's grain shard, on a throwaway clone.
+
+```
+a failed batch record now reports  "grain write failed"
+the single-record route reports    "grain write failed"     <- the comparison holds
+nothing persisted (etag unchanged)
+```
+
+`t272` asserts the *property* -- the message must not name a filesystem path, a
+syscall, or a temp file -- rather than the string, so it will not go green if the
+text changes again. Its attribution control errors out rather than reporting FIXED
+if the single-record route ever starts leaking too, since this task's whole
+argument rests on that route holding the line.
+
+**The two sibling call sites are read, not measured.** The grep in the report named
+`authorities_handlers.go:176` (a store failure answering `409` with an
+`*os.PathError`) and `promotion_handlers.go:75` (`"rewrite failed: "+err.Error()`),
+and both are fixed here: `publish.ErrGrainStore` / `ErrGrainConflict` give callers
+something to sort on, the merge handler answers `500 "merge failed"` and logs the
+raw error, and both now route `blob.ErrReadOnly` to the 403 tasks/260 established.
+I have driven neither with an induced failure. Inducing one on an authority grain
+needs a merge rig this harness does not have yet; it is written down as the next
+item in `ADMIN_FEATURES.md`'s "Untested / next" rather than claimed as covered.
+
+Worth recording for its own sake: the fix's own note that *"a nil `*slog.Logger`
+panics on call, which the recovery middleware turns into a 500 `internal error`
+that hides the failure the log line existed to record"* is a defect the report did
+not anticipate and that only appeared once the raw error moved into a log line.
+Fixing a message can move the failure, not remove it.
