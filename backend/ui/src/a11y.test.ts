@@ -21,6 +21,7 @@ import CommandPalette from "./components/CommandPalette.svelte";
 import MarcPanel from "./components/MarcPanel.svelte";
 import CopyCat from "./screens/CopyCat.svelte";
 import Duplicates from "./screens/Duplicates.svelte";
+import Audit from "./screens/Audit.svelte";
 import VocabPicker from "./components/VocabPicker.svelte";
 import KbdLegend from "./components/KbdLegend.svelte";
 import { invalidateAccess, loginLocal } from "./lib/auth";
@@ -548,6 +549,61 @@ describe("a11y", () => {
     flushSync();
     expect(host.textContent).toContain("Lossy");
     expect(host.querySelector('a[href*="marc-fidelity"]')).not.toBeNull();
+    const results = await audit(host);
+    expect(results.violations).toEqual([]);
+  });
+
+  it("Audit log shows the system-level (no-workId) entries and formats a run note", async () => {
+    setConfig({ apiBase: "", localAuth: true, provider: "test", schemes: ["lcsh"] });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockResolvedValueOnce(json({ accessToken: jwtLike(), refreshToken: "r1", expiresIn: 900 }));
+    await loginLocal("staff@example.org", "pw");
+    sessionStore.set({ email: "staff@example.org", roles: ["librarian"] });
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/v1/audit"))
+        return Promise.resolve(
+          json({
+            month: "2026-07",
+            entries: [
+              // No workId: exactly the admin-half entries a work's History never shows.
+              { at: "2026-07-03T10:00:00Z", action: "USER_ROLES", actor: "boss@example.org", note: "eve: librarian -> admin" },
+              // A batch run summary whose note is a RunNote JSON blob.
+              {
+                at: "2026-07-02T09:00:00Z",
+                action: "BATCH_OPS",
+                actor: "staff@example.org",
+                runId: "r-9",
+                note: JSON.stringify({ selection: "q=ocean", matched: 6, applied: 6, failed: 0, works: ["w1", "w2"] }),
+              },
+              // A work-bearing entry: still shown, and links to the work.
+              { at: "2026-07-01T08:00:00Z", action: "RECORD_EDIT", actor: "staff@example.org", workId: "w-77" },
+            ],
+          }),
+        );
+      return Promise.resolve(json({}));
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const app = mount(Audit, { target: host, props: {} });
+    cleanup = () => {
+      unmount(app);
+      vi.unstubAllGlobals();
+      sessionStore.set(null);
+      setConfig(null);
+      invalidateAccess();
+      localStorage.clear();
+    };
+    await tick();
+    // The no-workId admin entry is visible -- the whole point of the screen.
+    expect(host.textContent).toContain("USER_ROLES");
+    expect(host.textContent).toContain("eve: librarian -> admin");
+    // The RunNote is unpacked, not shown as raw JSON.
+    expect(host.textContent).toContain("matched 6");
+    expect(host.textContent).toContain("applied 6");
+    expect(host.textContent).not.toContain('"matched"');
+    // A work-bearing entry links into that work's editor.
+    expect(host.querySelector('a[href="#/works/w-77"]')).not.toBeNull();
     const results = await audit(host);
     expect(results.violations).toEqual([]);
   });

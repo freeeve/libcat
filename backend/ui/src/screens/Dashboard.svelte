@@ -175,15 +175,20 @@
     <section class="activity" aria-label="Editing activity">
       <div class="activity-head">
         <h2>Editing activity</h2>
-        <label class="month">
-          <span class="muted">Month</span>
-          <input
-            type="month"
-            bind:value={activityMonth}
-            max={currentMonth}
-            onchange={() => void loadActivity()}
-          />
-        </label>
+        <div class="head-right">
+          <label class="month">
+            <span class="muted">Month</span>
+            <input
+              type="month"
+              bind:value={activityMonth}
+              max={currentMonth}
+              onchange={() => void loadActivity()}
+            />
+          </label>
+          <!-- These counts roll up the audit trail; the audit log is where the
+               underlying who/when/what per entry can be read (tasks/299). -->
+          <a class="audit-link" href={"#/audit?month=" + activityMonth}>View the audit log →</a>
+        </div>
       </div>
       {#if activityError}
         <p class="muted">{activityError}</p>
@@ -207,7 +212,7 @@
           <tbody>
             {#each activity.perActor as a (a.actor)}
               <tr>
-                <td>{a.actor}</td>
+                <td><a href={"#/audit?month=" + activityMonth + "&actor=" + encodeURIComponent(a.actor)}>{a.actor}</a></td>
                 <td class="num">{a.total.toLocaleString()}</td>
                 <td class="num">{a.works.toLocaleString()}</td>
                 <td class="num">{a.sessions.length.toLocaleString()}</td>
@@ -324,6 +329,16 @@
   .activity-head h2 {
     margin: 0.2rem 0;
     color: var(--accent);
+  }
+  .head-right {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .audit-link {
+    font-size: 0.85rem;
+    white-space: nowrap;
   }
   .activity .month {
     display: flex;

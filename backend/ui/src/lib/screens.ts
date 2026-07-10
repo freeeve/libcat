@@ -50,6 +50,11 @@ export const SCREENS: Screen[] = [
   // lists it for everyone -- the route already refuses a non-admin, and hiding
   // a screen's existence from the palette is what this task is about.
   { route: "profiles", path: "/profiles", label: "Profiles", chord: "f", sidebar: true, adminOnly: true },
+  // The audit-log reader (tasks/299): the month's entries unfiltered by work, so
+  // the system-level actions (users, roles, profiles, imports, batch runs) that
+  // carry no workId -- invisible in a work's History tab -- have a screen.
+  // Librarian-gated like its route; a moderator cannot read the trail.
+  { route: "audit", path: "/audit", label: "Audit", paletteLabel: "Audit log", chord: "l", sidebar: true },
   // Last in the palette, and absent from the nav: the brand link is its door.
   { route: "dashboard", path: "/", label: "Dashboard", chord: "d", sidebar: false },
 ];

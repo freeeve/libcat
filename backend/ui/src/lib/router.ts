@@ -35,6 +35,7 @@ export const ROUTES: RouteDef[] = [
   { name: "queue", pattern: "/queue" },
   { name: "promotions", pattern: "/promotions" },
   { name: "profiles", pattern: "/profiles" },
+  { name: "audit", pattern: "/audit" },
 ];
 
 /** Routes nothing navigates to by name: auth callbacks and detail pages a user

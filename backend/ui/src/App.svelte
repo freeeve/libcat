@@ -31,6 +31,7 @@
   import Duplicates from "./screens/Duplicates.svelte";
   import Withdrawals from "./screens/Withdrawals.svelte";
   import Profiles from "./screens/Profiles.svelte";
+  import Audit from "./screens/Audit.svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
   import ReauthDialog from "./components/ReauthDialog.svelte";
   import { parseExportFacets } from "./lib/worksurl";
@@ -258,6 +259,12 @@
     <Promotions />
   {:else if route.name === "profiles"}
     <Profiles />
+  {:else if route.name === "audit"}
+    <Audit
+      initialMonth={route.query.get("month") ?? ""}
+      initialActor={route.query.get("actor") ?? ""}
+      initialAction={route.query.get("action") ?? ""}
+    />
   {:else if $sessionStore}
     <Dashboard session={$sessionStore} />
   {/if}
