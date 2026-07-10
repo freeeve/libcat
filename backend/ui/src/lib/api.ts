@@ -668,10 +668,18 @@ export function proposePromotion(tag: string, term: { scheme: string; id: string
   return call("POST", "/v1/promotions", { tag, term });
 }
 
-/** Decides a pending promotion; approval executes the batch rewrite and
- *  reports the touched work count (librarian). */
+/** Decides a pending promotion; approval runs the batch rewrite first and only
+ *  stamps APPROVED when it succeeds, so a 500 here leaves the promotion PENDING
+ *  and retryable (tasks/300). Reports the touched work count (librarian). */
 export function decidePromotion(tag: string, approve: boolean): Promise<DecidePromotionResponse> {
   return call("POST", "/v1/promotions/decide", { tag, approve });
+}
+
+/** Removes a promotion record outright, freeing the tag to be proposed again
+ *  (librarian). The escape hatch for a record the one-way state machine cannot
+ *  leave -- notably an approval made with no publisher wired (tasks/300). */
+export function deletePromotion(tag: string): Promise<void> {
+  return call("DELETE", `/v1/promotions/${encodeURIComponent(tag)}`);
 }
 
 /** The authority-source list: registry, install state, latest jobs (librarian). */

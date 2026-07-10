@@ -338,6 +338,33 @@ not happen (tasks/257).
 publisher's own `skipped` count is merged into this same object and means
 something else entirely (suggestions it did not publish).
 
+### `POST /v1/promotions/decide`: `APPROVED` means rewritten
+
+Approving a tag promotion rewrites **every work carrying the tag** -- the widest
+write in the product, and so the one most likely to meet a store failure partway.
+The rewrite runs first; `APPROVED` is stamped only when it returns cleanly, in the
+same write that records the count (tasks/300).
+
+A failure therefore leaves the promotion `PENDING`, with `works` recording how far
+it got. Approving again **resumes**: the rewrite skips works that no longer carry
+the tag, so it restarts at the one that failed, and the counts accumulate. No
+special route, no state to clear.
+
+| response | meaning |
+|---|---|
+| `200 {"works": n}` | the rewrite applied to `n` works and the record says so |
+| `500 rewrite failed` | still `PENDING`; `works` holds the partial count; retry |
+| `409 a record changed while the promotion ran, retry` | a concurrent grain write; retry |
+| `500 promotion applied but not recorded` | the catalog *is* promoted; approve again to stamp it |
+
+The last row is why the stamp is not silently ignored: a rewrite whose record fails
+would otherwise read `works: 0` and be indistinguishable from one that never ran.
+
+`DELETE /v1/promotions/{tag}` (librarian) removes the record and frees the tag to
+be proposed again. It exists for the states the one-way state machine cannot leave
+-- notably the promotion a deployment with no publisher wired approves but never
+executes, which the decide route mints on purpose and reports in its `note`.
+
 ### Health probes: `/v1/healthz` and `/v1/readyz`
 
 Two probes that answer different questions, and must be wired to different
@@ -552,6 +579,7 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `GET` | `/v1/promotions` | moderator | `promotion_handlers.go` |
 | `POST` | `/v1/promotions` | moderator | `promotion_handlers.go` |
 | `POST` | `/v1/promotions/decide` | librarian | `promotion_handlers.go` |
+| `DELETE` | `/v1/promotions/{tag}` | librarian | `promotion_handlers.go` |
 | `POST` | `/v1/publish` | librarian | `review_handlers.go` |
 | `GET` | `/v1/queries` | librarian | `batch_handlers.go` |
 | `POST` | `/v1/queries` | librarian | `batch_handlers.go` |

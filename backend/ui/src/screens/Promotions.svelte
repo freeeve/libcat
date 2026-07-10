@@ -2,8 +2,13 @@
   // Tag promotions (task 044): moderators propose folding a community tag
   // into a controlled term; librarians decide, and approval executes the
   // batch rewrite (the response reports how many works it touched).
+  //
+  // Approval runs the rewrite first and only then stamps APPROVED (tasks/300),
+  // so a failed rewrite leaves the row PENDING with its Approve button live and
+  // the count of what it managed to rewrite recorded. Decided rows carry a
+  // Delete, which is the only way out of an approval made with no publisher.
   import { onMount } from "svelte";
-  import { ApiError, decidePromotion, fetchPromotions, proposePromotion } from "../lib/api";
+  import { ApiError, decidePromotion, deletePromotion, fetchPromotions, proposePromotion } from "../lib/api";
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import { canPublish } from "../lib/auth";
   import { sessionStore } from "../lib/stores";
@@ -113,6 +118,21 @@
       await load();
     } catch (e) {
       error = e instanceof ApiError ? `decide failed: ${e.message}` : "decide failed";
+      // A failed approval leaves the row PENDING with its partial count updated,
+      // so reload rather than leave stale numbers on screen.
+      if (approve) await load();
+    }
+  }
+
+  async function remove(p: Promotion): Promise<void> {
+    notice = "";
+    error = "";
+    try {
+      await deletePromotion(p.tag);
+      notice = `deleted the promotion for "${p.tag}" -- the tag can be proposed again`;
+      await load();
+    } catch (e) {
+      error = e instanceof ApiError ? `delete failed: ${e.message}` : "delete failed";
     }
   }
 
@@ -173,10 +193,17 @@
             <div class="meta muted">
               <span>proposed by {p.proposedBy}</span>
               <span>{when(p.createdAt)}</span>
+              {#if (p.works ?? 0) > 0}
+                <!-- An earlier approval failed partway. Approving again resumes:
+                     the rewrite skips works that already lost the tag. -->
+                <span>{p.works} work{p.works === 1 ? "" : "s"} already rewritten by a failed attempt</span>
+              {/if}
             </div>
             {#if librarian}
               <div class="acts">
-                <button class="button button--quiet" onclick={() => void decide(p, true)}>Approve</button>
+                <button class="button button--quiet" onclick={() => void decide(p, true)}>
+                  {(p.works ?? 0) > 0 ? "Resume" : "Approve"}
+                </button>
                 <button class="button button--quiet" onclick={() => void decide(p, false)}>Reject</button>
               </div>
             {/if}
@@ -206,6 +233,14 @@
               {#if p.decidedAt}<span>{when(p.decidedAt)}</span>{/if}
               {#if p.status === "APPROVED"}<span>{p.works ?? 0} work{(p.works ?? 0) === 1 ? "" : "s"} rewritten</span>{/if}
             </div>
+            {#if librarian}
+              <!-- A decided row had no control of any kind. An approval made with
+                   no publisher wired is executed nowhere and cannot be re-decided
+                   or re-proposed; deleting it frees the tag (tasks/300). -->
+              <div class="acts">
+                <button class="button button--quiet" onclick={() => void remove(p)}>Delete</button>
+              </div>
+            {/if}
           </li>
         {/each}
       </ul>

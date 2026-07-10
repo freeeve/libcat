@@ -24,7 +24,16 @@ type Promotion struct {
 	CreatedAt  time.Time     `json:"createdAt"`
 	DecidedBy  string        `json:"decidedBy,omitempty"`
 	DecidedAt  time.Time     `json:"decidedAt,omitzero"`
-	// Works counts the rewrites at execution (stamped by the publisher).
+	// Works counts the grain rewrites the promotion performed, summed across
+	// attempts: a rewrite that fails partway records what it managed before the
+	// failure, and the retry that finishes it adds its own (tasks/300).
+	//
+	// It is rewrites, not distinct works, and for a folk tag those are the same
+	// number. They diverge only for a tag a provider feed also asserts: PromoteTag
+	// retracts the editorial tag but deliberately leaves the feed one (the
+	// projector's alias suppression hides it), so a retry matches that work again
+	// and counts it again. Safe -- the rewrite is idempotent -- but the sum can
+	// then exceed the number of works touched.
 	Works int `json:"works,omitempty"`
 }
 
@@ -114,21 +123,28 @@ func (s *Service) Promotions(ctx context.Context, status Status) ([]Promotion, e
 	return out, nil
 }
 
-// DecidePromotion resolves a pending proposal. Rejection just stamps it;
-// approval stamps it and returns the promotion for the publisher to execute
-// (the caller runs Publisher.PromoteTag and then MarkPromotionExecuted).
-func (s *Service) DecidePromotion(ctx context.Context, tag string, approve bool, actor string) (Promotion, error) {
+// ErrPromotionNotPending reports a decision attempted on a promotion that has
+// already left PENDING. It exists so a caller can answer 409 without matching on
+// a message.
+var ErrPromotionNotPending = errors.New("suggest: promotion is not pending")
+
+// decide is the one-way PENDING -> APPROVED|REJECTED transition, stamped in a
+// single CAS write together with the rewrite count.
+//
+// The count travels with the status deliberately (tasks/300). Approving in one
+// write and stamping the count in another left a window in which a promotion read
+// as APPROVED with `works: 0` -- indistinguishable from an approval whose rewrite
+// never ran, which is the state this whole task is about.
+func (s *Service) decide(ctx context.Context, tag string, status Status, actor string, works int) (Promotion, error) {
 	var decided Promotion
 	err := s.mutatePromotion(ctx, tag, func(p *Promotion) error {
 		if p.Status != StatusPending {
-			return fmt.Errorf("suggest: promotion for %q already %s", tag, p.Status)
+			return fmt.Errorf("%w: %q is already %s", ErrPromotionNotPending, tag, p.Status)
 		}
-		p.Status = StatusRejected
-		if approve {
-			p.Status = StatusApproved
-		}
+		p.Status = status
 		p.DecidedBy = actor
 		p.DecidedAt = s.now().UTC()
+		p.Works += works
 		decided = *p
 		return nil
 	})
@@ -136,7 +152,7 @@ func (s *Service) DecidePromotion(ctx context.Context, tag string, approve bool,
 		return Promotion{}, err
 	}
 	action := "PROMOTION_REJECT"
-	if approve {
+	if status == StatusApproved {
 		action = "PROMOTION_APPROVE"
 	}
 	s.writeAudit(ctx, AuditEntry{Action: action, Actor: actor,
@@ -144,12 +160,50 @@ func (s *Service) DecidePromotion(ctx context.Context, tag string, approve bool,
 	return decided, nil
 }
 
-// MarkPromotionExecuted stamps the rewrite count after the publisher runs.
-func (s *Service) MarkPromotionExecuted(ctx context.Context, tag string, works int) error {
+// ApprovePromotion stamps a pending proposal APPROVED, adding works to the count
+// already recorded by any failed attempt. Call it only after the rewrite it
+// describes has succeeded: the durable record of an intention must not outlive a
+// failure to carry it out (tasks/300).
+func (s *Service) ApprovePromotion(ctx context.Context, tag, actor string, works int) (Promotion, error) {
+	return s.decide(ctx, tag, StatusApproved, actor, works)
+}
+
+// RejectPromotion stamps a pending proposal REJECTED. A rejected tag may be
+// proposed again; ProposePromotion supersedes it.
+func (s *Service) RejectPromotion(ctx context.Context, tag, actor string) (Promotion, error) {
+	return s.decide(ctx, tag, StatusRejected, actor, 0)
+}
+
+// RecordPromotionWorks adds to the rewrite count without touching the status, so
+// a promotion whose rewrite failed partway records how far it got. The promotion
+// stays PENDING and the Approve button stays live: PromoteTag skips works that no
+// longer carry the tag, so a retry resumes where the failure left off, and the
+// counts accumulate across attempts (tasks/300).
+func (s *Service) RecordPromotionWorks(ctx context.Context, tag string, works int) error {
+	if works == 0 {
+		return nil
+	}
 	return s.mutatePromotion(ctx, tag, func(p *Promotion) error {
-		p.Works = works
+		p.Works += works
 		return nil
 	})
+}
+
+// DeletePromotion removes a promotion record outright. It is the escape hatch for
+// the states the one-way state machine cannot leave -- notably the promotion a
+// deployment with no publisher wired approves but never executes. Deleting frees
+// the tag to be proposed again.
+func (s *Service) DeletePromotion(ctx context.Context, tag, actor string) error {
+	p, err := s.GetPromotion(ctx, tag)
+	if err != nil {
+		return err
+	}
+	if err := s.db.Delete(ctx, store.Record{Key: promotionKey(tag)}, store.CondNone); err != nil {
+		return err
+	}
+	s.writeAudit(ctx, AuditEntry{Action: "PROMOTION_DELETE", Actor: actor,
+		Terms: []string{vocab.FolkScheme + ":" + tag, p.Term.Scheme + ":" + p.Term.ID}})
+	return nil
 }
 
 func (s *Service) mutatePromotion(ctx context.Context, tag string, mutate func(*Promotion) error) error {

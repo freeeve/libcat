@@ -68,20 +68,22 @@ func TestPromoteTagEndToEnd(t *testing.T) {
 	if _, err := queue.ProposePromotion(t.Context(), "queer joy", term, "x"); err != suggest.ErrPromotionExists {
 		t.Fatalf("duplicate: %v", err)
 	}
-	decided, err := queue.DecidePromotion(t.Context(), "queer joy", true, "lib@example.org")
-	if err != nil || decided.Status != suggest.StatusApproved {
-		t.Fatalf("decide: %+v, %v", decided, err)
-	}
-
-	works, err := pub.PromoteTag(t.Context(), decided, "lib@example.org")
+	// Execute, then stamp (tasks/300). PromoteTag reads only the tag and the term,
+	// so the pending promotion is all it needs, and the APPROVED record is never
+	// durable ahead of the rewrite it describes.
+	works, err := pub.PromoteTag(t.Context(), promo, "lib@example.org")
 	if err != nil {
 		t.Fatalf("PromoteTag: %v", err)
 	}
 	if works != 2 {
 		t.Fatalf("rewrote %d works, want 2", works)
 	}
-	if err := queue.MarkPromotionExecuted(t.Context(), "queer joy", works); err != nil {
-		t.Fatal(err)
+	decided, err := queue.ApprovePromotion(t.Context(), "queer joy", "lib@example.org", works)
+	if err != nil || decided.Status != suggest.StatusApproved {
+		t.Fatalf("approve: %+v, %v", decided, err)
+	}
+	if decided.Works != 2 {
+		t.Fatalf("approved record says %d works, want 2", decided.Works)
 	}
 
 	// Both carriers gained the subject; the editorial tag was retracted.
@@ -148,7 +150,7 @@ func TestPromoteTagEndToEnd(t *testing.T) {
 	}
 
 	// Re-promotion of a decided tag conflicts; re-execution is idempotent.
-	if _, err := queue.DecidePromotion(t.Context(), "queer joy", true, "lib"); err == nil {
+	if _, err := queue.ApprovePromotion(t.Context(), "queer joy", "lib", 0); err == nil {
 		t.Fatal("re-decide accepted")
 	}
 	worksAgain, err := pub.PromoteTag(t.Context(), decided, "lib@example.org")

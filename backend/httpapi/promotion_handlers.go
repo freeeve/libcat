@@ -13,6 +13,7 @@ import (
 
 	"github.com/freeeve/libcat/backend/auth"
 	"github.com/freeeve/libcat/backend/publish"
+	"github.com/freeeve/libcat/backend/store"
 	"github.com/freeeve/libcat/backend/suggest"
 	"github.com/freeeve/libcat/backend/vocab"
 )
@@ -71,39 +72,109 @@ func registerPromotions(mux *http.ServeMux, svc *suggest.Service, publisher Grap
 			writeError(w, http.StatusBadRequest, "bad request body")
 			return
 		}
-		promo, err := svc.DecidePromotion(r.Context(), req.Tag, req.Approve, id.Email)
-		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+		if !req.Approve {
+			promo, err := svc.RejectPromotion(r.Context(), req.Tag, id.Email)
+			if err != nil {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"promotion": promo, "works": 0})
 			return
 		}
-		resp := map[string]any{"promotion": promo, "works": 0}
-		if req.Approve {
-			if promoter, ok := publisher.(TagPromoter); ok && publisher != nil {
-				works, err := promoter.PromoteTag(r.Context(), promo, id.Email)
-				if err != nil {
-					// A promotion rewrites every work carrying the tag, so this
-					// is the request that touches the most records at once --
-					// and it concatenated the store's raw error, blob root and
-					// all, into its 500 (tasks/272).
-					if errors.Is(err, blob.ErrReadOnly) {
-						writeReadOnly(w)
-						return
-					}
-					if errors.Is(err, publish.ErrGrainConflict) {
-						writeError(w, http.StatusConflict, "a record changed while the promotion ran, retry")
-						return
-					}
-					logger.Error("tag promotion rewrite failed", "tag", promo.Tag, "err", err)
-					writeError(w, http.StatusInternalServerError, "rewrite failed")
-					return
-				}
-				_ = svc.MarkPromotionExecuted(r.Context(), promo.Tag, works)
-				resp["works"] = works
-			} else {
-				resp["note"] = "publisher not configured; approved but not executed"
-			}
+
+		// Execute, then stamp (tasks/300). The rewrite used to run after the
+		// APPROVED stamp was already durable, so a store failure partway left a
+		// record the state machine could never leave: DecidePromotion refuses
+		// anything not PENDING, ProposePromotion supersedes only REJECTED, and
+		// there was no DELETE. The tag stayed on every work, behind a promotion
+		// the queue called approved.
+		//
+		// PromoteTag never consults the status -- only promo.Tag and promo.Term --
+		// so the pending record is all it needs. A failure now leaves the
+		// promotion PENDING with its partial count recorded, the queue honest, and
+		// the Approve button live. Retrying is safe without any idempotence in the
+		// write itself: the rewrite loop skips works that no longer carry the tag,
+		// so a second attempt resumes at the one that failed.
+		promo, err := svc.GetPromotion(r.Context(), req.Tag)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "no such promotion")
+			return
 		}
-		writeJSON(w, http.StatusOK, resp)
+		if promo.Status != suggest.StatusPending {
+			writeError(w, http.StatusConflict, "promotion for "+promo.Tag+" is already "+string(promo.Status))
+			return
+		}
+		promoter, ok := publisher.(TagPromoter)
+		if !ok || publisher == nil {
+			decided, err := svc.ApprovePromotion(r.Context(), promo.Tag, id.Email, 0)
+			if err != nil {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"promotion": decided, "works": 0,
+				"note": "publisher not configured; approved but not executed",
+			})
+			return
+		}
+
+		works, err := promoter.PromoteTag(r.Context(), promo, id.Email)
+		if err != nil {
+			// Works ahead of the failing one are already rewritten. Record how far
+			// it got so the queue does not report a partial rewrite as nothing.
+			if rerr := svc.RecordPromotionWorks(r.Context(), promo.Tag, works); rerr != nil {
+				logger.Error("recording partial promotion progress failed", "tag", promo.Tag, "works", works, "err", rerr)
+			}
+			// A promotion rewrites every work carrying the tag, so this
+			// is the request that touches the most records at once --
+			// and it concatenated the store's raw error, blob root and
+			// all, into its 500 (tasks/272).
+			if errors.Is(err, blob.ErrReadOnly) {
+				writeReadOnly(w)
+				return
+			}
+			if errors.Is(err, publish.ErrGrainConflict) {
+				writeError(w, http.StatusConflict, "a record changed while the promotion ran, retry")
+				return
+			}
+			logger.Error("tag promotion rewrite failed", "tag", promo.Tag, "rewritten", works, "err", err)
+			writeError(w, http.StatusInternalServerError, "rewrite failed")
+			return
+		}
+
+		decided, err := svc.ApprovePromotion(r.Context(), promo.Tag, id.Email, works)
+		if err != nil {
+			// The catalog is promoted; only the record of it failed. Reporting 200
+			// here would print works=0 over a rewrite that happened -- the very
+			// lie this task is about. The promotion stays PENDING, so a retry
+			// rewrites nothing (every work has lost the tag) and stamps it.
+			logger.Error("promotion applied but not recorded", "tag", promo.Tag, "works", works, "err", err)
+			writeError(w, http.StatusInternalServerError, "promotion applied but not recorded; approve again to record it")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"promotion": decided, "works": works})
+	})))
+
+	// The escape hatch for a promotion the one-way state machine cannot leave
+	// (tasks/300): notably the record a deployment with no publisher wired
+	// approves but never executes. Deleting frees the tag to be proposed again.
+	mux.Handle("DELETE /v1/promotions/{tag}", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		tag, err := vocab.NormalizeFolk(r.PathValue("tag"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "unusable tag")
+			return
+		}
+		if err := svc.DeletePromotion(r.Context(), tag, id.Email); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "no such promotion")
+				return
+			}
+			logger.Error("promotion delete failed", "tag", tag, "err", err)
+			writeError(w, http.StatusInternalServerError, "delete failed")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})))
 }
 
