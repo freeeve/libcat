@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -115,6 +116,47 @@ func TestAuthorityCRUDFlow(t *testing.T) {
 
 	if rec := request(t, h, http.MethodGet, "/v1/authorities/amissing000001", "lib-token", "", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing get = %d", rec.Code)
+	}
+}
+
+// TestAuthoritiesListReportsTrueTotal is the tasks/329 gate: the empty-query
+// browse returns a `total` that is the real count of local headings, not the
+// length of the truncated page, so the screen can say how many exist and know
+// the page is capped rather than presenting the fetch limit as a total.
+func TestAuthoritiesListReportsTrueTotal(t *testing.T) {
+	h, _, _ := newAuthoritiesAPI(t)
+	const n = 7
+	for i := 0; i < n; i++ {
+		rec := request(t, h, http.MethodPost, "/v1/authorities", "lib-token", "", map[string]any{
+			"prefLabel": map[string]string{"en": fmt.Sprintf("Local heading %02d", i)},
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create %d = %d %s", i, rec.Code, rec.Body.String())
+		}
+	}
+
+	// A page smaller than the corpus: total is the real count, the page is capped.
+	rec := request(t, h, http.MethodGet, "/v1/authorities?q=&limit=3", "lib-token", "", nil)
+	var page struct {
+		Terms []json.RawMessage `json:"terms"`
+		Total int               `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != n {
+		t.Errorf("total = %d, want the true count %d", page.Total, n)
+	}
+	if len(page.Terms) != 3 {
+		t.Errorf("page = %d terms, want the limit 3", len(page.Terms))
+	}
+
+	// A page at least as large as the corpus: total equals what is returned.
+	rec = request(t, h, http.MethodGet, "/v1/authorities?q=&limit=50", "lib-token", "", nil)
+	page.Terms, page.Total = nil, 0
+	_ = json.Unmarshal(rec.Body.Bytes(), &page)
+	if page.Total != n || len(page.Terms) != n {
+		t.Errorf("full page = %d terms, total %d, want %d/%d", len(page.Terms), page.Total, n, n)
 	}
 }
 

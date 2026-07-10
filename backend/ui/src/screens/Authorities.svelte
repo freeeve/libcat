@@ -16,12 +16,23 @@
   const DEBOUNCE_MS = 250;
   const FRESH_MS = 60_000;
 
+  const MAX_LIMIT = 200; // the endpoint's hard ceiling
+  const PAGE = 50;
+
   const st = screenState("authorities", () => ({
     q: "",
     terms: [] as Term[],
     selected: 0,
     loadedAt: 0,
+    // limit is how many rows this browse has asked for; total is the real count
+    // of local headings, so the screen never presents the page size as a total
+    // and can offer "Load more" while the page is capped (tasks/329).
+    limit: PAGE,
+    total: 0,
   }));
+
+  // The browse is showing fewer headings than exist.
+  const truncated = $derived(st.terms.length < st.total);
 
   let error = $state("");
   let loading = $state(false);
@@ -49,6 +60,7 @@
 
   function onInput(): void {
     clearTimeout(timer);
+    st.limit = PAGE; // a new query starts from the first page
     timer = setTimeout(() => void search(st.q, false), DEBOUNCE_MS);
   }
 
@@ -58,18 +70,28 @@
     error = "";
     const keepId = refresh ? st.terms[st.selected]?.id : undefined;
     try {
-      const page = await fetchAuthorities(query);
+      const page = await fetchAuthorities(query, st.limit);
       st.terms = page.terms ?? [];
+      st.total = page.total ?? st.terms.length;
       st.loadedAt = Date.now();
       const found = keepId ? st.terms.findIndex((t) => t.id === keepId) : -1;
       st.selected = found >= 0 ? found : Math.min(st.selected, Math.max(0, st.terms.length - 1));
       if (!refresh) st.selected = 0;
     } catch (e) {
       st.terms = [];
+      st.total = 0;
       error = e instanceof ApiError && e.status === 401 ? "session expired -- sign in again" : "search failed";
     } finally {
       loading = false;
     }
+  }
+
+  /** Widens the browse by a page (up to the endpoint ceiling), keeping the
+      selection. Past the ceiling the search box is the way to reach the rest. */
+  async function loadMore(): Promise<void> {
+    if (st.limit >= MAX_LIMIT) return;
+    st.limit = Math.min(st.limit + PAGE, MAX_LIMIT);
+    await search(st.q, true);
   }
 
   async function create(): Promise<void> {
@@ -112,8 +134,10 @@
       Searching…
     {:else if error}
       <span class="error">{error}</span>
+    {:else if truncated}
+      Showing {st.terms.length.toLocaleString()} of {st.total.toLocaleString()} terms
     {:else}
-      {st.terms.length} term{st.terms.length === 1 ? "" : "s"}
+      {st.total.toLocaleString()} term{st.total === 1 ? "" : "s"}
     {/if}
   </p>
 
@@ -142,6 +166,18 @@
       </a>
     {/snippet}
   </RowList>
+
+  {#if truncated}
+    <p class="more">
+      {#if st.limit < MAX_LIMIT}
+        <button class="button button--quiet" onclick={() => void loadMore()} disabled={loading}>
+          {loading ? "Loading…" : "Load more"}
+        </button>
+      {:else}
+        <span class="muted">Showing the first {MAX_LIMIT.toLocaleString()} -- search to reach the rest.</span>
+      {/if}
+    </p>
+  {/if}
 </main>
 
 <style>
@@ -149,6 +185,9 @@
     width: 100%;
     max-width: 28rem;
     font-size: 1rem;
+  }
+  .more {
+    margin-top: 0.6rem;
   }
   .kbd-hint {
     font-size: 0.85rem;

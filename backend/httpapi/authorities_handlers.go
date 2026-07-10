@@ -69,10 +69,15 @@ func registerAuthorities(mux *http.ServeMux, svc *authoritiesvc.Service, prof *p
 			}
 		}
 		terms = kept
+		// total is the true count of local headings (empty-query browse) or of
+		// the matches returned (label search), so the screen can report a real
+		// number and know when it is showing a truncated page rather than
+		// presenting the fetch limit as a total (tasks/329).
+		total := len(terms)
 		if q == "" && len(terms) > limit {
 			terms = terms[:limit]
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"terms": terms})
+		writeJSON(w, http.StatusOK, map[string]any{"terms": terms, "total": total})
 	})))
 
 	mux.Handle("POST /v1/authorities", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

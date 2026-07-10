@@ -624,8 +624,10 @@ export function deleteSavedQuery(id: string): Promise<void> {
   return call("DELETE", `/v1/queries/${encodeURIComponent(id)}`);
 }
 
-/** Local-authority listing (q="") or label search (librarian). */
-export function fetchAuthorities(q: string, limit = 50): Promise<{ terms: Term[] }> {
+/** Local-authority listing (q="") or label search (librarian). `total` is the
+    true count of local headings (or matches), so the screen can tell a full
+    page from a capped one (tasks/329). */
+export function fetchAuthorities(q: string, limit = 50): Promise<{ terms: Term[]; total?: number }> {
   const params = new URLSearchParams({ q, limit: String(limit) });
   return call("GET", `/v1/authorities?${params}`);
 }
