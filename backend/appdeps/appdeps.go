@@ -249,7 +249,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		deps.Batch = &batch.Service{
 			Blob: deps.Blob, DB: db, MapperFn: profSvc.Mapper,
 			Queue: deps.Suggest, Trigger: notifier, Summaries: deps.WorkIndex,
-			Labels: deps.Vocab.LabelResolver(),
+			Labels: deps.Vocab.LabelResolver(), Logger: logger,
 		}
 		// Keep the shared index exact for batch writes, like the
 		// single-record path (tasks/195). Guarded: a typed-nil

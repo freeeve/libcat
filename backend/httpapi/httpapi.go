@@ -166,7 +166,7 @@ func New(deps Deps) http.Handler {
 		registerTags(mux, wl, deps.Verifier)
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {
-		registerAuthorities(mux, deps.Authorities, deps.Profiles, deps.Verifier)
+		registerAuthorities(mux, deps.Authorities, deps.Profiles, deps.Verifier, deps.Logger)
 	}
 	if deps.Verifier != nil {
 		registerProfiles(mux, deps.Profiles, deps.Suggest, deps.Verifier)
@@ -181,7 +181,7 @@ func New(deps Deps) http.Handler {
 		registerSubjectLookup(mux, deps.Copycat, deps.Blob, deps.Vocab, deps.Verifier)
 	}
 	if deps.Suggest != nil && deps.Verifier != nil {
-		registerPromotions(mux, deps.Suggest, deps.Publisher, deps.Verifier)
+		registerPromotions(mux, deps.Suggest, deps.Publisher, deps.Verifier, deps.Logger)
 	}
 	if deps.Exports != nil && deps.Verifier != nil {
 		registerExports(mux, deps.Exports, deps.Batch, deps.Verifier)

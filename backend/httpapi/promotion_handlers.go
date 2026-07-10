@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
 
+	"github.com/freeeve/libcat/storage/blob"
+
 	"github.com/freeeve/libcat/backend/auth"
+	"github.com/freeeve/libcat/backend/publish"
 	"github.com/freeeve/libcat/backend/suggest"
 	"github.com/freeeve/libcat/backend/vocab"
 )
@@ -16,9 +20,14 @@ import (
 // registerPromotions mounts the tag-promotion surface: moderators propose,
 // librarians decide; approval executes the batch rewrite through the
 // publisher.
-func registerPromotions(mux *http.ServeMux, svc *suggest.Service, publisher GraphPublisher, verifier auth.TokenVerifier) {
+func registerPromotions(mux *http.ServeMux, svc *suggest.Service, publisher GraphPublisher, verifier auth.TokenVerifier, logger *slog.Logger) {
 	moderator := auth.Require(verifier, auth.RoleModerator)
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
+	// A failed rewrite is what an operator needs to see; the cataloger gets a
+	// message instead of the store's raw error (tasks/272).
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
 
 	mux.Handle("GET /v1/promotions", moderator(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		promos, err := svc.Promotions(r.Context(), suggest.Status(r.URL.Query().Get("status")))
@@ -72,7 +81,20 @@ func registerPromotions(mux *http.ServeMux, svc *suggest.Service, publisher Grap
 			if promoter, ok := publisher.(TagPromoter); ok && publisher != nil {
 				works, err := promoter.PromoteTag(r.Context(), promo, id.Email)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, "rewrite failed: "+err.Error())
+					// A promotion rewrites every work carrying the tag, so this
+					// is the request that touches the most records at once --
+					// and it concatenated the store's raw error, blob root and
+					// all, into its 500 (tasks/272).
+					if errors.Is(err, blob.ErrReadOnly) {
+						writeReadOnly(w)
+						return
+					}
+					if errors.Is(err, publish.ErrGrainConflict) {
+						writeError(w, http.StatusConflict, "a record changed while the promotion ran, retry")
+						return
+					}
+					logger.Error("tag promotion rewrite failed", "tag", promo.Tag, "err", err)
+					writeError(w, http.StatusInternalServerError, "rewrite failed")
 					return
 				}
 				_ = svc.MarkPromotionExecuted(r.Context(), promo.Tag, works)

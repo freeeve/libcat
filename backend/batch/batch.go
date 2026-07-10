@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -118,6 +119,9 @@ type Service struct {
 	// to work search for up to 30s, and a chained batch selection resolves
 	// against the stale index.
 	Index IndexUpdater
+	// Logger, when set, receives the raw store error behind a per-record
+	// failure. The client is shown a mapped message instead (tasks/272).
+	Logger *slog.Logger
 }
 
 // IndexUpdater is the workindex.Index surface batch writes keep exact:
@@ -379,7 +383,14 @@ func (s *Service) runOne(ctx context.Context, t Target, ops []editor.Op, dryRun 
 		return updated, nil
 	})
 	if err != nil {
-		item.Error = err.Error()
+		item.Error = writeError(err)
+		if s.Logger != nil && item.Error != err.Error() {
+			// The operator needs the path and the syscall; the cataloger needs
+			// neither and must not be shown either. Before tasks/272 the raw
+			// error was rendered into the results list and logged nowhere, so
+			// the one reader who could act on it was the one who never saw it.
+			s.Logger.Error("batch grain write failed", "work", t.WorkID, "path", t.path, "err", err)
+		}
 		return item
 	}
 	if s.Index != nil {
@@ -395,6 +406,35 @@ func readError(err error) string {
 		return "no such work"
 	}
 	return "grain read failed"
+}
+
+// ReadOnlyNotice is what a per-record result says when the deployment does not
+// accept writes. It must read exactly like httpapi's 403 body for the same
+// condition -- a client that can tell the batch route's refusal from the
+// single-record route's has learned something about the server it should not
+// need to know (tasks/260). TestReadOnlyNoticeMatchesTheGuard pins the pair.
+const ReadOnlyNotice = "read-only demo: changes are not saved"
+
+// writeError maps a publish.MutateGrain failure onto a message fit to put in
+// front of a cataloger.
+//
+// The mutate closure's own errors -- "no such work", an op the mapper rejects --
+// are the cataloger's answer and pass through unchanged. Everything the store
+// produced is named rather than quoted: an *os.PathError carrying the blob root,
+// the shard layout and a temp-file name tells the reader nothing they can act on
+// and tells them a good deal about the filesystem (tasks/272). "grain write
+// failed" says the same amount, and is what the single-record route has always
+// answered for the identical failure.
+func writeError(err error) string {
+	switch {
+	case errors.Is(err, blob.ErrReadOnly):
+		return ReadOnlyNotice
+	case errors.Is(err, publish.ErrGrainConflict):
+		return "the record changed while it was being edited, retry"
+	case errors.Is(err, publish.ErrGrainStore):
+		return "grain write failed"
+	}
+	return err.Error()
 }
 
 // normQuery matches the works listing's treatment: lowercase, trimmed.

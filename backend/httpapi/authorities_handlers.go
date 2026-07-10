@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/freeeve/libcat/backend/auth"
 	"github.com/freeeve/libcat/backend/authoritiesvc"
 	"github.com/freeeve/libcat/backend/profilesvc"
+	"github.com/freeeve/libcat/backend/publish"
 	"github.com/freeeve/libcat/backend/vocab"
 )
 
@@ -25,8 +27,13 @@ type authorityView struct {
 // registerAuthorities mounts the librarian authorities surface (tasks/046):
 // local-term CRUD with ETag optimistic locking, the profile the editor form
 // renders from, merge, and the explicit index reload.
-func registerAuthorities(mux *http.ServeMux, svc *authoritiesvc.Service, prof *profilesvc.Service, verifier auth.TokenVerifier) {
+func registerAuthorities(mux *http.ServeMux, svc *authoritiesvc.Service, prof *profilesvc.Service, verifier auth.TokenVerifier, logger *slog.Logger) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
+	// A merge that failed at the store is what an operator needs to see; the
+	// cataloger gets a message instead of the blob root (tasks/272).
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
 
 	// The editing form's field definitions -- the same live profile set the
 	// record editor maps through, so a runtime edit to authority-topic shows
@@ -171,6 +178,20 @@ func registerAuthorities(mux *http.ServeMux, svc *authoritiesvc.Service, prof *p
 			return
 		case errors.Is(err, blob.ErrNotFound):
 			writeError(w, http.StatusNotFound, "no such authority")
+			return
+		case errors.Is(err, blob.ErrReadOnly):
+			writeReadOnly(w)
+			return
+		case errors.Is(err, publish.ErrGrainConflict):
+			writeError(w, http.StatusConflict, "the record changed while the merge ran, retry")
+			return
+		case errors.Is(err, publish.ErrGrainStore):
+			// Merge writes through publish.MutateGrain twice, so a store failure
+			// used to answer 409 with an *os.PathError as its body: the wrong
+			// status, claiming a concurrent edit, and the wrong message, naming
+			// the blob root (tasks/272).
+			logger.Error("authority merge failed", "loser", req.Loser, "winner", req.Winner.ID, "err", err)
+			writeError(w, http.StatusInternalServerError, "merge failed")
 			return
 		case err != nil:
 			writeError(w, http.StatusConflict, err.Error())

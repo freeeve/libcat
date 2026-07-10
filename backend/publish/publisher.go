@@ -28,6 +28,25 @@ import (
 // queued (durable) and publishing retries after the lease expires.
 var ErrIngestActive = errors.New("publish: ingest lease held; publish deferred")
 
+// ErrGrainStore and ErrGrainConflict classify the ways MutateGrain can fail
+// that are not the caller's own doing.
+//
+// MutateGrain has three error sources -- the store's read, the caller's mutate
+// closure, and the store's write -- and used to return all three the same way.
+// A caller could not tell "no such work", which is the user's answer and safe to
+// show them, from an *os.PathError naming the blob root, which is neither
+// (tasks/272). Store errors now wrap ErrGrainStore, CAS exhaustion is
+// ErrGrainConflict, and the closure's error passes through untouched, so
+// errors.Is sorts the three without matching on strings.
+//
+// The store's own sentinel survives the wrap (blob.ErrReadOnly, and so on):
+// callers that must tell a read-only deployment from a broken one still can,
+// which is the discipline tasks/260 settled for the single-record route.
+var (
+	ErrGrainStore    = errors.New("grain store unavailable")
+	ErrGrainConflict = errors.New("the record kept changing while it was being edited")
+)
+
 // casAttempts bounds the conditional-write retry loop per grain.
 const casAttempts = 8
 
@@ -77,6 +96,16 @@ type Result struct {
 // concurrency: read, transform, conditional put, retry from fresh on
 // conflict. The exported CAS primitive record editing (tasks/037) and
 // store-backed ingest share.
+//
+// Errors sort three ways, and callers that answer a request must tell them
+// apart before showing anything to a person (see ErrGrainStore):
+//
+//   - the store's read or write failed -- wraps ErrGrainStore, and the store's
+//     own sentinel too, so blob.ErrReadOnly stays reachable.
+//   - the retries ran out -- ErrGrainConflict. It names no path: the caller
+//     knows the path and can log it; a client has no use for it.
+//   - anything else came from mutate, unwrapped. It is the caller's own error,
+//     phrased for whoever asked.
 func MutateGrain(ctx context.Context, st blob.Store, path string, mutate func(old []byte) ([]byte, error)) (etag string, err error) {
 	for attempt := range casAttempts {
 		if attempt > 0 {
@@ -84,7 +113,7 @@ func MutateGrain(ctx context.Context, st blob.Store, path string, mutate func(ol
 		}
 		old, oldTag, err := st.Get(ctx, path)
 		if err != nil && !errors.Is(err, blob.ErrNotFound) {
-			return "", err
+			return "", fmt.Errorf("%w: %w", ErrGrainStore, err)
 		}
 		updated, err := mutate(old)
 		if err != nil {
@@ -101,11 +130,11 @@ func MutateGrain(ctx context.Context, st blob.Store, path string, mutate func(ol
 			continue // a concurrent writer landed; re-read and re-apply
 		}
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: %w", ErrGrainStore, err)
 		}
 		return newTag, nil
 	}
-	return "", fmt.Errorf("publish: %s: conditional write kept failing", path)
+	return "", ErrGrainConflict
 }
 
 // PublishApproved drains the approved-unpublished worklist: per Work, all
