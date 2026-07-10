@@ -88,9 +88,17 @@
     {
       "value": "Kawabata, Yasunari",
       "count": 1
+    },
+    {
+      "value": "Forry/Fino, Amanda",
+      "count": 1
     }
   ],
   "classifications": [
+    {
+      "value": "813/.6",
+      "count": 1
+    },
     {
       "value": "FIC000000",
       "label": "Fiction / General",

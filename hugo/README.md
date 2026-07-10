@@ -80,6 +80,28 @@ That is the whole setup -- see `exampleSite/` for a runnable reference.
   Format (ebook / audiobook) is a per-Instance property, so a Work that clusters an
   ebook and an audiobook edition appears under both formats (tasks/011).
 
+## Term URLs are slugs; term pages show the real value (tasks/276)
+
+A taxonomy key becomes one URL path segment, so it may not contain `/`. Subjects,
+tags, classifications and deployment-defined facets are therefore indexed by their
+`lcat-slug`; contributors keep their name (bounded by `lcat-cap`) with only a `/`
+replaced, because slugging real names folds punctuation variants of one person
+together. Formats and languages come from controlled vocabularies.
+
+The value itself is never rewritten. A Dewey number keeps its prime mark in the
+record, in `catalog.json`, in `facets.json` and on the Work detail page; only its
+URL is `/classifications/813-6/`, and the term page's heading still reads `813/.6`.
+
+The content adapter **fails the build** if any taxonomy key contains `/`. That is
+the check that would have caught tasks/023, 128, 134 and 276 -- each of which was
+instead found in a published catalog, because the nested page Hugo mints resolves
+perfectly well on the machine that built it.
+
+**Adopting this changes URLs.** A classification code with any punctuation now
+slugs: `813/.6` → `813-6`, `PS3607.A35943` → `ps3607-a35943`. If you publish
+classification term pages and care about their inbound links, add redirects. A
+contributor's URL changes only if their name contains a slash.
+
 ## Multiple subject vocabularies (tasks/141)
 
 A corpus carrying more than one controlled vocabulary (say Homosaurus + FAST)

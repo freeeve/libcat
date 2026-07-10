@@ -1,0 +1,26 @@
+{{- /*
+  Contributor term key -> the name as catalogued, for the handful of names the key
+  cannot spell (tasks/276).
+
+  A contributor is taxonomy-indexed by its own name, bounded through lcat-cap. That
+  partial replaces `/` with `-`, because a key is one path segment and a slash makes
+  it two. So "Forry/Fino, Amanda" is keyed "Forry-Fino, Amanda", and a term page
+  falling back to its key for a heading would misspell her.
+
+  Only those names go in the map. A corpus can carry fifty thousand contributors and
+  all but a few of them key to themselves; an entry each would be a large map built
+  to answer nothing. A name absent here is its own heading, which is correct.
+
+  Built via scratch (merge in a loop is quadratic -- tasks/133); call through
+  partialCached: nothing here reads page state.
+*/ -}}
+{{- $s := newScratch -}}
+{{- $s.Set "map" dict -}}
+{{- with resources.Get "facets.json" -}}
+  {{- range (index (. | transform.Unmarshal) "contributors") -}}
+    {{- $name := string .value -}}
+    {{- $key := string (partial "lcat-cap.html" $name) -}}
+    {{- if ne $key $name -}}{{- $s.SetInMap "map" $key $name -}}{{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- return ($s.Get "map") -}}

@@ -1,7 +1,14 @@
 // Dev-only internal-link checker (tasks/023). Walks a built Hugo site and asserts every
 // root-relative link resolves to a generated file -- catching facet/term links whose
-// slug does not match the page Hugo minted (e.g. a `+`/`/` in a subject/tag label that a
+// slug does not match the page Hugo minted (e.g. a `+` in a subject/tag label that a
 // CDN would 404). Not shipped: Hugo consumes only the templates and assets, never this.
+//
+// It cannot catch a `/` in a term key, and no version of it ever could (tasks/276). By
+// the time a key is a path, the separator that does not belong is indistinguishable from
+// the ones that do -- and the link *resolves*, because Hugo genuinely minted the nested
+// page. A URL can be well-formed on disk and hostile on a host; only the first is what
+// this measures. That check lives where the key still exists as a key: the content
+// adapter refuses to index any taxonomy value containing `/`.
 //
 // It checks `src` as well as `href`, and it fails on any *document-relative* reference
 // (one with no leading slash). Both gaps hid tasks/285: every cover rendered

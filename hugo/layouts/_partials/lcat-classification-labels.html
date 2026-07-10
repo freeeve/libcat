@@ -1,17 +1,28 @@
 {{- /*
-  Classification code -> display label map for term pages (tasks/142): the
-  taxonomy keys on the raw code (what MARC 084 $a carries), so a term page
-  otherwise only has "FIC027000" for a title; facets.json carries the human
-  label when the graph has one. Built via scratch (merge in a loop is
-  quadratic -- tasks/133); call through partialCached: nothing here reads
-  page state.
+  Classification term key -> display text, for term pages (tasks/142). A term page
+  otherwise has only its key, and since tasks/276 that key is a slug: "813-6", not
+  the Dewey number "813/.6" the cataloguer transcribed, and not "FIC027000" either.
+
+  So the map is keyed by the slug and carries, in order of preference, the human
+  label the graph gave the classification node, else the raw code from facets.json.
+  The raw code is the fallback rather than nothing, because it is the one thing a
+  term page cannot recover for itself: the key it was minted under has already lost
+  the punctuation, and classificationList lives on Work pages, not here.
+
+  Two codes that slug alike would collide here and the later one would win. They
+  already collide in the taxonomy itself -- one key, one term page -- so this map
+  cannot make it worse, and no projected corpus has yet carried two codes differing
+  only in punctuation.
+
+  Built via scratch (merge in a loop is quadratic -- tasks/133); call through
+  partialCached: nothing here reads page state.
 */ -}}
 {{- $s := newScratch -}}
 {{- $s.Set "map" dict -}}
 {{- with resources.Get "facets.json" -}}
   {{- range (index (. | transform.Unmarshal) "classifications") -}}
     {{- $e := . -}}
-    {{- with $e.label -}}{{- $s.SetInMap "map" (string $e.value) . -}}{{- end -}}
+    {{- $s.SetInMap "map" (string (partial "lcat-slug.html" $e.value)) (or $e.label $e.value) -}}
   {{- end -}}
 {{- end -}}
 {{- return ($s.Get "map") -}}

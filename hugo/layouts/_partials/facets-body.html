@@ -85,10 +85,14 @@
       {{- end }}
       <ul>
         {{- range first $facetLimit . }}
-        {{- /* tags are taxonomy-indexed by their lcat-slug (tasks/023) and
-               contributors by their lcat-cap-bounded name (tasks/134); the other
-               dimensions index the raw value -- pass whichever key was indexed. */}}
-        {{- $key := .value }}{{ if eq $dim.key "tags" }}{{ $key = partial "lcat-slug.html" .value }}{{ else if eq $dim.key "contributors" }}{{ $key = partial "lcat-cap.html" .value }}{{ end }}
+        {{- /* tags and classifications are taxonomy-indexed by their lcat-slug
+               (tasks/023, tasks/276) and contributors by their lcat-cap-bounded name
+               (tasks/134); the other dimensions index the raw value -- pass whichever
+               key was indexed. This rail reads facets.json, which carries the raw
+               code, so the slug is recomputed here rather than read: get it wrong and
+               lcat-term-url asks Hugo for a page that does not exist and every
+               classification row silently renders unlinked. */}}
+        {{- $key := .value }}{{ if or (eq $dim.key "tags") (eq $dim.key "classifications") }}{{ $key = partial "lcat-slug.html" .value }}{{ else if eq $dim.key "contributors" }}{{ $key = partial "lcat-cap.html" .value }}{{ end }}
         {{- /* Display labels (tasks/142): language codes map to names, a
                classification shows its label when the projection carries one;
                both keep keying/linking on the raw value. */}}

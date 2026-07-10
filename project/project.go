@@ -92,6 +92,11 @@ const (
 // carries), label is the human text riding the classification node's
 // rdfs:label -- the display-only channel -- so a facet can show "Fiction /
 // Romance / Contemporary" while exports keep FIC027000 (tasks/142).
+// The code stays verbatim here on purpose. A Dewey number's prime mark (082 $a
+// "813/.6") is data a MARC export must round-trip, so it is not the projector's
+// to strip -- but a slash cannot survive being a URL path segment, so the Hugo
+// module keys the classification taxonomy by the code's slug and shows the code
+// (tasks/276). The URL needed the slug, not the record.
 // v10 added Catalog.Terms -- the vocabulary sideband: every referenced subject
 // term plus its transitive skos:broader ancestors, with whatever labels and
 // broader edges the graph carries -- so a consumer can label hierarchy nodes

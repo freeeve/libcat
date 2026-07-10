@@ -2,18 +2,29 @@
   Bounds a taxonomy KEY to 100 bytes so a single oversized source label cannot
   mint a term directory past the filesystem's 255-byte name limit and fail the
   whole build (tasks/134: an anthology record carried a 300+ byte contributor
-  list as one label). Keys at or under the bound pass through byte-identical.
-  Longer keys are cut at a rune boundary and suffixed with an 8-hex-char sha1
-  of the full key, so two long labels sharing a 100-byte prefix still mint
-  distinct term pages. Only the indexed key is bounded -- display labels stay
-  full-length. Callers: lcat-slug.html (subjects/tags) and every site that
-  indexes or looks up a contributor term key.
+  list as one label). Longer keys are cut at a rune boundary and suffixed with an
+  8-hex-char sha1 of the full key, so two long labels sharing a 100-byte prefix
+  still mint distinct term pages. Only the indexed key is bounded -- display
+  labels stay full-length. Callers: lcat-slug.html (subjects/tags) and every site
+  that indexes or looks up a contributor term key.
+
+  It also replaces `/` with `-`, because a key is one path segment and a slash
+  makes it two (tasks/276). Contributors are the last taxonomy keyed on free text
+  rather than a slug -- deliberately, since slugging 50,176 real names collapses
+  616 groups of them, mostly punctuation variants of one person ("Chesterton,
+  G. K." and "Chesterton, G.K."), which is authority control and not a URL fix.
+  So the key stays the name, minus the one character that cannot survive being
+  one. Real catalogues carry them: "Brzuzy, Stephan/ie", "Forry/Fino, Amanda".
+
+  A slug has no `/` left by the time it arrives here, so this is a no-op for
+  subjects and tags. Keys with no slash and under the bound still pass through
+  byte-identical.
 
   `len` counts bytes on strings; iterating `split $s ""` accumulates whole
   runes, so multibyte text is never cut mid-character.
 */ -}}
 {{- $max := 100 -}}
-{{- $s := . -}}
+{{- $s := replace . "/" "-" -}}
 {{- if gt (len $s) $max -}}
   {{- $hash := substr (sha1 $s) 0 8 -}}
   {{- $t := "" -}}

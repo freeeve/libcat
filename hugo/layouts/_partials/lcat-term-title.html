@@ -3,9 +3,11 @@
   term.html and head-seo.html so the h1 and the head <title>/og:title agree.
   Subject terms key by scheme-prefixed slug (tasks/141), so the human label
   (and its vocabulary) comes from the cached facets.json lookup; languages map
-  their 639-2 code to a name and classifications show their projected label
-  (tasks/142); deployment-defined dimensions resolve their raw label
-  (tasks/143); other taxonomies keep the term key as the title.
+  their 639-2 code to a name and classifications show their projected label, else
+  the raw code their slugged key no longer spells (tasks/142, tasks/276);
+  contributors whose key had to lose a `/` recover their name the same way
+  (tasks/276); deployment-defined dimensions resolve their raw label (tasks/143);
+  other taxonomies keep the term key as the title.
 
   Context: a term page. Returns a dict of "label" and "scheme" ("" except for
   subjects) so term.html can mark up the scheme separately.
@@ -19,6 +21,12 @@
   {{- $label = partial "lcat-lang-name.html" .Data.Term -}}
 {{- else if eq .Data.Plural "classifications" -}}
   {{- with index (partialCached "lcat-classification-labels.html" .) .Data.Term -}}
+    {{- $label = . -}}
+  {{- end -}}
+{{- else if eq .Data.Plural "contributors" -}}
+  {{- /* Only the names whose key had to lose a `/` are in this map (tasks/276);
+         every other contributor is spelled by its own key. */ -}}
+  {{- with index (partialCached "lcat-contributor-names.html" .) .Data.Term -}}
     {{- $label = . -}}
   {{- end -}}
 {{- else if index (or site.Params.extraFacets dict) .Data.Plural -}}

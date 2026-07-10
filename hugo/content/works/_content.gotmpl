@@ -148,9 +148,43 @@
     {{- end -}}
     {{- /* Classifications are {value, label} since schema v9 (tasks/142): the
            taxonomy indexes the code, classificationList keeps the label for
-           the detail page (mirrors subjects/subjectList). */ -}}
+           the detail page (mirrors subjects/subjectList).
+
+           The KEY is the lcat-slug of the code, not the code (tasks/276). A Dewey
+           number carries a prime mark -- MARC 082 `$a 813/.6` -- and a slash is
+           structural in a URL path, so the raw code minted `/classifications/813/.6/`:
+           two segments, the second a dot-directory, with an index-less parent nobody
+           asked for and a sitemap entry pointing a crawler at it. Classifications were
+           the only raw-keyed taxonomy whose values carry that character, and they
+           arrived after tasks/023, 128 and 134 taught it three separate times.
+
+           The code itself stays verbatim in classificationList (the detail page shows
+           it) and in facets.json (browse and the facet rail read it). Only the URL is
+           slugged, and links resolve through lcat-term-url, which asks Hugo for the
+           page it minted. */ -}}
     {{- $classificationValues := slice -}}
-    {{- range .classifications -}}{{- $classificationValues = $classificationValues | append .value -}}{{- end -}}
+    {{- range .classifications -}}{{- $classificationValues = $classificationValues | append (partial "lcat-slug.html" .value) -}}{{- end -}}
+    {{- /* No taxonomy key may carry a path separator (tasks/276).
+
+           A term key becomes a path segment. One containing `/` becomes two, and
+           the parent of the pair is a directory Hugo never mints an index for --
+           a 404 on a static host, in the middle of the catalog's own URL space,
+           advertised to crawlers by sitemap.xml. It is silent: the link resolves,
+           because Hugo really did create the nested page.
+
+           This is the check that would have caught tasks/023, 128, 134 and 276,
+           each of which was found in a published catalog rather than in a build.
+           Every dimension above is either slugged or drawn from a controlled
+           vocabulary, so this cannot fire today -- which is the point of asserting
+           it rather than trusting it. */ -}}
+    {{- $wid := .id -}}
+    {{- range $tax, $keys := (dict "subjects" $subjectSlugs "tags" $tagSlugs "classifications" $classificationValues "contributors" $names "formats" .formats "languages" .languages) -}}
+      {{- range $keys -}}
+        {{- if in . "/" -}}
+          {{- errorf "libcat: work %s indexes the %s taxonomy by %q, which contains a path separator -- it would mint a nested term page under an index-less parent (tasks/276)" $wid $tax . -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
     {{- /* Deployment-defined facet dimensions (tasks/143): each
            [params.extraFacets.<name>] lifts one extras key into a taxonomy
            param (the site declares the matching [taxonomies] entry). Term
