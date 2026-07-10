@@ -210,3 +210,75 @@ chmod -R u+w /tmp/site-rw && rm -rf /tmp/site-rw
 For the phantom: `chmod -R a-w` the shard of a work with **no** cover, then `PUT` one. It
 answers `500 {"error":"cover store failed"}`, `GET /v1/works/{id}/doc` reports
 `cover: "covers/<id>.png"`, and `GET /covers/<id>.png` answers 404.
+
+## Outcome
+
+Fixed in **v0.104.0** (`190a723`). Both halves held exactly as filed, and the
+report's read of `sweepStaleCovers` was right down to the line. `retest.mjs`:
+**t266 FIXED**. `probe_cover_failure.mjs`: C1, C2, C3, C4a, C4b, C7, C5a, C5b
+pass; C4c and C5c cannot pass -- see below.
+
+### What shipped
+
+**The phantom.** A failed byte `Put` restores the cover statement before
+returning. It restores the cover the request *replaced*, not `""`: on a
+replacement the previous cover's bytes are still stored and still serving, and
+clearing the statement would orphan a working public image to report a failed
+one. This is the `?replace=true` case from 261 in a new guise, and the report
+did not consider it. A rollback that itself fails logs `ERROR` and returns a
+distinct message.
+
+**The mirror.** `sweepStaleCovers` returns its `bs.Delete` error instead of
+discarding it. `DELETE` restores the statement and answers 500, so the surviving
+bytes stay indexed, reachable and retryable rather than orphaned behind a public
+URL nothing references. `blob.ErrNotFound` stays success: a cover exists in at
+most one format, so two of the three deletes normally find nothing.
+
+**`PUT` reports a failed sweep too.** The report offered log-and-continue for the
+replace path. I did not take it. A surviving blob in the old format keeps serving
+from its own public URL while the record points at the new one -- that is exactly
+the takedown failure `sweepStaleCovers`' own doc comment describes, reached
+through a store error rather than through the ordering bug tasks/243 fixed. The
+upload is idempotent, so a retry re-runs the sweep once the store recovers.
+
+### C4c and C5c encode the bug as the passing condition
+
+`C5c` asserts the grain **no longer** references a cover after a `DELETE` whose
+byte removal failed:
+
+```js
+check('C5c', grainAfter === '',
+  `control: the grain no longer references a cover -> ... (so nothing will ever collect the bytes)`);
+```
+
+Its own message names the defect. Nothing can satisfy it except dropping the
+statement and leaving the bytes -- the orphan the task is about. This is
+`probe_attach_failure.mjs`'s A7 exactly (see libcat-e2e tasks/034), and it wants
+the same rewrite: after a failed DELETE the bytes remain **and** the record still
+lists them, so nothing is orphaned; once the store recovers, DELETE answers 204
+and both are gone.
+
+`C4c` asserts a `COVER_SET` audit entry for a `PUT` that failed. I did not write
+one. The upload is rolled back, so the record is exactly as it was, and auditing
+a no-change event is the bug tasks/249 removed. The attempt is attributable
+through an `ERROR` log carrying `workId`, `cover`, `actor` and both underlying
+errors -- the operator's channel, not the record's history. A `COVER_SET_FAILED`
+action would be a different feature, and it belongs with **259**.
+
+### The report's fourth bullet is already shipped
+
+> "`data/covers/` has no reconciliation pass against the grains ... an orphan is
+> never noticed."
+
+`lcat covers [--reap]` is that pass -- it walks the blob tree against the grains,
+reports orphans, and with `--reap` deletes them. It shipped in **v0.97.0**
+(tasks/245), the same day this was filed. `lcat export -covers` walks records,
+which is what the report checked; `lcat covers` walks blobs.
+
+### Every guard was proven by mutation
+
+Removing the PUT rollback, making it clear the previous cover instead of
+restoring it, discarding the sweep's error, and treating `ErrNotFound` as a
+failure each make a specific new test fail. The last one also breaks the
+pre-existing tasks/243 tests, which is the point: a cover normally exists in one
+format and two of the three sweep deletes find nothing.
