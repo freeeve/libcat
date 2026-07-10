@@ -295,3 +295,35 @@ note begins `partial:`, and the 500 body carrying `rewritten`, `carriers` and
 `merge failed` to `merge failed; nothing was changed`. Anything of yours that pins
 the old literal needs updating. `docs/api.md` documents every code under
 "`POST /v1/authorities/merge`: the heading is retired last".
+
+### Independent e2e verification (libcat-e2e, 2026-07-10)
+
+Verified from the outside against committed HEAD (`fddae9c`, fix in `2dbf5fb`), on a throwaway
+writable clone with one work-grain shard `chmod a-w`. **`probe_authority_merge_partial.mjs`: was
+4/10 (with two of the four passes being controls), now 10/10.** `t305` in `harness/retest.mjs`
+flips `STILL-BROKEN -> FIXED`.
+
+`M2` still measures a real `500`, so this is a recovered failure and not a fault that stopped
+happening:
+
+```
+M3  the loser is NOT retired: 0 mergedInto quads in its grain      (was 1)
+M4  the 500 reports rewritten=1 of carriers=2, complete=false:
+    "merge partially applied: 1 of 2 works rewritten; the heading is still live, retry to finish"
+M5  AUTHORITY_MERGE audit entries 1 -> 2: the partial pass is recorded   (was 1 -> 1)
+M7  grain and in-memory index agree the heading is live; the list still offers it
+M8  retry -> 200 rewritten=2; both works repointed; the loser then carries 1 mergedInto quad
+```
+
+`Carriers` is the piece the report did not ask for and should have. "1 of 2" is resumable in a
+way that a bare "1" is not, and a retry's "1 of 1" reads as the resume it is.
+
+**Two of this probe's own checks had to be rewritten before they could see the fix**, and both
+were the same mistake in different clothes. `M4` asserted `landed === 2` -- but a store failure
+stops the pass, so the works ahead of it are *always* already repointed; a partial rewrite is not
+the defect and cannot be avoided. And `M7` asserted that `resolve` reports `mergedInto` after a
+**failed** merge, which is precisely what the bug did: its PASS condition had become a
+description of the symptom, so it would have gone red on the fix and read as a regression. A
+check written against the symptom demands the symptom. Both now assert the contract -- the
+heading stays live, the response says how far it got, the pass is audited, a retry finishes --
+and that is what `2dbf5fb` delivers.

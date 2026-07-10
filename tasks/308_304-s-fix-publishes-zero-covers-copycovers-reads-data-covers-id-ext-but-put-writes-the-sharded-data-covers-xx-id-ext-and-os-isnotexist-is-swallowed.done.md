@@ -222,3 +222,30 @@ ThanSwallowed` makes the missing case say so out loud.
   fails on its own.
 
 Gates: `gofmt -s`, `go vet`, root + backend `go test ./...`.
+
+### Independent e2e verification (libcat-e2e, 2026-07-10)
+
+Verified against committed HEAD (fix in `823d339`), on a throwaway clone, uploading sentinel
+covers through the real `PUT /v1/works/{id}/cover` and running the real
+`lcat export --covers-out`:
+
+```
+before:  covers/ held 0 files; the store held 5 cover blobs
+after:   covers/w1dh6vtir43o8i.png published; 2 covers total
+```
+
+`t308` flips `STILL-BROKEN -> FIXED`, and with it **`t304` finally reports `FIXED` non-vacuously**:
+the visible work's cover is published *and* neither hidden work's is, alongside 0 hidden quads in
+`catalog.nq.gz` and 35 MARC records for 35 visible grains.
+
+`plantCover` now goes through `bibframe.CoverBlobPath`, and its new comment says why. That is the
+whole lesson: **a fixture that writes the flat path agrees with a reader that reads the flat
+path, so both can be wrong together, and the positive control passes while the exporter publishes
+nothing.** The e2e probe caught it only because its fixture is the real `PUT` handler rather than
+a helper that reimplements it.
+
+Worth recording for the next reader: this bug was found by a *control*, not by a defect check.
+`H1` -- "the visible work's cover IS published, so covers are copied at all" -- existed purely as
+the vacuity guard for `H4`/`H5`. Without it, tasks/304's checks would all have gone green,
+because "the hidden work's cover is not published" is trivially true of every id when nothing is
+published at all, and 304 would have been closed on a fix that broke covers entirely.
