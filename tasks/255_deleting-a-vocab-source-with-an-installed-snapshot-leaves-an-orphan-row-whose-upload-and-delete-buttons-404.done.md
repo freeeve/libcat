@@ -194,3 +194,79 @@ curl -XDELETE -H "Authorization: Bearer $TOK" localhost:8481/v1/vocabsources/zzo
 Or in the UI: open `#/vocabularies`, register a drop-in source, install a dump, then
 click **Delete source** on its row. The row survives with `Upload…` and `Delete source`
 still offered; both answer `no such source`.
+
+## Outcome
+
+Both halves shipped in **v0.138.0** (`27b3813`).
+
+**The tooltip is true now.** `DeleteSource` refuses with a new `ErrConflict` → **409**
+while a snapshot is installed, and the message names the remedy rather than just
+saying no:
+
+```
+409 {"error":"vocabsrc: conflict: \"zzorph\" has an installed snapshot; remove it before deleting the source"}
+```
+
+**Orphans are marked.** `SourceView.Orphan bool` is set in the synthesis loop;
+`VocabSources.svelte` gates `Upload…` and `Delete source` on `!s.orphan` and gives the
+row an `unregistered` badge whose title explains the state and points at the register
+form. `Download`/`Refresh` already hid itself (no `snapshotUrl`), and `Remove` -- the
+one control that works -- is untouched.
+
+### One exemption the report did not call out
+
+Deleting a stored **override of a built-in** must stay legal even with a snapshot
+installed. The shipped definition takes the deleted row's place, so `Sources()` still
+lists the name and the install is never orphaned; refusing there would strand an admin
+who overrode `lcsh` and wants the default back. The guard is `!isBuiltin(name)`, and
+`TestDeleteSourceStillDropsABuiltinOverrideWithASnapshotInstalled` pins it -- removing
+the exemption fails it with the 409 text.
+
+### The marker cannot be derived on the client
+
+Exactly as the report says: `snapshotUrl == ""` means *upload-only source*, which is an
+ordinary registered source. Both new tests -- Go and Svelte -- carry an upload-only row
+as a **control**, so "hide the buttons on every installed row" does not pass.
+
+### Tests, all mutation-checked
+
+| mutation | fails |
+|---|---|
+| drop the `ErrConflict` guard | `TestDeleteSourceRefusesWhileASnapshotIsInstalled`: `err = <nil>` |
+| drop the `!isBuiltin` exemption | `TestDeleteSourceStillDropsABuiltinOverride...`: 409 on `lcgft` |
+| drop `Orphan: true` | `TestViewsMarkOrphanInstalls` |
+| un-gate the two buttons | `vocabsources.orphan.test.ts`: `[Array(3)]` vs `['Remove']` |
+
+The Svelte test asserts the row's button labels, which is the shape of evidence the
+report used. It mounts the screen and publishes the session the way `App.svelte` does
+-- without that, `isAdmin` is false, no admin button renders, and the assertion would
+pass on an empty row.
+
+### Two tests had to stop using DeleteSource to build an orphan
+
+`TestViewsListsOrphanInstalls` and (from tasks/252)
+`TestRemoveSnapshotCleansUpAfterAnOrphanedInstall` both deleted the source to make one.
+That route is now closed, so they drop the registry record straight into the store --
+which is what the first one's own doc comment already claimed it was modelling ("an
+offline vocab-install, or a mem registry that reset"). The convenience had quietly
+become the documentation.
+
+### This narrows, but does not contradict, tasks/252
+
+252 recorded that `DeleteSource` deliberately leaves an installed snapshot and its
+sidecar alone. It still does -- when it runs at all. What changed is that it now mostly
+refuses to run in that state. The reasoning survives verbatim for the built-in override
+path and for `RemoveSnapshot`, which remains the only thing that deletes artifacts.
+
+### Verified end to end on :8491
+
+```
+install zzorph                     -> {"installed":true,"terms":1}
+DELETE /v1/vocabsources/zzorph     -> 409, source row survives intact
+DELETE .../zzorph/snapshot         -> 200
+DELETE /v1/vocabsources/zzorph     -> 200          (the documented order)
+
+zzgone: install, drop the registry record, restart
+GET /v1/vocabsources               -> zzgone orphan=true installed=true
+                                      lcsh   orphan=absent builtin=true
+```
