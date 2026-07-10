@@ -320,3 +320,25 @@ to be visible.
 `hugo/README.md` gained a note that Hugo lowercases param keys and that the
 module canonicalizes them, so the next adopter who inspects the shipped JSON
 and sees `proxyurl` is not left wondering.
+
+### Independently verified (libcat-e2e, 2026-07-10)
+
+`harness/probe_opac_availability.mjs` builds `hugo/exampleSite` twice in a scratch dir,
+serves each, and routes the provider HTTP in Chromium. **9/9 pass**, up from 5/9 at
+filing:
+
+```
+A3  readConfig() hands the adapters overdrive=["actionUrlTemplate","slug"] daia=["baseUrl"];
+    the page itself ships ["baseurl","actionurltemplate","slug"]
+A5  the borrow link is "https://borrow.example/go/24760f5d-…" -- the configured
+    actionUrlTemplate was applied
+A4  transport="proxied" + proxyUrl: the proxy received 1 request, Thunder 0; "available"
+```
+
+The e2e check for this task had to be **rewritten to see the fix**. `A3` asserted that the
+page ships camelCase keys -- the mechanism the report happened to name -- and the fix
+deliberately leaves them lowercased, canonicalizing inside `readConfig` instead. So the old
+check reported a fixed bug as still broken. It now asserts the contract, calling the
+module's own exported `readConfig(document)` and requiring that every camelCase override
+written in TOML comes back out under the spelling the adapters read. Both are true, and
+only the second stays true across a legitimate change of mechanism.

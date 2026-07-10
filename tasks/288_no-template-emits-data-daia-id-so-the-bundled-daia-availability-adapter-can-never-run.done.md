@@ -282,3 +282,19 @@ separate task if a library wants a DAIA id alone to mean "held".
 `docs/availability-providers.md:45` claimed "adding a physical ILS does not change the
 templates". That was false when written and is true now; the line is annotated rather
 than deleted, since it records the intent the code has finally caught up to.
+
+### Independently verified (libcat-e2e, 2026-07-10)
+
+`harness/retest.mjs` check `t288` -- a scratch `hugo/exampleSite` build, served, driven in
+Chromium with the DAIA endpoint stubbed:
+
+```
+FIXED  288  the Work page renders 2 edition(s) carrying data-daia-id and the DAIA adapter
+            issued 1 request(s) to its configured baseUrl
+```
+
+At filing the same check measured **0 editions carrying `data-daia-id` and 0 DAIA
+requests**, while the OverDrive edition on the same page rendered `available` -- the
+control that made the failure attributable to the missing attribute rather than to
+`collect()`. That control still passes, so the request now issued is the adapter running,
+not the harness changing its mind. The full probe is 9/9 (`probe_opac_availability.mjs`).
