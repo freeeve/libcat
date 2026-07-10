@@ -284,3 +284,27 @@ move that override to `layouts/works/list.html` and/or `layouts/home.html`; the
 old path now governs its prose sections instead. An override intended for prose
 sections stays where it is and starts working. New CSS hooks: `.lcat-pagelist`,
 `.lcat-pagelist-title`, `.lcat-pagelist-summary`.
+
+### Independently verified (libcat-e2e, 2026-07-10)
+
+`harness/probe_opac_lists.mjs` — builds `hugo/exampleSite` with `engine = "roaringrange"`,
+emits real browse artifacts with `lcat index` over `hugo/e2e/fixture-catalog.json`, serves
+them through `hugo/e2e/range-server.mjs`, and drives Chromium. **7/7 pass**, up from 3/7 at
+filing:
+
+```
+L2  /lists/ renders <h1>Lists</h1> and "" with 0 cards      (was: "0 works")
+L3  /lists/ links to its curated pages                      (was: links to none)
+L4  /lists/ is not a browse surface, a query leaves it alone (was: data-lcat-browse="/search",
+                                                              a query hydrated it to "1 results")
+L5  a plain prose section /help/ renders as itself           (was: <h1>Helps</h1>, "0 works")
+```
+
+The controls still hold, which is what makes the four flips mean something. **`L1`: `/works/`
+is still `"3 works"` cold with 3 cards, and the query `snow` still hydrates it to `"1 results"`
+→ `Snow Country` with a 2-row facet rail** — so the browse surface moved to `works/list.html`
+rather than being switched off. **`L6`: `/lists/staff-picks/` still renders its two works in
+front-matter order and a query still leaves it untouched** — `curated.html` was correct before
+and is untouched now.
+
+Retested by `t290` in `harness/retest.mjs`, which now reports FIXED.
