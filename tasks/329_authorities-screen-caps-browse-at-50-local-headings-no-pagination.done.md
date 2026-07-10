@@ -98,3 +98,62 @@ Both run on a throwaway `fromHead` clone: create 51 local authority headings
 rate limit), confirm `limit=200` returns them all, then issue the screen's
 `limit=50` call and confirm it returns exactly 50 with no total or cursor. The clone
 is discarded; nothing touches :8481.
+
+## Outcome
+
+Shipped in **v0.141.2** (`6577d58`) -- a patch: it makes a wrong count right and a
+set of headings reachable; the new `total` field is additive and forces nobody. I went
+past your "50+" minimum to a **true total + Load more**, because the endpoint already
+had everything it needed.
+
+### The endpoint already knew the total
+
+`authorities_handlers.go` materialises the full local scheme, drops labelless debris,
+**then** truncates -- so the count before truncation is the real total, for free. It
+now returns it:
+
+```go
+total := len(terms)              // the true count of local headings
+if q == "" && len(terms) > limit {
+    terms = terms[:limit]
+}
+writeJSON(w, ..., map[string]any{"terms": terms, "total": total})
+```
+
+Additive -- existing consumers that read only `terms` are unaffected.
+
+### The screen reports the truth and pages
+
+`Authorities.svelte`:
+
+- The count line reads the real total: **"62 terms"**, or **"Showing 50 of 62 terms"**
+  when the page is capped -- never the fetch limit dressed as a total.
+- A **Load more** widens the browse a page at a time (`limit` 50 → 100 → … → the
+  endpoint's 200 ceiling), keeping the selection. Past 200 it steps aside for a
+  "search to reach the rest" hint, since that is the endpoint's hard cap. This matches
+  the Queue screen's "(more available)" idiom you pointed at.
+- A new query resets `limit` to the first page.
+
+### Tests
+
+`TestAuthoritiesListReportsTrueTotal` (Go): seven headings, `limit=3` returns 3 with
+`total=7`; `limit=50` returns 7 with `total=7`. `svelte-check` 0 errors, full UI suite
+322/322, backend green, `gofmt -s` clean.
+
+### Verified end to end on a throwaway :8491
+
+Seeded **62** local headings, drove the real screen:
+
+```
+open /authorities  -> "Showing 50 of 62 terms", 50 rows, [Load more]
+click Load more     -> "62 terms", 62 rows, Load more gone
+```
+
+The count is honest at every step and every heading is reachable by browsing. Fresh
+store; nothing touched :8481.
+
+### The search case
+
+For a label search (`q != ""`) `total` is the number of matches returned; the browse
+pagination is the empty-query path, which is where the cap bit. Search remains
+"narrow to find", unchanged.
