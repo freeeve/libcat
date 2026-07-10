@@ -263,3 +263,87 @@ curl -s -XPOST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/jso
   -H 'If-Match: 5053b7c0...' -d '{"ops":[...]}' localhost:8473/v1/works/$W/ops
 # 412
 ```
+
+## Outcome
+
+Fixed in **v0.112.0** (`6a8fc15`). Verified live against committed HEAD on a
+throwaway clone: **13/13**, including `I2` (stale save -> 412), `I3` (tokenless ->
+428), `I4` (explicitly stale token honoured), and that A's copy survives.
+`retest.mjs`: 45 FIXED, nothing regressed.
+
+Four of the five bullets shipped. The fifth is declined, with measurements.
+
+The diagnosis was complete and the fix is the one it names. `PUT
+/v1/works/{id}/items` reads `If-Match`, refuses a missing one with 428, and
+answers a stale one with 412 carrying the fresh grain -- the contract `PUT
+/v1/works/{id}` has documented all along. `putItems` threads the etag
+`fetchItems` already returned, and `ItemsPanel.save()` has the `ConflictError`
+branch `MarcPanel` has: reload, show the other cataloger's copy, say plainly that
+this save was refused.
+
+### One thing the report did not have to say, and I nearly got wrong
+
+The obvious shape is: read the grain, compare its etag to `If-Match`, write with
+`IfMatch: <the etag just read>`. That passes every test in this file. It is also
+one deletion away from the original bug, because the store's precondition is then
+**tautological** -- it checks the value against itself, and the handler's own
+comparison is the sole guard.
+
+Proved by mutation, and worth recording:
+
+| mutation | result |
+|---|---|
+| remove the handler's `etag != ifMatch` comparison | tests pass -- the store catches it |
+| give the store `IfMatch: etag` instead of the client's token | tests pass -- the comparison catches it |
+| **both** | **the lost update returns**, four tests fail |
+
+So the Put is given `ifMatch`, the client's own token. The comparison stays as an
+early-out that answers from the grain already in hand. Neither is redundant: a
+writer landing *between* the read and the Put is caught by the store and nowhere
+else, which `TestItemsSaveDetectsAWriteThatLandsBetweenReadAndPut` pins with a
+store that fails one conditional write.
+
+`writeGrainConflict` and `requireIfMatch` are now shared, so the two client-token
+PUTs cannot drift into answering the same condition differently.
+
+### The visibility route: checked, and it is a different defect
+
+Read *and* checked this time. None of the four actions read prior state:
+`SetTombstone`, `ClearTombstone`, `SetSuppressed` each replace one statement with
+a value the caller supplied. A stale request re-asserts the state it meant to
+assert, which is why the report rated it lower.
+
+`redirectTo` is the only clobberable value, and it is **typed by a human, not
+computed from a read** -- so two curators tombstoning with different targets is
+last-write-wins on an authored scalar, not a lost update of an unread edit. It is
+also not currently fixable from the client: `GET /v1/works/{id}/visibility`
+returns no ETag, so there is no token to send. Left alone rather than half-fixed.
+
+### `mutateWorkGrain`'s doc comment
+
+The last bullet is right and I have not acted on it. The comment names a caller
+it must not have, and has now acquired three (269, 271, 273). Making the helper
+*refuse* the client-token case means it would have to know the request carries an
+`If-Match`, which it can see (`r.Header`). A guard -- "if the request carries
+If-Match, this is not your helper" -- would have caught all three at the first
+test run. Worth doing; not folded into a lost-update fix.
+
+### Verification
+
+Backend 28 packages ok (`-count=1`, exit 0), root ok, `gofmt -s` and `go vet`
+clean, `npm run check` clean, 266 UI tests pass (5 new). Every guard mutation-
+proven, on both sides: stop sending the etag from the panel and three UI tests
+fail; treat `ConflictError` as an ordinary error and two fail.
+
+Three existing tests asserted the old tokenless PUT and were updated -- which is
+the contract change made visible, not collateral damage.
+
+### The probe needs its own seed updated
+
+`probe_items_lost_update.mjs` reports **2/9** against the fix, and `retest.mjs`
+reports **t273 ERROR: "the items PUT did not seed (428)"**. Both are correct
+observations of a probe written against the bug: `I0` and `I1` seed with tokenless
+PUTs, which now earn their 428, and everything downstream collapses. `I4` then
+reports `200` for an "explicitly stale" token that is in fact still current,
+because no write ever landed. See the doneness note filed in libcat-e2e for the
+one-line fix and the live 13/13 transcript.
