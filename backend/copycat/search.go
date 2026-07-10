@@ -47,12 +47,24 @@ var ErrCapped = errors.New("result set truncated at the search limit")
 
 // PartialError reports a stream that broke after delivering records. It carries
 // both, because a caller needs the hits and the reason the set is short.
+//
+// Total is what the target said its result set holds, or -1 when it never said
+// (unknownTotal). "1 of 9 records arrived" is a different sentence from "1 record
+// arrived", and only the first tells a cataloger how much they are missing.
+//
+// The zero value is inert rather than wrong: a PartialError exists only when at
+// least one record arrived, so Total == 0 can never exceed Got and reads as "no
+// total", the same as -1.
 type PartialError struct {
-	Got int
-	Err error
+	Got   int
+	Total int
+	Err   error
 }
 
 func (e *PartialError) Error() string {
+	if e.Total > e.Got {
+		return fmt.Sprintf("partial results: the stream broke after %d of %d record(s): %v", e.Got, e.Total, e.Err)
+	}
 	return fmt.Sprintf("partial results: the stream broke after %d record(s): %v", e.Got, e.Err)
 }
 
@@ -185,7 +197,7 @@ func protocolSearch(ctx context.Context, t Target, terms []FieldTerm, limit int)
 	case ProtocolZ3950:
 		rd := z3950.NewClient(t.URL).NewReader(ctx, z3950Query(terms))
 		defer rd.Close()
-		return readUpTo(rd.Read, limit)
+		return readUpTo(rd, limit)
 	}
 	return nil, fmt.Errorf("%w: unknown protocol %q", ErrValidation, t.Protocol)
 }
@@ -197,7 +209,7 @@ func sruSearch(ctx context.Context, t Target, terms []FieldTerm, limit int) ([]*
 	c.Version = t.Version
 	c.Schema = t.Schema
 	rd := c.NewReader(ctx, sruQuery(t, terms).String())
-	return readUpTo(rd.Read, limit)
+	return readUpTo(rd, limit)
 }
 
 // sruQuery assembles the ANDed CQL query. Dublin Core defines no identifier
@@ -238,6 +250,13 @@ func z3950Query(terms []FieldTerm) z3950.Query {
 	return q
 }
 
+// unknownTotal is what a reader reports when the target never said how large the
+// result set is: before the first fetch, and for the whole life of a stream
+// whose server omits the count (SRU 2.0 permits that). It is not zero -- zero is
+// the real answer "nothing matched" -- and collapsing the two would turn "we
+// cannot tell you" into "there is nothing there" (libcodex tasks/106).
+const unknownTotal = -1
+
 // readUpTo drains a record stream to limit, returning whatever arrived and, when
 // the answer is incomplete, why.
 //
@@ -250,28 +269,59 @@ func z3950Query(terms []FieldTerm) z3950.Query {
 // page 2. Copy cataloging turns on "is my book in this result set?", and a
 // truncated set answers that wrongly.
 //
-// Callers distinguish the three outcomes with errors.As / errors.Is:
+// Callers distinguish the four outcomes with errors.As / errors.Is:
 //
-//   - nil                  the stream ended; every record is here.
+//   - nil                  every record the target has is here.
 //   - *PartialError        the stream broke; out holds what arrived first.
-//   - ErrCapped            limit stopped us; the target may hold more.
+//   - ErrCapped            limit stopped us short of the result set.
 //   - any other error      nothing arrived; the search failed.
-func readUpTo(read func() (*codex.Record, error), limit int) ([]*codex.Record, error) {
+func readUpTo(rd codex.RecordReader, limit int) ([]*codex.Record, error) {
 	var out []*codex.Record
 	for len(out) < limit {
-		rec, err := read()
+		rec, err := rd.Read()
 		if errors.Is(err, io.EOF) {
 			return out, nil
 		}
 		if err != nil {
 			if len(out) > 0 {
-				return out, &PartialError{Got: len(out), Err: err}
+				return out, &PartialError{Got: len(out), Total: advertisedTotal(rd), Err: err}
 			}
 			return nil, err
 		}
 		out = append(out, rec)
 	}
-	// The stream may or may not have had more. Finding out costs another page
-	// fetch, and "the first N; there may be more" is true either way.
-	return out, fmt.Errorf("%w: showing the first %d", ErrCapped, limit)
+	return out, cappedError(advertisedTotal(rd), len(out), limit)
+}
+
+// advertisedTotal asks the reader how large the result set is. A reader over a
+// file or a pipe has no result set to size, so it implements no counter and the
+// answer is unknown (libcodex exposes this as codex.RecordCounter).
+func advertisedTotal(rd codex.RecordReader) int {
+	rc, ok := rd.(codex.RecordCounter)
+	if !ok {
+		return unknownTotal
+	}
+	return rc.Total()
+}
+
+// cappedError says how much of the result set the limit cut off, or reports a
+// full page as complete.
+//
+// Reaching the limit is not the same as being truncated. Before libcodex v0.23.0
+// exposed the advertised total, copycat could not tell "20 matches" from "the
+// first 20 of 4,113", so it warned on every full page -- noise on the common
+// case, and no help on the case that mattered (tasks/258, tasks/274). It can
+// tell now, so a target holding exactly limit records is a complete answer and
+// says nothing.
+func cappedError(total, got, limit int) error {
+	switch {
+	case total > got:
+		return fmt.Errorf("%w: showing %d of %d matches -- refine your search", ErrCapped, got, total)
+	case total == got:
+		return nil // the result set is exactly this size: nothing was cut off.
+	default:
+		// unknownTotal, or a server whose count contradicts its own stream. The
+		// honest answer is the one we could always give.
+		return fmt.Errorf("%w: showing the first %d", ErrCapped, limit)
+	}
 }

@@ -283,7 +283,7 @@ in `warnings` -- and **its hits are in `results`**:
 {
   "results": [{"target": "loc", "title": "Gideon the Ninth"}],
   "failures": {"beta": "connection refused"},
-  "warnings": {"loc": "partial results: the stream broke after 3 record(s): XML syntax error"}
+  "warnings": {"loc": "partial results: the stream broke after 3 of 9 record(s): XML syntax error"}
 }
 ```
 
@@ -299,6 +299,14 @@ first read or the fiftieth is decided by the remote server's page size, so the
 two cases must not be reported differently. `/v1/works/{id}/subjects/lookup`
 carries the same `warnings` map for the same reason: an empty candidate list
 means "no new headings" only if every target answered in full.
+
+Both messages name the advertised result-set size when the target reports one --
+`showing 20 of 4113 matches -- refine your search` -- which is why filling a page
+is not itself a warning: a target holding exactly 20 records answered completely
+(tasks/274). A target that reports no size at all (SRU 2.0 makes the count
+optional) still warns on a full page, because "the first 20; there may be more"
+is all anyone can honestly say. Note that *no count* and *a count of zero* are
+different answers and must not be collapsed.
 
 The remaining surfaces are grouped by path prefix and named plainly:
 `/v1/works` (records, MARC, items, covers, attachments, relations, clone,
