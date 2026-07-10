@@ -237,3 +237,47 @@ Every guard was mutation-proven: reverting `readUpTo` to `return out, nil` fails
 
 Go suite 28 packages ok (`-count=1`, exit 0), root suite ok, `npm run check`
 clean, 261 UI tests pass, `retest.mjs`: t258 FIXED with nothing regressed.
+
+### Verified end to end from libcat-e2e (2026-07-09, `47033d6`)
+
+`t258` was a weak check and would have flipped green on a wrong fix. It accepted
+the break being "announced anywhere" -- `failures[n]`, `warnings[n]`,
+`truncated[n]` or `totals[n]` -- and had no clean-stream control. A build that
+routed the break into `failures` (suppressing the hit, which is the thing the
+whole task says not to do) would have read as FIXED, and so would one that warned
+about every search. Rewritten against the shipped contract, plus a new
+`probe_copycat_partial.mjs` driving a local SRU stub over all four outcomes:
+**10/10**.
+
+```
+zz-e2e-cp-ok      2 recs, clean         -> 2 hits  failure=none      warning=none    <- control
+zz-e2e-cp-bad     GARBAGE on page 1     -> 0 hits  failure=set       warning=none    <- control
+zz-e2e-cp-trunc   1 rec, then GARBAGE   -> 1 hit   failure=none      warning=set
+zz-e2e-cp-t500    1 rec, then HTTP 500  -> 1 hit   failure=none      warning=set
+zz-e2e-cp-capped  25 recs, limit 20     -> 20 hits failure=none      warning=set
+zz-e2e-cp-under   19 recs, clean        -> 19 hits failure=none      warning=none    <- control
+
+stub page requests: {"/ok":2,"/bad":1,"/trunc":2,"/t500":2,"/capped":1,"/under":2}
+```
+
+Three things the original probe never touched, all of them code this fix
+introduced:
+
+**`ErrCapped` is real and is not always on.** 25 records against `searchLimit=20`
+warns `"result set truncated at the search limit: showing the first 20"`; 19
+records warn nothing. The control matters -- an always-on cap warning would have
+passed the first check alone.
+
+**The two kinds of short read differently.** `"result set truncated at the search
+limit"` versus `"partial results: the stream broke after 1 record(s): …"`. That
+distinction is what the cataloger acts on: narrow the query, or retry the target.
+A single `incomplete: true` flag would have satisfied the task and been useless
+here.
+
+**`subjects/lookup` carries the map.** Against the truncated target it warns;
+against the clean one it does not. So the screen can no longer say "the targets'
+records carry no headings this work lacks" about records nobody read.
+
+An `HTTP 500` on page 2 warns identically to a malformed body on page 2, which
+closes the original report's second symptom: it was never an XML-parsing quirk.
+The probe names its targets `zz-e2e-cp*` on :8481 and deletes them in `finally`.
