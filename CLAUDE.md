@@ -49,3 +49,18 @@ LCATD_LISTEN_ADDR=:8491 LCATD_BLOB_DIR=<scratch>/blob \
 
 A fresh blob dir seeds the default copycat SRU targets at boot; kill the
 process with `pkill -f lcatd-verify` when done.
+
+## Releasing -- pick the version slot deliberately
+
+`./scripts/release.sh vX.Y.Z` tags root, `hugo/` and `backend/` in lockstep.
+Full policy in [docs/versioning.md](docs/versioning.md); the short form:
+
+- **Patch** (`v0.114.0` -> `v0.114.1`) -- the release only makes wrong
+  behavior right. The adoption note says "rebuild and restart", nothing more.
+- **Minor** (`v0.114.0` -> `v0.115.0`) -- the consumer has something to do:
+  something additive to adopt, or something breaking to fix. Highest wins.
+
+The test is *what does the adoption note say?* If it says "and also...", it is
+a minor. **Do not reach for a minor by reflex** -- most bug fixes are patches,
+and an inflated minor stops carrying information. Patch releases are ordinary
+here (`v0.4.1`, `v0.7.2`, `v0.100.1`, `v0.103.1`).
