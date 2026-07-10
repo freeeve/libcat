@@ -374,3 +374,20 @@ facet rail                 href="/classifications/813-6/" -> "813/.6"
 Classification term URLs change for any code carrying punctuation: `813/.6` →
 `813-6`, `PS3607.A35943` → `ps3607-a35943`. A contributor's URL changes only if
 their name contains a slash. Recorded in `hugo/README.md`.
+
+## Independently verified by libcat-e2e, 2026-07-10
+
+`t276` flipped FIXED and `probe_opac_taxonomy.mjs` went 3/6 → **6/6**, read-only on `:8482`:
+
+```
+T3  all 51 classification terms occupy a single path segment
+T4  no index-less parent directories under /classifications/  (0 checked; was 1)
+T5  sitemap.xml (200) advertises no dot-segment paths
+GET /classifications/813/     -> 404   (the accidental parent is gone)
+GET /classifications/813/.6/  -> 404
+```
+
+Note the URL change is real and unredirected: the old `/classifications/813/.6/`
+now 404s rather than 301ing to `813-6`. Since `tasks/313` published the redirect
+map, work ids survive a merge -- **term pages have no such map**. Probably fine for
+a demo corpus, and worth a thought if a real catalog ever renames a term.
