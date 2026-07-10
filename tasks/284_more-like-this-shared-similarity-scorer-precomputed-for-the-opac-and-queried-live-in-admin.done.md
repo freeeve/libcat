@@ -299,10 +299,66 @@ Verified: old Hugo + new sidecar, new Hugo + no sidecar, and a wrong sidecar
 version (build fails, exit 1). `hugo --quiet` swallows the ERROR line -- check the
 exit code, not the output.
 
-### Remaining
+## The admin half, shipped in v0.119.0 (`923b3e2`)
 
-- `GET /v1/works/{id}/similar?limit=` (librarian) off a cached index, and a
-  `WorkEditor` panel. `Build` at 26 ms / 69 MB, rebuilt on the works-list freshness
-  signal, then 0.58 ms per request.
-- Suppressed Works stay in the admin index and are absent from the projection,
-  which happens upstream. Tombstoned Works are already excluded on both.
+`GET /v1/works/{id}/similar?limit=` (librarian, default 8, max 50) and a
+`SimilarPanel` in `WorkEditor`, beside `RelationsPanel`.
+
+### The cache needs a generation, and it has to be read atomically
+
+`workindex` gained a `generation` counter, bumped whenever the derived views
+rebuild, and `SummariesWithGeneration` returns it *with* the summaries under one
+lock. Read separately, a caller could take summaries from one rebuild and the
+generation from the next, cache the stale index under the fresh number, and never
+rebuild again. Build is 26 ms / 69 MB at 62,602 Works; scoring is 0.6 ms.
+
+Live rather than a read of the sidecar, because an editor who has just re-subjected
+a work has to see the rail move. A test drives that through `workindex.Update`
+rather than the HTTP handler -- a grain written straight to the blob store is
+invisible to the index until a TTL refresh, which is exactly why my first version
+of that test failed and was wrong rather than the code.
+
+### Three answers, not two
+
+- **404** -- no such work.
+- **200, empty** -- this record resembles nothing you hold. The expected answer on
+  a thinly-subjected record, and a different fact from the above.
+- **200, empty** for a **tombstoned** work: excluded from the scorer, so it has no
+  neighbours and is nobody's neighbour, but it still exists. A 404 here would say
+  it does not.
+
+Mutating the guard that keeps these apart (`404` whenever the scorer returns
+nothing) fails two tests. So does dropping the generation bump, the `limit`
+validation, and the librarian gate.
+
+### The two surfaces agree, and the one disagreement is the designed one
+
+Checked against the playground rather than asserted: for the 27 Works with rails,
+the live endpoint and the precomputed `similar.json` return **26 identical rails**
+-- same neighbours, same order, same explanations.
+
+The single difference is `wmeof24ro8hpu2`, whose live rail leads with
+`wietlubmhv5l78`. That Work is **suppressed**: present in the admin index, absent
+from the projection. Which is the documented behaviour, confirmed by asking both
+`catalog.json` (absent) and `/v1/works/{id}/visibility` (`suppressed: true`).
+
+The other designed difference -- the concept tree comes from installed vocabulary
+snapshots here and from `catalog.json`'s term sideband there -- did not bite on
+this corpus. It is named in `docs/api.md` and in the handler, because the two agree
+only when the enrichers that wrote the graph read the same vocabulary, and no code
+here can assert that.
+
+### The panel
+
+Every row explains itself. Shared subjects arrive as authority IRIs and are
+resolved through `/v1/terms/resolve`; tags, contributor names and series statements
+are already display text and pass through untouched. Mutating the panel to render
+the raw IRI, or to send free text for resolution, each fails a test.
+
+A Work with no neighbours gets a sentence saying what to do about it -- adding a
+controlled subject -- rather than an empty box.
+
+Live check on the playground confirms the real numbers, including
+`Contributors: ["Lobel, Arnold.", "Lobel, Arnold."]` in the admin summary: the
+duplicate is real, upstream, and now normalized away by `Build` rather than counted
+twice.
