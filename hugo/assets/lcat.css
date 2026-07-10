@@ -31,6 +31,17 @@
   --lcat-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --lcat-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
+/* `hidden` hides only through the UA rule `[hidden] { display: none }`, whose
+   specificity any author `display` on the same element outranks. Every component
+   below that both sets `display` and gets hidden from JS therefore needs this
+   restated -- and twice we restated it per component and once we forgot, leaving
+   the browse paginator on screen and clickable while browse owned the list
+   (tasks/303). State it once, for every element, present and future.
+
+   `!important` is the point, not a shortcut: the whole failure is that a later,
+   more specific author rule wins. An adopter who wants a hidden element shown
+   should remove the attribute, not outrank this. */
+[hidden] { display: none !important; }
 /* Dark mode: the closed stacks -- the light theme's ink becomes the card
    surface, bone becomes the text, and the inks brighten to hold AA. Applies
    automatically from the OS preference, or explicitly via
@@ -399,7 +410,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border-color: currentColor;
 }
 .lcat-excluded { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.75rem; padding: 0; }
-.lcat-excluded[hidden] { display: none; }
 .lcat-excluded li {
   font-size: 0.8rem;
   color: var(--lcat-avail-none);
@@ -556,4 +566,3 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   font-size: 0.85rem;
   cursor: pointer;
 }
-.lcat-theme-toggle[hidden] { display: none; }

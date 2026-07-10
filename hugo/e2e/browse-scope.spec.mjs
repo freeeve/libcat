@@ -89,12 +89,14 @@ const railCount = () =>
   }, SUBJECT);
 const clickFacet = () =>
   page.evaluate((s) => document.querySelector(`#lcat-browse-facets input[data-cat="${s}"]`).click(), SUBJECT);
+// Ask the screen, not the DOM attribute (tasks/303). This read `!nav.hidden` and
+// so passed for two releases over a paginator that was on screen and clickable:
+// `hidden` hides only via the UA `[hidden] { display: none }` rule, and lcat.css's
+// `.pagination { display: flex }` outranked it. The attribute was set the whole
+// time. offsetHeight is what the reader has.
 const pagerVisible = () =>
   page.$$eval("ul.pagination", (els) =>
-    els.some((el) => {
-      const nav = el.closest("nav") || el;
-      return !nav.hidden;
-    }),
+    els.some((el) => el.offsetHeight > 0 && getComputedStyle(el).display !== "none"),
   );
 const type = async (q) => {
   await page.fill('.lcat-search input[name="q"]', q);
@@ -151,8 +153,12 @@ const f1 = await total();
 check(`facet alone: ${f1.total} == ${EXPECT.facetOnly}`, f1.total === EXPECT.facetOnly);
 
 // 6. The static pager pages the unfiltered corpus and drops the reader's query.
-//    It must not be reachable while browse owns the list.
-check("static pager is hidden while browse owns the list", !(await pagerVisible()));
+//    It must not be reachable while browse owns the list -- not merely carry the
+//    attribute that is supposed to hide it (tasks/303).
+const pagerState = await page.$$eval("ul.pagination", (els) =>
+  els.map((el) => `hidden=${el.hasAttribute("hidden")} display=${getComputedStyle(el).display} h=${el.offsetHeight}`),
+);
+check(`static pager is off screen while browse owns the list [${pagerState}]`, !(await pagerVisible()));
 
 // 7. Clearing everything restores the static list, its count, and the pager.
 await clickFacet();

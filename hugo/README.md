@@ -645,6 +645,19 @@ fork (tasks/025):
 :root { --lcat-accent: #115c52; --lcat-bg: #fbf9f4; --lcat-maxw: 72rem; }
 ```
 
+One rule in `lcat.css` is not a token and is deliberately unoverridable:
+
+```css
+[hidden] { display: none !important; }
+```
+
+The browser hides `[hidden]` only through the UA rule `[hidden] { display: none }`,
+which **any** author `display` on the same element outranks. Several components here
+both set `display` and get hidden from JS (the browse paginator, the excluded-facet
+chips, the theme toggle), and without this rule they stay on screen and clickable
+while carrying the attribute (tasks/303). If you need such an element visible,
+remove the attribute -- do not try to outrank this rule.
+
 ### Buttons
 
 CTA buttons are easy to get wrong across light/dark (the token *pairs* matter), so
