@@ -239,3 +239,61 @@ curl -s -XPOST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/jso
 
 Run the two curls sequentially instead and the second is refused with the cycle error
 before anything is written -- the guard is correct, it is simply not held across the write.
+
+## Outcome
+
+Fixed in **v0.107.0** (`416d01c`). `retest.mjs` **t271 FIXED**; nothing regressed.
+`probe_relations_cycle_race.mjs` is 5/7, and the two failures are `L2` and `L3`,
+which assert the bug's symptom -- see below.
+
+"The guard is correct, it is simply not held across the write" is the whole
+diagnosis, and the fix is written from that sentence.
+
+### Three changes
+
+**One lock across the check-then-write span.** Relation edits are rare and
+cataloger-paced, so serializing them costs nothing. Commented as the seam to
+replace with a store-side reservation the day libcat runs more than one process,
+same as tasks/269's barcode lock.
+
+**The guard re-runs inside the forward mutation's closure.** The lock keeps other
+relation edits out, but a plain grain write -- `PUT /v1/works/{id}`, a batch patch
+-- can add a `hasPart` quad and lose the forward write its CAS. The retry re-runs
+the closure precisely because the graph moved, and the guard's earlier answer was
+about a graph that no longer exists. This is what makes the answer binding.
+
+**A failed inverse write is compensated, not reported.** The old 500 prescribed a
+retry, and the comment above it claimed adds are idempotent. Both were wrong once
+the surviving forward edge was itself a containment claim: the retry reached the
+cycle guard reading the very edge that request had written, and was refused with
+400. Undoing the forward statement leaves nothing applied, so "retry" is honest
+again and the half-link state stops existing. When the rollback fails too, the
+error names the actual repair -- delete from both records, then re-add once -- and
+the change is audited, because a record that changed must be attributable
+(tasks/268). A compensated failure changed nothing and is not audited (tasks/249).
+
+### The layers do not subsume one another
+
+Removing the lock leaves the concurrent tests failing while the retry test
+passes. Removing the in-closure re-check leaves the retry test failing (500, not
+400) while the concurrent tests pass. Removing the compensation leaves both
+inverse-failure tests failing while everything else passes. Each was proven by
+stubbing it out and watching a named test fail. A suite with only the obvious
+concurrency test would have let the other two regress silently -- the same lesson
+269 taught.
+
+Worth noting what the mutation of the in-closure re-check reveals: without it the
+race still does not produce a cycle, because `SetWorkRelation`'s per-grain
+backstop refuses the inverse and the compensation then undoes the forward write.
+It produces a **500 instead of a 400**. So the three defences overlap on the
+worst outcome and disagree on the status code, which is exactly why all three are
+tested separately.
+
+### Declined: the backstop across grains
+
+The last bullet asks whether `SetWorkRelation` should also refuse an add whose
+*target* grain claims the inverse. It cannot: `bibframe` is handed one grain and
+has no store. Reaching across grains would put a blob read inside a pure quad
+transform. The handler is the right place for a corpus-wide invariant, and it now
+holds it across the write, which is what the backstop's doc comment always
+assumed ("the handler catches the same pair first").
