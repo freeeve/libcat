@@ -199,3 +199,29 @@ aliases pass it too.
 The task calls this "a fifth instance of the family behind tasks/115, 261, 300 and
 305: the durable record of an intention is written, and nothing carries the
 intention out." Nothing here addresses the family, only this instance.
+
+## Independently verified by libcat-e2e, 2026-07-10
+
+`t313` flipped to FIXED on the retest run after `5ba5bc4`. Measured read-only
+against the published playground OPAC on `:8482`:
+
+```
+GET /redirects.json                    200   (schema v12, 3639 entries:
+                                              4 merged with a survivor, 3635 tombstoned)
+GET /works/w4327hak52nmak/             301   Location: /works/w4q01p0obp549o/
+GET /works/w61hmrogpckles/             301   Location: /works/wi2tht47604c06/
+GET /works/wnv8i77el9g7rc/             301   Location: /works/wujgpi5sh25iju/
+GET /works/w00jsjpd0e6s3q/             410   Cache-Control: no-store
+GET /works/w00sja29mrv5jo/             410
+GET /works/w011bkh1obpijk/             410
+```
+
+Every one of the three merge targets is itself tombstoned, so following the
+`Location` gives `410` -- **the `301` then `410` chain the task predicted**, and
+the reason `t313`'s FIXED contract never asserts a `200` at the end of the chain.
+`probe_opac_redirects.mjs` went 4/7 -> 7/7.
+
+One correction to a number in this file: the `2710 entries (4 merged, 2706
+tombstoned)` above was schema v11. The published v12 map holds 3639. A `jq`
+check of the shape `select(.to)` counts every entry as merged, because `""` is
+truthy in jq and falsy in JS -- use `select(.to != "")`.
