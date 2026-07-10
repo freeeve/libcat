@@ -103,3 +103,88 @@ the 880 parallel grouping.
 
 `go get github.com/freeeve/libcodex@v0.25.0`, both modules together -- `go.work`
 takes the max across root and backend, so a one-module bump proves nothing.
+
+## Outcome
+
+Shipped in `fdeb664`, released as **v0.129.0**. Both modules bumped together.
+
+### The breakage was real, silent, and invisible to the test suite
+
+After bumping libcodex and before touching any code: `go build ./...` clean,
+`go test ./...` **all green**. A record with two 490s projected `series=[] enum=""`.
+
+The suite could not see it. Every series test was a hand-written nquads fixture
+carrying the flat Instance literals -- so the fixture agreed with the reader, and
+neither agreed with libcodex. The same shape as the tasks/308 cover regression.
+The new tests drive real `codex.Record`s through `ingest.Run` into `Project`, so
+libcodex is in the loop and can disagree.
+
+### What shipped
+
+`project.Work.Series []{title, enumeration, issn, traced}` replaces
+`Instance.Series []string` + `Instance.SeriesEnumeration string`. **Schema v12.**
+
+Series moved Work-ward in the projection because they moved Work-ward in the
+graph, and because they were never per-edition facts: a 490 is transcribed on
+every printing, and a Work's membership in "Firebrand fiction, bk. 2" does not
+change with the carrier you borrow. That also answers the question in the ask --
+`ingest.WorkSummary.Series` no longer needs `sortedUnique` across Instances,
+because the graph stops repeating the 490 per printing.
+
+Your predicted payoff is real. Two 490s now project as:
+
+```
+{Firebrand fiction  bk. 2  0075-2118  traced}
+{Second series      v. 7}
+```
+
+`490$x` and `ind1=1` both carried, per your "also recovered" note.
+
+### The compatibility window is honoured on our side too
+
+Your `Decode` keeps reading flat literals; so do both of our readers, when a Work
+carries no series relation. An adopter who bumps without re-ingesting keeps their
+series rather than watching them vanish. That path inherits the defect it cannot
+fix -- every legacy series gets the Instance's first non-empty enumeration, which
+is what the old projector gave all of them -- and says so in a comment. Pinned by
+`TestRelationsAndSeries`, whose fixture is deliberately still the flat shape.
+
+### Mutation-tested
+
+Five guards, each stubbed out and the suite re-run:
+
+- accept any `bf:relation` regardless of `bf:relationship`: 1 fail
+- read the enumeration off the series instead of the relation: 2 fail
+- drop the legacy fallback: 1 fail
+- any `bf:status` means traced: 1 fail
+- take any identifier as the ISSN: 1 fail
+
+Three findings worth recording, because two of my tests were wrong first:
+
+**The 76x control was vacuous.** I wrote `TestANonSeriesRelationIsNotProjectedAsA
+Series` with a 765 field, and it passed with the `bf:relationship` check deleted.
+libcodex v0.25.0 emits **no** `bf:relation` for 765 or 830 -- I checked the graph
+rather than assuming -- so a MARC-driven test cannot produce a competing relation.
+Rewritten as an nquads fixture with a `relationship/translationOf` relation, which
+is what the guard actually defends: nquads ingest, editorial writes, and whatever
+you map next.
+
+**The ISSN control was vacuous twice.** First because a MARC series node carries
+exactly one identifier, so the `bf:Issn` type check could never fire. Then, after
+I added a two-identifier fixture, *because the reader took the last match* and my
+fixture happened to list the ISSN last. Fixed both: the reader takes the first
+`bf:Issn` and stops, so the result does not depend on `Objects()` order, and the
+fixture lists an LCCN first so a type-blind reader grabs the wrong one.
+
+**The agreement test only proved the legacy paths agreed.** `TestBothConverters
+AgreeOnTheSameGraph` used the flat fixture, so both new readers were unexercised
+by the one test whose job is catching them drifting. It now runs both converters
+over both shapes, and asserts the series is actually named rather than equally
+empty on both sides.
+
+### Not carried
+
+`$n`/`$p`, `$l`, `$3`, the 880 parallel grouping -- as you noted. The default Hugo
+layout renders `title, enumeration` and passes `issn`/`traced` through to adopters
+without rendering them: an ISSN is a serials-control number nobody is looking for
+on a novel's page, and "traced" is a cataloging fact about added entries.
