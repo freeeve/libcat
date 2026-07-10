@@ -88,13 +88,15 @@ func registerSubjectLookup(mux *http.ServeMux, cc *copycat.Service, bs blob.Stor
 		}
 		byKey := map[string]*subjectCandidate{}
 		failures := map[string]string{}
+		warnings := map[string]string{}
 		for _, isbn := range isbns {
-			results, fails, err := cc.SearchAll(r.Context(), "", []copycat.FieldTerm{{Index: "isbn", Term: isbn}}, req.Targets)
+			results, fails, warns, err := cc.SearchAll(r.Context(), "", []copycat.FieldTerm{{Index: "isbn", Term: isbn}}, req.Targets)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			maps.Copy(failures, fails)
+			maps.Copy(warnings, warns)
 			for _, res := range results {
 				collectSubjects(byKey, res.Target, res.Record)
 			}
@@ -126,7 +128,7 @@ func registerSubjectLookup(mux *http.ServeMux, cc *copycat.Service, bs blob.Stor
 			}
 			return candidates[i].Heading < candidates[j].Heading
 		})
-		writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates, "failures": failures})
+		writeJSON(w, http.StatusOK, map[string]any{"candidates": candidates, "failures": failures, "warnings": warnings})
 	})))
 
 	// Identifier kinds (tasks/073): each bf:identifiedBy value mapped to its

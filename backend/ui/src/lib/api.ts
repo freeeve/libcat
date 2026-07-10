@@ -411,10 +411,17 @@ export function deleteCopycatTarget(name: string): Promise<void> {
 
 /** Fans a query out to the external targets (librarian). Fielded terms AND
  *  onto the free-text query (tasks/074); per-target failures come back in
- *  `failures` rather than failing the search. */
+ *  `failures` rather than failing the search.
+ *
+ *  `warnings` names the targets that answered incompletely -- a stream that
+ *  broke partway, or one the search limit cut short. Their hits ARE in
+ *  `results`, so a warning must never suppress them; it tells the cataloger
+ *  that "not in this result set" does not mean "not in this catalog"
+ *  (tasks/258). */
 export function copycatSearch(query: string, fields?: CopycatFieldTerm[], targets?: string[]): Promise<{
   results: CopycatSearchResult[];
   failures: Record<string, string>;
+  warnings: Record<string, string>;
 }> {
   return call("POST", "/v1/copycat/search", {
     query,
@@ -877,11 +884,14 @@ export function cacheVocabTerm(sugg: VocabSuggestion): Promise<{ cached: boolean
 
 /** Searches the copycat targets by the work's ISBNs and returns their 6XX
  *  headings, deduped and reconciled against the local index (librarian,
- *  tasks/073). Seconds-slow: target fan-out. */
+ *  tasks/073). Seconds-slow: target fan-out.
+ *
+ *  `warnings` names targets whose answer was incomplete; their candidates are
+ *  included, but the heading list may be short (tasks/258). */
 export function lookupSubjects(
   workId: string,
   targets?: string[],
-): Promise<{ candidates: SubjectCandidate[]; failures: Record<string, string> }> {
+): Promise<{ candidates: SubjectCandidate[]; failures: Record<string, string>; warnings: Record<string, string> }> {
   return call("POST", `/v1/works/${encodeURIComponent(workId)}/subjects/lookup`, targets?.length ? { targets } : {});
 }
 

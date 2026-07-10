@@ -56,11 +56,14 @@ func registerCopycat(mux *http.ServeMux, svc *copycat.Service, verifier auth.Tok
 			writeError(w, http.StatusBadRequest, "bad request body")
 			return
 		}
-		results, failures, err := svc.SearchAll(r.Context(), req.Query, req.Fields, req.Targets)
+		results, failures, warnings, err := svc.SearchAll(r.Context(), req.Query, req.Fields, req.Targets)
 		if writeCopycatError(w, err) {
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"results": results, "failures": failures})
+		// warnings are the targets that answered, incompletely. Their hits are in
+		// results; a client that renders only failures would tell a cataloger the
+		// short set is the whole set (tasks/258).
+		writeJSON(w, http.StatusOK, map[string]any{"results": results, "failures": failures, "warnings": warnings})
 	})))
 
 	// Original cataloging (tasks/077): blank-record skeletons, and staging a

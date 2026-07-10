@@ -68,6 +68,7 @@
     fields: { title: "", author: "", subject: "", isbn: "", issn: "", lccn: "", id: "" },
     results: [] as CopycatSearchResult[],
     failures: {} as Record<string, string>,
+    warnings: {} as Record<string, string>,
     picked: {} as Record<number, boolean>,
     resultsSelected: 0,
     batches: [] as CopycatBatch[],
@@ -227,6 +228,7 @@
       const res = await copycatSearch(st.query.trim(), fieldTerms, profile?.targets ?? undefined);
       st.results = res.results ?? [];
       st.failures = res.failures ?? {};
+      st.warnings = res.warnings ?? {};
     } catch (e) {
       error = e instanceof ApiError ? e.message : "search failed";
     } finally {
@@ -274,6 +276,7 @@
       const res = await copycatSearch("", [{ index: "isbn", term: isbn }], profile?.targets ?? undefined);
       st.results = res.results ?? [];
       st.failures = res.failures ?? {};
+      st.warnings = res.warnings ?? {};
       if (st.results.length === 0) {
         status = `no match for ${isbn}`;
         return;
@@ -498,6 +501,9 @@
       {#each Object.entries(st.failures) as [name, msg] (name)}
         <span class="error">{name}: {msg}</span>
       {/each}
+      {#each Object.entries(st.warnings) as [name, msg] (name)}
+        <span class="warn">{name}: {msg} -- this target's results are incomplete</span>
+      {/each}
     </p>
 
     {#if st.results.length > 0 && !st.openBatch}
@@ -685,5 +691,10 @@
   }
   .ok {
     color: var(--accent);
+  }
+  /* A target that answered incompletely is not a failed target: amber, not the
+     danger red its hits would be filed under otherwise (tasks/258). */
+  .warn {
+    color: var(--pend-ink);
   }
 </style>

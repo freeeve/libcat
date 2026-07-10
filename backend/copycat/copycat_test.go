@@ -136,9 +136,12 @@ func TestSearchFanOut(t *testing.T) {
 		rec.AddField(codex.NewDataField("010", ' ', ' ', codex.NewSubfield('a', "2019978000")))
 		return []*codex.Record{rec}, nil
 	}
-	results, failures, err := svc.SearchAll(ctx, "gideon", nil, nil)
+	results, failures, warnings, err := svc.SearchAll(ctx, "gideon", nil, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none: both streams ended cleanly", warnings)
 	}
 	if len(results) != 1 || results[0].Target != "alpha" || results[0].Title != "Hit for gideon" || results[0].ISBN != "9781250313195" {
 		t.Fatalf("results = %+v", results)
@@ -149,7 +152,7 @@ func TestSearchFanOut(t *testing.T) {
 	if failures["beta"] == "" {
 		t.Fatalf("failures = %v", failures)
 	}
-	if _, _, err := svc.SearchAll(ctx, "", nil, nil); !errors.Is(err, copycat.ErrValidation) {
+	if _, _, _, err := svc.SearchAll(ctx, "", nil, nil); !errors.Is(err, copycat.ErrValidation) {
 		t.Fatalf("empty query err = %v", err)
 	}
 }
@@ -169,7 +172,7 @@ func TestSearchFielded(t *testing.T) {
 		return nil, nil
 	}
 	fields := []copycat.FieldTerm{{Index: "isbn", Term: "9780062963673"}, {Index: "author", Term: "patchett"}}
-	if _, _, err := svc.SearchAll(ctx, "dutch house", fields, nil); err != nil {
+	if _, _, _, err := svc.SearchAll(ctx, "dutch house", fields, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := append([]copycat.FieldTerm{{Index: "any", Term: "dutch house"}}, fields...)
@@ -177,13 +180,13 @@ func TestSearchFielded(t *testing.T) {
 		t.Fatalf("terms = %+v", got)
 	}
 	// Fields alone (no free-text query) are a valid search.
-	if _, _, err := svc.SearchAll(ctx, "", fields[:1], nil); err != nil {
+	if _, _, _, err := svc.SearchAll(ctx, "", fields[:1], nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := svc.SearchAll(ctx, "", []copycat.FieldTerm{{Index: "dewey", Term: "813"}}, nil); !errors.Is(err, copycat.ErrValidation) {
+	if _, _, _, err := svc.SearchAll(ctx, "", []copycat.FieldTerm{{Index: "dewey", Term: "813"}}, nil); !errors.Is(err, copycat.ErrValidation) {
 		t.Fatalf("unknown index err = %v", err)
 	}
-	if _, _, err := svc.SearchAll(ctx, "", []copycat.FieldTerm{{Index: "title", Term: ""}}, nil); !errors.Is(err, copycat.ErrValidation) {
+	if _, _, _, err := svc.SearchAll(ctx, "", []copycat.FieldTerm{{Index: "title", Term: ""}}, nil); !errors.Is(err, copycat.ErrValidation) {
 		t.Fatalf("empty term err = %v", err)
 	}
 }

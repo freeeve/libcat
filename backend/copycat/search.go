@@ -41,22 +41,55 @@ var searchIndexes = map[string]bool{
 	"isbn": true, "issn": true, "lccn": true, "id": true,
 }
 
+// ErrCapped reports that the search limit, not the result set, ended the
+// stream: the target may hold more records than were returned.
+var ErrCapped = errors.New("result set truncated at the search limit")
+
+// PartialError reports a stream that broke after delivering records. It carries
+// both, because a caller needs the hits and the reason the set is short.
+type PartialError struct {
+	Got int
+	Err error
+}
+
+func (e *PartialError) Error() string {
+	return fmt.Sprintf("partial results: the stream broke after %d record(s): %v", e.Got, e.Err)
+}
+
+func (e *PartialError) Unwrap() error { return e.Err }
+
+// Incomplete reports whether err means "these records, but not all of them" --
+// a partial stream or the search cap -- as opposed to an outright failure.
+// A search returning records with an Incomplete error is a warning, never a
+// failure: suppressing the hits would throw away the useful half.
+func Incomplete(err error) bool {
+	var partial *PartialError
+	return errors.As(err, &partial) || errors.Is(err, ErrCapped)
+}
+
 // SearchFunc is the protocol seam: it fetches up to limit records from one
-// target. Tests inject fakes; production uses protocolSearch.
+// target. A non-nil error alongside records means the set is incomplete; see
+// Incomplete. Tests inject fakes; production uses protocolSearch.
 type SearchFunc func(ctx context.Context, t Target, terms []FieldTerm, limit int) ([]*codex.Record, error)
 
 // SearchAll fans the query out to every configured target (or the named
 // subset) concurrently and returns the normalized hits; per-target failures
 // come back as errors keyed by target name rather than failing the fan-out.
 // A bare query searches the server-choice "any" index; fields AND onto it.
-func (s *Service) SearchAll(ctx context.Context, query string, fields []FieldTerm, names []string) ([]SearchResult, map[string]string, error) {
+//
+// warnings names the targets whose answer is incomplete but usable: a stream
+// that broke after some records, or one the search limit cut short. Those
+// targets' hits are in results -- a partial success is not a failure, and
+// hiding the hits would throw away the useful half -- but a cataloger deciding
+// "my book is not in this catalog" must be told the set is short (tasks/258).
+func (s *Service) SearchAll(ctx context.Context, query string, fields []FieldTerm, names []string) ([]SearchResult, map[string]string, map[string]string, error) {
 	terms, err := searchTerms(query, fields)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	targets, err := s.Targets(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(names) > 0 {
 		want := map[string]bool{}
@@ -72,7 +105,7 @@ func (s *Service) SearchAll(ctx context.Context, query string, fields []FieldTer
 		targets = filtered
 	}
 	if len(targets) == 0 {
-		return nil, nil, fmt.Errorf("%w: no search targets configured", ErrValidation)
+		return nil, nil, nil, fmt.Errorf("%w: no search targets configured", ErrValidation)
 	}
 	search := s.Search
 	if search == nil {
@@ -85,6 +118,7 @@ func (s *Service) SearchAll(ctx context.Context, query string, fields []FieldTer
 	var wg sync.WaitGroup
 	results := []SearchResult{}
 	failures := map[string]string{}
+	warnings := map[string]string{}
 	for _, t := range targets {
 		wg.Add(1)
 		go func(t Target) {
@@ -93,8 +127,14 @@ func (s *Service) SearchAll(ctx context.Context, query string, fields []FieldTer
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				failures[t.Name] = err.Error()
-				return
+				// An incomplete answer is not a failed one: the records that
+				// arrived are still the cataloger's answer, and dropping them
+				// here is what made a mid-stream break invisible (tasks/258).
+				if !Incomplete(err) {
+					failures[t.Name] = err.Error()
+					return
+				}
+				warnings[t.Name] = err.Error()
 			}
 			for _, rec := range recs {
 				results = append(results, SearchResult{
@@ -112,7 +152,7 @@ func (s *Service) SearchAll(ctx context.Context, query string, fields []FieldTer
 	}
 	wg.Wait()
 	sort.SliceStable(results, func(i, j int) bool { return results[i].Target < results[j].Target })
-	return results, failures, nil
+	return results, failures, warnings, nil
 }
 
 // searchTerms normalizes a request into the ANDed term list: a bare query
@@ -198,22 +238,40 @@ func z3950Query(terms []FieldTerm) z3950.Query {
 	return q
 }
 
+// readUpTo drains a record stream to limit, returning whatever arrived and, when
+// the answer is incomplete, why.
+//
+// Partial results beat none: a mid-stream break after hits keeps the hits. But
+// the records and the reason are both needed, and the old signature could carry
+// only one, so the reason was dropped (tasks/258). Whether a given error lands
+// on the first read or the fiftieth is decided by the remote server's page size
+// -- an implementation detail of that server, not a property of the error -- so
+// the same broken response was reported on page 1 and silently swallowed on
+// page 2. Copy cataloging turns on "is my book in this result set?", and a
+// truncated set answers that wrongly.
+//
+// Callers distinguish the three outcomes with errors.As / errors.Is:
+//
+//   - nil                  the stream ended; every record is here.
+//   - *PartialError        the stream broke; out holds what arrived first.
+//   - ErrCapped            limit stopped us; the target may hold more.
+//   - any other error      nothing arrived; the search failed.
 func readUpTo(read func() (*codex.Record, error), limit int) ([]*codex.Record, error) {
 	var out []*codex.Record
 	for len(out) < limit {
 		rec, err := read()
 		if errors.Is(err, io.EOF) {
-			break
+			return out, nil
 		}
 		if err != nil {
-			// Partial results beat none: a mid-stream error after hits is
-			// swallowed; an immediate error surfaces.
 			if len(out) > 0 {
-				break
+				return out, &PartialError{Got: len(out), Err: err}
 			}
 			return nil, err
 		}
 		out = append(out, rec)
 	}
-	return out, nil
+	// The stream may or may not have had more. Finding out costs another page
+	// fetch, and "the first N; there may be more" is true either way.
+	return out, fmt.Errorf("%w: showing the first %d", ErrCapped, limit)
 }

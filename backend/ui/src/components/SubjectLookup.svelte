@@ -17,6 +17,7 @@
 
   let candidates = $state<SubjectCandidate[]>([]);
   let failures = $state<Record<string, string>>({});
+  let warnings = $state<Record<string, string>>({});
   let added = $state<Record<string, boolean>>({});
   let ran = $state(false);
   let busy = $state(false);
@@ -29,6 +30,7 @@
       const res = await lookupSubjects(workId);
       candidates = res.candidates ?? [];
       failures = res.failures ?? {};
+      warnings = res.warnings ?? {};
       added = {};
       ran = true;
     } catch (e) {
@@ -37,6 +39,9 @@
       busy = false;
     }
   }
+
+  /** True when any target answered short, so an empty result set proves nothing. */
+  const incomplete = $derived(Object.keys(warnings).length > 0 || Object.keys(failures).length > 0);
 
   function key(c: SubjectCandidate): string {
     return c.tag + "|" + c.heading;
@@ -57,9 +62,20 @@
     {#each Object.entries(failures) as [name, msg] (name)}
       <span class="error">{name}: {msg}</span>
     {/each}
+    {#each Object.entries(warnings) as [name, msg] (name)}
+      <span class="warn">{name}: {msg} -- this target's headings are incomplete</span>
+    {/each}
   </p>
   {#if ran && candidates.length === 0 && !error}
-    <p class="muted small">The targets' records carry no headings this work lacks.</p>
+    <!-- With a short answer from a target, "no headings" is a claim we cannot
+         make: the missing records are the ones not searched (tasks/258). -->
+    <p class="muted small">
+      {#if incomplete}
+        No headings this work lacks were found, but a target's answer was cut short -- try again.
+      {:else}
+        The targets' records carry no headings this work lacks.
+      {/if}
+    </p>
   {:else if candidates.length > 0}
     <ul class="cands">
       {#each candidates as c (key(c))}
@@ -99,6 +115,11 @@
   .act {
     font-size: 0.78rem;
     padding: 0.1em 0.7em;
+  }
+  /* Incomplete, not failed: amber rather than the danger red of a dead target. */
+  .warn {
+    color: var(--pend-ink);
+    font-size: 0.82rem;
   }
   .small {
     font-size: 0.82rem;

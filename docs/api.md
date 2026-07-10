@@ -273,6 +273,33 @@ log; compensated ones changed nothing and are not (tasks/268, compare tasks/249)
 Any `failed` entry makes the response **`207 Multi-Status`**. A `200` means every
 entry either applied or was skipped without touching a record.
 
+### `POST /v1/copycat/search`
+
+Fans the query out to the configured targets. A target that cannot be reached at
+all is named in `failures`; a target that answered, but not completely, is named
+in `warnings` -- and **its hits are in `results`**:
+
+```json
+{
+  "results": [{"target": "loc", "title": "Gideon the Ninth"}],
+  "failures": {"beta": "connection refused"},
+  "warnings": {"loc": "partial results: the stream broke after 3 record(s): XML syntax error"}
+}
+```
+
+A warning is neither a success nor a failure, and collapsing it into either one
+loses something. Treated as a failure, the records that did arrive are thrown
+away. Treated as a success -- which is what happened before tasks/258 -- the
+client is told a short result set is the whole result set, and copy cataloging
+turns entirely on "is my book in this result set?".
+
+Two conditions raise a warning: the record stream broke after delivering some
+records, and the search limit truncated it. Whether a broken stream lands on the
+first read or the fiftieth is decided by the remote server's page size, so the
+two cases must not be reported differently. `/v1/works/{id}/subjects/lookup`
+carries the same `warnings` map for the same reason: an empty candidate list
+means "no new headings" only if every target answered in full.
+
 The remaining surfaces are grouped by path prefix and named plainly:
 `/v1/works` (records, MARC, items, covers, attachments, relations, clone,
 merge/split, visibility), `/v1/copycat` (SRU targets, search, import batches),
