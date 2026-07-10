@@ -112,3 +112,77 @@ a=json.load(open('/tmp/projA/catalog.json')); b=json.load(open('/tmp/projB/catal
 ta={t['id'] for t in a['terms']}; tb={t['id'] for t in b['terms']}
 print(len(ta), len(tb), 'lost:', len(ta - tb))"
 ```
+
+## Outcome
+
+Shipped in `c77b12f`, released as **v0.131.0**. Took the two-pass streaming
+option; left the authorities in `catalog.nq`.
+
+`project.LoadDataset` streams the file twice with `rdf.Decoder.DecodeQuad`.
+Pass one seeds a wanted set from every IRI the non-authority quads mention in
+subject or object position, and records the authority graphs' `skos:broader`
+adjacency. `closeOverBroader` grows that set to its transitive ancestors --
+the closure `termSideband` walks, and the reason an ancestor no Work names
+still carries its label (tasks/178). Pass two admits an authority quad only
+when its subject is wanted *and* its predicate is one of `skos:prefLabel`,
+`rdfs:label`, `skos:broader`. Everything outside `authority:*` passes through
+untouched.
+
+The seed is deliberately coarse -- every IRI, not just the objects of
+`bf:subject`. A Work reaches a term through several predicates, and a seed
+that enumerated them would silently drop a term the day a new one is
+projected. An over-broad seed costs map entries; a narrow one costs a subject
+page its heading.
+
+`ProjectDataset`, `RedirectsDataset` and `FeedsDataset` take the dataset, so a
+three-provider build parses the corpus once instead of three times. `Project`,
+`Redirects` and `Feeds` remain as byte-slice wrappers.
+
+### Measured
+
+Frozen copy of the playground store, `catalog.nq` 264MB / 1,761,834 quads,
+`--provider copycat,marc,overdrive`:
+
+| | peak RSS | wall |
+|---|---|---|
+| before | 1.87 GB | 2.82 s |
+| after | **234 MB** | **1.10 s** |
+
+8x less memory, 2.6x faster. `catalog.json`, `facets.json`, `redirects.json`
+and `similar.json` are all byte-identical to the baseline (`cmp -s`), and all
+98 terms survive. The final dataset holds 89,490 quads: 95% of the corpus is
+dropped.
+
+Predicate histogram of the authority graphs, which is the argument in one
+table: prefLabel 547,206 / altLabel 442,655 / broader 327,485 / narrower
+321,353 / related 33,902 / rdf:type 32,452 / rdfs:label 10,033. altLabel,
+narrower and related are 45% of the corpus and no index reads them.
+
+Rejected iterating the broader closure to a fixpoint over the file (10 levels
+on this corpus, ~3.5s of re-reads) in favour of holding the adjacency in
+memory: 84MB, and pass one's heap peaks there.
+
+`BenchmarkLoadDataset` and `BenchmarkProjectDataset` guard both costs. They
+skip unless `LCAT_BENCH_NQ` names a real corpus -- a synthetic one large
+enough to mean anything would dominate the suite.
+
+### Also
+
+`SerializeGrains`'s doc comment and `serialize --dir`'s help now say the thing
+that made this bug findable: **every** `*.nq` beneath the directory is merged,
+`data/authorities` included, and naming `data/works` alone builds a catalog
+whose subject pages have unlabeled headings.
+
+### Found on the way
+
+libcodex's N-Quads decoder **silently skips a malformed line** and returns
+`io.EOF` -- `Decoder.DecodeQuad` and `ParseNQuadsShared` alike. A truncated
+`catalog.nq` therefore projects a smaller catalog and exits 0, which is the
+failure class tasks/246 exists to refuse. Not a regression from this rewrite;
+both paths lose the same lines, and `TestAMalformedLineIsSilentlySkippedByBothParsers`
+pins that. Filed upstream as libcodex tasks/113: the guard belongs in the
+decoder, not in a count heuristic here.
+
+The third bullet under Expected -- moving authorities out of `catalog.nq`
+entirely -- is not done and is no longer urgent. The file is still 264MB, but
+nothing pays 264MB to read it.
