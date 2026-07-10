@@ -169,3 +169,71 @@ curl -s -XPOST -H "Authorization: Bearer $TOK" -H 'Content-Type: application/jso
 
 curl -XDELETE -H "Authorization: Bearer $TOK" localhost:8481/v1/copycat/targets/zzstub
 ```
+
+## Outcome
+
+Fixed in **v0.109.0** (`47033d6`). Two of the three bullets shipped; the third
+needs libcodex first and is filed there.
+
+`readUpTo` returns both halves now. Two sentinels name the two ways an answer
+can be short, because they are genuinely different things:
+
+- `*PartialError{Got, Err}` -- the stream broke after N records. Unwraps to the
+  stream's own error, so a caller can tell a timeout from a malformed body
+  without parsing a string.
+- `ErrCapped` -- `searchLimit` ended it, so the target may hold more. This is
+  the second aggravating detail from the report, and it falls out of the same
+  return.
+
+`Incomplete(err)` is the seam: "these records, but not all of them" versus "this
+search failed". `SearchAll` routes an Incomplete error into a new per-target
+`warnings` map **and keeps the hits in `results`**. That is the report's own
+recommendation and it is the right one -- reusing `failures` would have made the
+records disappear, which is the opposite harm.
+
+`POST /v1/copycat/search` and `POST /v1/works/{id}/subjects/lookup` both carry
+`warnings`. `CopyCat.svelte` renders them in amber (`--pend-ink`) beside the red
+failures. `SubjectLookup.svelte` no longer says *"The targets' records carry no
+headings this work lacks"* when any target answered short -- that sentence is a
+claim about records nobody read, and it is the same false negative one level up.
+
+### What did not ship, and why
+
+**The advertised total.** `sru.Response.NumberOfRecords` is parsed
+(`sru/sru.go:112`) but `sru.Reader` never retains it -- it reads
+`resp.NumberOfRecords` inside `fetch()` and drops it. `z3950.Reader` does store
+`total` (`z3950/reader.go:89`) but keeps it unexported; `Result.Count` is only on
+`Search`, not on the `Reader` copycat uses. Neither reader can be asked. Filed as
+a libcodex ask; once an accessor lands, `"20 of 4,113 -- refine your search"`
+becomes a display change here, not a redesign.
+
+### On the probe
+
+`probe_copycat_stream.mjs` still reports **S5, S7, S8 FAIL** against the fix, and
+it is right to, because its `search()` helper reads only `failures[name]`. The
+report's Expected section asks for a `warnings` map precisely so a partial
+success does not land in `failures` -- so the probe asserts a contract narrower
+than the one the report requested. `retest.mjs` t258 already checks
+`body.warnings[TRUNC]` and reports **FIXED**. Against the live playground:
+
+```
+zz-w-trunc   results: 1  failures: undefined
+             warnings: "partial results: the stream broke after 1 record(s): sru: parse response: XML syntax error…"
+zz-w-t500    results: 1  failures: undefined
+             warnings: "partial results: the stream broke after 1 record(s): sru: unexpected HTTP status 500…"
+zz-w-bad     results: 0  failures: "sru: parse response: XML syntax error…"   (page-1 control, unchanged)
+```
+
+S7's page-1-vs-page-2 comparison is the assertion worth keeping; it just needs to
+read `failures[n] ?? warnings[n]`.
+
+### Verification
+
+Every guard was mutation-proven: reverting `readUpTo` to `return out, nil` fails
+`TestReadUpToMidStreamErrorReportsPartialResults`; routing all errors to
+`failures` fails the two `SearchAll` warning tests; adding a `return` after
+`warnings[t.Name] = …` fails them for dropping the hits; forcing
+`SubjectLookup`'s `incomplete` to `false` fails the two false-negative tests.
+
+Go suite 28 packages ok (`-count=1`, exit 0), root suite ok, `npm run check`
+clean, 261 UI tests pass, `retest.mjs`: t258 FIXED with nothing regressed.
