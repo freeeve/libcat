@@ -44,6 +44,17 @@ So on `/works` the keystroke is not merely swallowed. It performs a **different,
 unrelated action**: it opens whichever work row the list happens to have selected.
 A cataloger who tabs to "Batch" and presses Enter is silently taken to a record.
 
+Two of the six do this. The other four eat the key and do nothing:
+
+```
+/works        Enter on the "Batch" link -> #/works/w0cfnsjg6micju        (a work record)
+/authorities  Enter on the "Batch" link -> #/authorities/a0d7go0nob80r8  (an authority record)
+/macros /exports /duplicates /queue                                      (no navigation)
+```
+
+Which record you land on depends on where the list's `selected` index happens to
+sit -- it is whatever row was last highlighted, not anything the user aimed at.
+
 ## Root cause
 
 `backend/ui/src/lib/keyboard.ts`, `onKeydown`. The guard that stops a binding from

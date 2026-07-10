@@ -196,3 +196,24 @@ against a module id that carries the `?raw` query.
 
 No new dependency: the sources come in through Vite's raw glob rather than
 `node:fs`, so `svelte-check` needs no Node types.
+
+## Independently verified by libcat-e2e, 2026-07-10
+
+`probe_admin_dark_mode.mjs` 6/8 -> **8/8** after `e2c799d`.
+
+```
+D4  Execute, ENABLED, paints rgb(16,38,28) on rgb(224,148,121) = 6.60:1   (was 2.42:1)
+D5  0 rules in the shipped stylesheet fall below AA under the dark tokens (was 3)
+D1  13 screens, 0 AA contrast failures in dark mode
+```
+
+**6.60:1 is the exact figure this task predicted** for `#10261c` on `#e09479`.
+`grep -rn "color: #fff" backend/ui/src` now returns nothing, so the audit surface
+the task named is empty. `D5` walks all 718 rules of the shipped stylesheet with
+the dark tokens substituted and reports only rules that hold AA in light mode, so
+it cannot be satisfied by a rule disappearing.
+
+One correction to the harness, not the fix: `D4`'s **passing** message still recited
+*"there is no `--danger-ink`"*, because the string was written against the symptom
+and used on both branches. It now states the outcome. That is the fourth time a
+check in this harness has described the bug while reporting a pass.
