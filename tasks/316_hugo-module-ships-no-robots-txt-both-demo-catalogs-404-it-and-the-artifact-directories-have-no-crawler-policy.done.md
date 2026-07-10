@@ -45,3 +45,48 @@ them regardless, and `Disallow` would not stop that. The argument for it is byte
 and politeness; the argument against is that a `Disallow` on a path the site's own
 JS fetches is a lie a crawler may hold against you. A `Crawl-delay`, or nothing at
 all beyond the sitemap pointer, may be the honest answer.
+
+## Outcome
+
+Shipped in **libcat v0.143.0** (minor -- adopters have something additive to
+adopt: `enableRobotsTXT = true` now yields a robots.txt with a sitemap pointer).
+
+**Resolved the open question with evidence, and it was decisive.** Traced what
+the assets actually fetch: `lcat-browse.js` reads `/search/browse-records.{idx,bin}`
+and `/search/browse-subjects.json` (via the RoaringRange range reader) on an
+ordinary browse/search view, `lcat-sidebar.js` fetches facet fragments under
+`/lcat/`, and `/lcat/roaringrange.js` is the reader itself. So both artifact
+directories are fetched by the site's own JavaScript. A `Disallow` on them would
+tell a rendering crawler (Googlebot renders) not to load the resources it needs
+to render the page -- which Google's own guidance warns against -- while doing
+nothing to a crawler that runs the JS anyway. So the shipped default is the
+"nothing beyond the sitemap pointer" option the task floated: **allow everything,
+add the `Sitemap:` line Hugo's built-in omits.** The dir-listing crawl vector was
+already closed at the server (tasks/278), and nothing links or sitemaps the
+artifacts, so there is no enumeration path left to block. A site that disagrees
+shadows `layouts/robots.txt` (documented).
+
+**What shipped:**
+
+- `hugo/layouts/robots.txt` -- `User-agent: * / Disallow:` + `Sitemap: {{ absURL
+  "sitemap.xml" }}`. The rationale lives in a Go-template comment (stripped from
+  output) so the served file stays clean.
+- `hugo/exampleSite/hugo.toml` -- `enableRobotsTXT = true`, so the module's demo
+  serves it (a module cannot set this itself).
+- `hugo/README.md` -- an "robots.txt (opt-in)" subsection under SEO head,
+  documenting the flag and why the artifact dirs are not disallowed.
+
+### Verified
+
+- Regression guard: `diff -r` of the exampleSite build before/after the change is
+  **`Only in after: robots.txt`** -- no existing page output moved.
+- Served the build: `GET /robots.txt` -> **200** (was 404, the probe's D3), body
+  is the allow-all + sitemap pointer; the `Sitemap:` URL `/sitemap.xml` itself
+  resolves **200** (a sitemapindex).
+
+### Note on the demos
+
+This fixes the module's own demo (built from exampleSite). The two published
+catalogs the probe measured are `:8482` (libcat) and `:8502` (queerbooks); the
+queerbooks site is a separate repo and adopts by setting `enableRobotsTXT = true`
+and taking libcat v0.143.0 -- see the cross-repo doneness note.
