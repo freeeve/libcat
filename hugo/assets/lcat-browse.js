@@ -39,7 +39,11 @@
  * Live facet counts (tasks/177): while a query or
  * filter is active, every rendered count re-derives from the result set --
  * each category's postings intersected with the surviving ids -- so the rail
- * never promises a result set it will not deliver. An active field's counts
+ * never promises a result set it will not deliver. That held only because the
+ * base set is the whole ranked match set: `search(q, 0, len, ...)` bounds its
+ * ids by `len` but never its facetCounts, so asking for a page and treating it
+ * as the corpus made the rail advertise a number the click could not deliver
+ * (tasks/281). An active field's counts
  * are recomputed with its own selections removed (Pagefind-style drill-down:
  * its other values stay addable), zero-count rows grey out rather than
  * disappear so the rail stays stable, and clearing query + filters restores
@@ -47,7 +51,8 @@
  */
 import init, { RrsCatalog, RrfFacets, RrsRecords } from "/lcat/roaringrange.js";
 
-const PAGE = 60;
+// Three distinct numbers, one of which used to be all three (tasks/281).
+const PAGE = 60; // result cards rendered; the reader's search page is NOT this
 const CATS_SHOWN = 40; // per-field category cap in the panel, by descending count
 
 /** esc HTML-escapes untrusted record/facet text before insertion. */
@@ -94,6 +99,9 @@ function start() {
   const labels = {
     none: results.getAttribute("data-lcat-noresults") || "No matches",
     results: results.getAttribute("data-lcat-resultsword") || "results",
+    // "showing the first {shown} of {total} {results}" -- rendered when the match
+    // set is larger than one page, so the reader is told the page is a page.
+    showing: results.getAttribute("data-lcat-showing") || "showing the first {shown} of {total} {results}",
   };
   const panel = document.getElementById("lcat-browse-facets");
   const dec = new TextDecoder();
@@ -109,11 +117,14 @@ function start() {
       booting = init()
         .then(() =>
           Promise.all([
-            RrsCatalog.openAll(
-              base + "/browse-index.rrs",
-              base + "/browse-facets.rrsf",
-              base + "/browse-records.idx",
-              base + "/browse-records.bin",
+            // Index + facets, deliberately WITHOUT the record store. search()
+            // returns record bytes for every id it returns, and since tasks/281
+            // it is asked for the whole ranked match set, not a page of sixty --
+            // attaching records here would decode thousands of them per
+            // keystroke to render sixty cards. The separate RrsRecords handle
+            // below fetches exactly the page, which is what it was always for.
+            RrsCatalog.open(base + "/browse-index.rrs").then((c) =>
+              c.openFacets(base + "/browse-facets.rrsf").then(() => c),
             ),
             RrfFacets.open(base + "/browse-facets.rrsf"),
             RrsRecords.open(base + "/browse-records.idx", base + "/browse-records.bin"),
@@ -821,6 +832,7 @@ function start() {
     results.innerHTML = staticList;
     if (countEl) countEl.textContent = staticCount;
     setLiveCounts(null, null, null);
+    setPagerHidden(false);
   }
 
   function renderCards(recs, total) {
@@ -829,9 +841,35 @@ function start() {
       if (r) html.push(card(dec, r));
     }
     results.innerHTML = html.length ? html.join("") : '<li class="lcat-noresults">' + esc(labels.none) + "</li>";
+    // The base set is the complete match set, so `total` is exact. It used to be
+    // `total + (total >= PAGE ? "+" : "")`, where the "+" meant "at least this
+    // many" on the query path (the set was truncated to PAGE) and "exactly this
+    // many" on the filter path (it was not) -- the same glyph, opposite meanings
+    // (tasks/281). Now: an exact count, and when the list is a page of a larger
+    // set, a sentence that says so rather than a suffix that hints at it.
     if (countEl) {
-      countEl.textContent = total + (total >= PAGE ? "+ " : " ") + labels.results;
+      countEl.textContent =
+        total > PAGE
+          ? labels.showing
+              .replace("{shown}", String(Math.min(PAGE, html.length)))
+              .replace("{total}", String(total))
+              .replace("{results}", labels.results)
+          : total + " " + labels.results;
     }
+    // The static pager beneath the list pages the server-rendered, unfiltered
+    // corpus. While browse owns the list it is a control that silently discards
+    // the reader's query and facets, so hide it (tasks/281). restore() brings it
+    // back. Browse has no pager of its own yet; the count says how many are held
+    // back, which is honest, where "Next" was not.
+    setPagerHidden(true);
+  }
+
+  /** setPagerHidden hides or restores the static paginator Hugo rendered. */
+  function setPagerHidden(hidden) {
+    document.querySelectorAll("ul.pagination").forEach((el) => {
+      const nav = el.closest("nav") || el;
+      nav.hidden = hidden;
+    });
   }
 
   /** filterField reads an entry's field from either shape selected() emits. */
@@ -855,22 +893,32 @@ function start() {
         // One ranked base set (query results, or the whole doc space), then
         // facet filtering over it -- the POC's single-pass browse() shape, so
         // the same survivors drive results AND live counts (tasks/177).
+        //
+        // The base set is the WHOLE ranked match set, not a page of it. `len`
+        // bounds search()'s ids; it never bounds its facetCounts. Passing PAGE
+        // here meant the rail advertised a category's true count while every
+        // facet click intersected with sixty ids, so no filtered selection could
+        // ever return more than sixty works -- 51 of 8307 on a real catalog
+        // (tasks/281). A query cannot match more docs than the corpus holds, so
+        // allIds.length is an exact bound, and the total below is exact.
         const baseP =
           q !== ""
-            ? catalog.search(q, 0, PAGE, 0, []).then((res) => ({
+            ? catalog.search(q, 0, allIds.length, 0, []).then((res) => ({
                 ids: res.ids || new Uint32Array(0),
-                records: res.records,
                 counts: res.facetCounts,
               }))
-            : Promise.resolve({ ids: allIds, records: null, counts: null });
+            : Promise.resolve({ ids: allIds, counts: null });
         return baseP.then((base) => {
           if (mine !== seq) return;
           if (!filters.length) {
-            // Query only: the search call already carries the page's records
-            // and the query-filtered counts.
-            renderCards(base.records || [], base.ids.length);
-            setLiveCounts(countsToMap(base.counts), new Map(), base.ids);
-            return;
+            // Query only. base.counts is the engine's count over every hit, and
+            // base.ids is now that same set, so the rail and the result list
+            // describe the same works again.
+            return records.getMany(base.ids.slice(0, PAGE)).then((recs) => {
+              if (mine !== seq) return;
+              renderCards(recs, base.ids.length);
+              setLiveCounts(countsToMap(base.counts), new Map(), base.ids);
+            });
           }
           return facets.filterIds(base.ids, filters, true).then((fi) => {
             if (mine !== seq) return;

@@ -98,6 +98,19 @@ other = "Close"
 one = "{{ .Count }} work"
 other = "{{ .Count }} works"
 
+# Browse-mode result labels (tasks/281). lcat-browse.js reads these off
+# #lcat-results as data attributes, so they localize with the page; before, the
+# script's English fallbacks shipped to every language. browseShowing's {shown},
+# {total} and {results} placeholders are substituted by the script.
+[browseNoResults]
+other = "No matches"
+
+[browseResultsWord]
+other = "results"
+
+[browseShowing]
+other = "showing the first {shown} of {total} {results}"
+
 [darkMode]
 other = "Dark mode"
 

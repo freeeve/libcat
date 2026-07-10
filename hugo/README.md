@@ -504,6 +504,19 @@ local preview of an already-built site, `lcat serve [--dir public]` is a
 Range-capable static server that starts instantly -- no re-render, unlike
 `hugo server` on a large site (tasks/181).
 
+**Results and paging.** A query's base set is the whole ranked match set, so a
+facet clicked on top of it narrows the *results*, not the first page of them
+(tasks/281). The result count is exact; when the match set is larger than the 60
+cards rendered, the count says "showing the first 60 of 8,307 results" rather
+than "60+". Browse has no pager of its own yet, so while it owns the list the
+static paginator is hidden -- it pages the server-rendered, unfiltered corpus and
+would silently drop the reader's query. It returns when query and facets clear.
+
+The browse labels are localized through `i18n` (`browseNoResults`,
+`browseResultsWord`, `browseShowing` -- whose `{shown}`, `{total}` and
+`{results}` placeholders the script substitutes) and reach the script as
+`data-` attributes on `#lcat-results`.
+
 ### Minimal static profile (tasks/157)
 
 At catalog scale the combinatorial static surface -- one page per facet term,

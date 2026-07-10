@@ -21,7 +21,9 @@
        (tasks/173). */ -}}
 {{ if $browse }}<div id="lcat-browse-facets" class="lcat-browse-facets" hidden></div>
 <script id="lcat-browse-config" type="application/json">{{ dict "subjects" (i18n "subjects") "subjectSchemes" (site.Params.subjectSchemes | default slice) | jsonify | safeJS }}</script>{{ end }}
-<ol class="lcat-results" id="lcat-results"{{ if $browse }} data-lcat-browse="{{ site.Params.search.base | default "/search" }}"{{ end }}>
+{{- /* The browse labels ride on the results element so lcat-browse.js localizes
+       with the page; its built-in fallbacks are English (tasks/281). */ -}}
+<ol class="lcat-results" id="lcat-results"{{ if $browse }} data-lcat-browse="{{ site.Params.search.base | default "/search" }}" data-lcat-noresults="{{ i18n "browseNoResults" }}" data-lcat-resultsword="{{ i18n "browseResultsWord" }}" data-lcat-showing="{{ i18n "browseShowing" }}"{{ end }}>
   {{ range $paginator.Pages }}
   <li>{{ partialCached "work-card.html" . .RelPermalink }}</li>
   {{ end }}

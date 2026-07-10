@@ -16,7 +16,8 @@ repo=$(cd "$here/../.." && pwd)
 out=${TMPDIR:-/tmp}/lcat-e2e-$$
 port=${PORT:-8510}
 minport=$((port + 1))
-trap 'kill $srv $minsrv 2>/dev/null || true; rm -rf "$out" "$out-min" "${out}-lcat"' EXIT
+bigport=$((port + 2))
+trap 'kill $srv $minsrv $bigsrv 2>/dev/null || true; rm -rf "$out" "$out-min" "$out-big" "${out}-lcat" "${out}-big-catalog.json"' EXIT
 
 printf '[params.search]\n  engine = "roaringrange"\n' > "${out}.toml"
 (cd "$repo/hugo/exampleSite" && hugo --quiet --config hugo.toml,"${out}.toml" --destination "$out")
@@ -49,3 +50,19 @@ node "$here/range-server.mjs" "$out-min" "$minport" &
 minsrv=$!
 sleep 1
 node "$here/browse-minimal.spec.mjs" "http://127.0.0.1:$minport"
+
+# Base-set scope (tasks/281). The fixture catalog has three works, so it cannot
+# tell "the base set is the match set" from "the base set is its first page" --
+# the page size is 60. This pass indexes a 600-work catalog instead, and forces a
+# static paginator on screen (three works, pagerSize 2) so the check that browse
+# hides it cannot pass by there being no pager.
+printf '[pagination]\n  pagerSize = 2\n[params.search]\n  engine = "roaringrange"\n' > "${out}.toml"
+(cd "$repo/hugo/exampleSite" && hugo --quiet --config hugo.toml,"${out}.toml" --destination "$out-big")
+rm "${out}.toml"
+node "$here/make-large-catalog.mjs" "${out}-big-catalog.json"
+"${out}-lcat" index --catalog "${out}-big-catalog.json" --out "$out-big/search"
+
+node "$here/range-server.mjs" "$out-big" "$bigport" &
+bigsrv=$!
+sleep 1
+node "$here/browse-scope.spec.mjs" "http://127.0.0.1:$bigport"

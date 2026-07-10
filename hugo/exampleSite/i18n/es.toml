@@ -98,6 +98,16 @@ other = "Quitar la exclusión de {{ .Label }}"
 ["lang-eng"]
 other = "Inglés"
 
+# Browse-mode result labels (tasks/281).
+[browseNoResults]
+other = "Sin coincidencias"
+
+[browseResultsWord]
+other = "resultados"
+
+[browseShowing]
+other = "mostrando los primeros {shown} de {total} {results}"
+
 ["lang-spa"]
 other = "Español"
 
