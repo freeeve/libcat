@@ -316,7 +316,22 @@ Each term is its own `<span class="lcat-similar-term">`, and CSS supplies the
 separator. Subject headings and contributor names carry commas of their own --
 `Lesbians' writings, Canadian` is one heading and `Elledge, Jim` is one person --
 so a comma-joined line names more things than it lists. Restyle the separator by
-overriding `.lcat-similar-term + .lcat-similar-term::before`.
+overriding `.lcat-similar-term + .lcat-similar-term::before`. Count terms by
+reading those elements; splitting the line on `, ` counts commas, not terms.
+
+**The collapse is by label, and that is a real limitation.** Two vocabularies that
+agree on an English string are treated as one concept, which is right for a
+synonym pair and wrong for a cross-scheme homograph. Whether your corpus contains
+one is a property of the corpus, not of the design. Measured on a 62.6k-work queer
+literature catalog (tasks/306): of 10,050 terms, 55 English labels are carried by
+more than one IRI, 43 of those cross-scheme, and **none** is a homograph -- every
+pair is co-assigned to at least one work, the signature of two names for one
+concept. The near miss is `Sapphics`, which is also a classical verse form; in
+that corpus both IRIs mean the people, and every work carrying the FAST term also
+carries the Homosaurus one. Merge a poetry or classics collection and the same
+label becomes a genuine homograph that this collapse folds together silently. The
+fix would be to collapse on `skos:exactMatch` instead of on the label, which needs
+the projector to carry mapping properties in the `terms` sideband; it is not done.
 
 Nothing to configure. `lcat project --similar=0` (or `similar = 0` under
 `[project]`) removes the sidecar and the rail with it.
