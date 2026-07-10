@@ -64,8 +64,11 @@
            The ISSN and the traced flag are carried but not rendered: an ISSN is a
            serials-control number no reader is looking for on a novel's page, and
            "traced" is a cataloging fact about whether an added entry exists. Both
-           reach adopters through .Params.series. */}}
-    {{ with .Params.series }}<dt>{{ i18n "series" }}</dt><dd>
+           reach adopters through .Params.seriesList.
+
+           seriesList, not series: `series` belongs to adopters, who use it for
+           their own lcat:extra/series string. See the adapter's note. */}}
+    {{ with .Params.seriesList }}<dt>{{ i18n "series" }}</dt><dd>
       {{- range $i, $s := . }}{{ if $i }}; {{ end -}}
         <span class="lcat-series"{{ with $s.issn }} data-issn="{{ . }}"{{ end }}>
           {{- $s.title }}{{ with $s.enumeration }}, {{ . }}{{ end -}}

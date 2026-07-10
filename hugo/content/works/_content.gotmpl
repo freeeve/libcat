@@ -254,6 +254,17 @@
         "contributors" ($n.contributors | default slice)
         "badge" $badge) -}}
     {{- end -}}
+    {{- /* The projected series arrive as `seriesList`, not as `series` (schema v12,
+           tasks/309). A reserved param always beats an extra of the same name, and
+           `series` is a name adopters already use for their own `lcat:extra/series`
+           string. Claiming it would overwrite theirs with an empty slice on every
+           Work whose record carries no 490 -- which on most corpora is every Work --
+           and their series line would silently stop rendering. Where a Work had
+           both, this layout would then try to `range` over their string and fail
+           the build.
+
+           Same reason subjectList / contributorList / classificationList are not
+           `subjects` / `contributors` / `classifications`. */ -}}
     {{- $params := dict
       "subtitle" .subtitle
       "summary" .summary
@@ -269,7 +280,7 @@
       "subjectList" .subjects
       "instances" .instances
       "relations" .relations
-      "series" .series
+      "seriesList" .series
       "similar" $neighbors
       "workID" .id -}}
     {{- /* Extra facet params sit between: they override the raw extras value

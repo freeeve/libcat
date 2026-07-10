@@ -255,13 +255,22 @@ module targets (`params.catalogSchemaVersion`, currently **12**). Reproject with
 matching `lcat` if you hit a mismatch.
 
 v12 moved series from the instance to the work and made them objects (tasks/309):
-`.Params.series` is a list of `{title, enumeration, issn, traced}`, replacing
-`instance.series` (a list of strings) and `instance.seriesEnumeration` (one
-string). A 490 is transcribed on every printing, so series were never per-edition
-facts; and each enumeration now belongs to its own series, where the flat shape
-paired them by list position and gave a record with two 490s one enumeration for
-both. `issn` and `traced` are carried but not rendered by the default layout --
-a serials-control number and a cataloging fact, both available to adopters.
+**`.Params.seriesList`** is a list of `{title, enumeration, issn, traced}`,
+replacing `instance.series` (a list of strings) and `instance.seriesEnumeration`
+(one string). A 490 is transcribed on every printing, so series were never
+per-edition facts; and each enumeration now belongs to its own series, where the
+flat shape paired them by list position and gave a record with two 490s one
+enumeration for both. `issn` and `traced` are carried but not rendered by the
+default layout -- a serials-control number and a cataloging fact, both available
+to adopters.
+
+**It is `seriesList`, not `series`, on purpose.** A reserved param always beats an
+extra of the same name, and `series` is a name adopters already use for their own
+`lcat:extra/series` string. Claiming it would overwrite theirs with an empty slice
+on every work whose record carries no 490 -- on most corpora, every work -- and
+their series line would silently stop rendering. Same reason `subjectList`,
+`contributorList` and `classificationList` are not `subjects`, `contributors` and
+`classifications`. `series` remains yours.
 
 v6 added the holdings signal: `held` on each
 instance and work (physical items, or a live-availability identifier whose feed
