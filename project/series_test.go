@@ -125,7 +125,7 @@ _:relSeries <` + bf + `associatedResource> _:series <feed:marc> .
 _:series <` + bf + `title> _:st <feed:marc> .
 _:st <` + bf + `mainTitle> "Real Series" <feed:marc> .
 <#waaWork> <` + bf + `relation> _:relTrans <feed:marc> .
-_:relTrans <` + bf + `relationship> <http://id.loc.gov/vocabulary/relationship/translationOf> <feed:marc> .
+_:relTrans <` + bf + `relationship> <http://id.loc.gov/vocabulary/relationship/translationof> <feed:marc> .
 _:relTrans <` + bf + `associatedResource> _:orig <feed:marc> .
 _:orig <` + bf + `title> _:ot <feed:marc> .
 _:ot <` + bf + `mainTitle> "Original Title" <feed:marc> .
