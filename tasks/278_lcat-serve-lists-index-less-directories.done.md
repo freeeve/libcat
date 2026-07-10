@@ -268,3 +268,73 @@ curl -s -o /dev/null -w '%{http_code}\n' localhost:8502/robots.txt            # 
 curl -s localhost:8502/works/ | grep -c 'rel="stylesheet"'                    # 1
 curl -s localhost:8502/works/ | grep -c '<pre>'                              # 0
 ```
+
+## Outcome
+
+Shipped in `d942417`, released as **v0.133.0**. Three of the four asks; the fourth
+is split out as tasks/316.
+
+### No listings
+
+`noDirList` wraps the `http.FileSystem` so a directory with no `index.html` opens
+as `fs.ErrNotExist` and `FileServer` renders its own 404 -- the idiom the report
+names, unchanged. Range support, `no-store`'s replacement, the redirect map
+(tasks/313) and the instant start are untouched, and the files *inside* an unlisted
+directory are still served by name: `lcat-browse.js` fetches them that way, and a
+206 on `/search/browse-index.rrs` is asserted.
+
+Measured on the playground after the rebuild:
+
+```
+/page/                  404   (was 200 + a <pre> of 1/ 2/ 3/ 4/)
+/search/                404
+/classifications/813/   404   (tasks/276's accidental parent -- it really is there)
+/page                   404   (no 301 to add a slash to a directory that answers nothing)
+
+/            200  1 stylesheet, 0 <pre>
+/works/      200  1 stylesheet, 0 <pre>
+/page/2/     200  1 stylesheet, 0 <pre>
+
+/search/browse-index.rrs   200, Accept-Ranges: bytes, Range -> 206
+```
+
+The controls are the argument, as the report said: a handler that 404'd everything
+would satisfy every assertion about the listings and none of these.
+
+### The doc comment
+
+Rewritten to say what tasks/181 says: it is the OPAC's server, not only a preview.
+That sentence was the load-bearing one.
+
+### Cache-Control
+
+`no-cache`, not `no-store`. `no-cache` does not mean "do not cache" -- it means
+"cache, but revalidate before reuse", which `FileServer` answers with a 304 off
+`Last-Modified`. So a rebuild is still visible on the next reload *and* the 9.9MB
+record store stops being re-downloaded on every navigation. That is the harm the
+report identified, fixed without a flag.
+
+`--dev` is there anyway, sending `no-store` for anyone who wants nothing written to
+the browser cache at all. It is not `max-age`: `serve` cannot tell a fingerprinted
+asset, cacheable forever, from an `index.html`, which is not. Caching those
+properly needs the build to tell the server which is which, and that is a different
+task.
+
+### Not done: robots.txt
+
+Filed as **tasks/316**, with the report's own reasoning: crawler policy lives in
+the build, not the server. The probe's D3 still fails and will until that ships.
+
+### Mutation-checked
+
+Restoring `http.FileServer(http.Dir(dir))` fails `TestAnIndexLessDirectoryIsNotListed`
+with exactly the reported body (`<pre>` + `<a href="1/">1/</a>`). Making *every*
+directory 404 fails `TestAnIndexBearingDirectoryStillRenders`. The listing check
+asserts the absence of `<pre>` and `<a href=` in the body, not just the status: a
+404 that still enumerated would have passed a status-only test.
+
+### Note on the probe
+
+`probe_opac_dirlist.mjs` D2 still names three queerbooks directories. `:8502` runs
+its own `lcat serve` binary, which is a live service and not this repo's to bounce;
+it needs a rebuild and a restart on v0.133.0. The playground is clean.
