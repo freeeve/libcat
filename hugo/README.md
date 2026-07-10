@@ -542,6 +542,28 @@ curated rows match browse rows exactly. An id that no longer resolves
 `exampleSite/content/lists/staff-picks.md` is the runnable reference. Pin the
 handful of views worth freezing -- the default stays minimal.
 
+The section index `/lists/` lists the curated views beneath it, but **nothing
+links to `/lists/` on its own** -- add a `[[menu.main]]` entry, as the
+exampleSite does, or the views are reachable only from the sitemap.
+
+### Section layouts
+
+The module ships three list layouts, and which one Hugo picks is worth knowing
+before you add content (tasks/290):
+
+| Page | Layout | Renders |
+|---|---|---|
+| `/` | `home.html` | the Works browse, under the site title |
+| `/works/` | `works/list.html` | the Works browse |
+| any other section | `list.html` | that section's own pages: title, content, one link + summary per page |
+
+So a prose section an adopter adds -- `content/about/`, `content/help/` -- gets a
+plain index of its own pages: no work count, no facet rail, and no
+`id="lcat-results"` (which is what the client reader binds to, so such a page
+would otherwise hydrate into a second catalog search surface). Give the section
+an `_index.md` with a `title`, or Hugo titleizes the directory name for you
+(`content/help/` becomes "Helps").
+
 ## Accessibility
 
 Accessibility is a first-class goal (ARCHITECTURE §6/§7): semantic landmarks, a skip

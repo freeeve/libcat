@@ -1,25 +1,31 @@
-{{ define "sidebar" }}
-<aside class="lcat-sidebar" aria-label="{{ i18n "facets" }}">{{ partialCached "facets.html" . }}</aside>
-{{ end }}
+{{- /* The section index for every section that is not Works: /lists/ (the curated
+       views of tasks/160), and any prose section an adopter adds -- Help, About,
+       News. It lists the section's own pages.
 
+       It deliberately renders none of the Works browse shell. A page carrying
+       id="lcat-results" becomes a browse surface -- lcat-browse.js binds by that
+       id alone -- and a page calling i18n "workCount" announces a work count it
+       does not have. /lists/ used to ship as a canonical, sitemapped page reading
+       "0 works", linking to none of the curated views beneath it, and (under
+       engine = "roaringrange") turning into a second catalog search page as soon
+       as a reader typed a query (tasks/290).
+
+       No sidebar block either, so baseof leaves the facet rail out and .lcat-main
+       takes the full width. Facets describe the corpus; this page is not about the
+       corpus. */ -}}
 {{ define "main" }}
-<h1>{{ if .IsHome }}{{ site.Title }}{{ else }}{{ .Title }}{{ end }}</h1>
-{{- /* Browse lists show Works only: a site's other regular pages (curated
-       lists (tasks/160), prose pages) must not count or render as work cards. */ -}}
-{{ $pages := where .RegularPagesRecursive "Section" "works" }}
-{{ $paginator := .Paginate $pages }}
-<p class="lcat-resultcount" role="status">{{ i18n "workCount" (len $pages) }}</p>
-{{- /* Host for the client-rendered facet filter panel (tasks/158); populated
-       and unhidden by lcat-browse.js once the reader boots. The config blob
-       carries the scheme grouping the static sidebar gets from
-       [params.subjectSchemes], so the panel can group subjects the same way
-       (tasks/173). */ -}}
-{{ if eq (site.Params.search.engine | default "") "roaringrange" }}<div id="lcat-browse-facets" class="lcat-browse-facets" hidden></div>
-<script id="lcat-browse-config" type="application/json">{{ dict "subjects" (i18n "subjects") "subjectSchemes" (site.Params.subjectSchemes | default slice) | jsonify | safeJS }}</script>{{ end }}
-<ol class="lcat-results" id="lcat-results"{{ if eq (site.Params.search.engine | default "") "roaringrange" }} data-lcat-browse="{{ site.Params.search.base | default "/search" }}"{{ end }}>
-  {{ range $paginator.Pages }}
-  <li>{{ partialCached "work-card.html" . .RelPermalink }}</li>
+<h1>{{ .Title }}</h1>
+{{ .Content }}
+{{- $paginator := .Paginate .Pages }}
+{{ with $paginator.Pages }}
+<ul class="lcat-pagelist">
+  {{ range . }}
+  <li>
+    <h2 class="lcat-pagelist-title"><a href="{{ .RelPermalink }}">{{ .LinkTitle }}</a></h2>
+    {{ with .Description | default .Summary }}<div class="lcat-pagelist-summary">{{ . }}</div>{{ end }}
+  </li>
   {{ end }}
-</ol>
+</ul>
+{{ end }}
 {{ template "_internal/pagination.html" . }}
 {{ end }}

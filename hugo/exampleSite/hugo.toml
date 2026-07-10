@@ -36,6 +36,13 @@ defaultContentLanguage = "en"
   name = "Subjects"
   url = "/subjects/"
   weight = 2
+# The curated views (tasks/160) are reachable only from their section index, and
+# that index only from the menu -- nothing links a curated list automatically
+# (tasks/290). An adopter who adds content/lists/ must add this entry too.
+[[menu.main]]
+  name = "Lists"
+  url = "/lists/"
+  weight = 3
 
 # Import the libcat module (resolved locally via go.mod replace during dev).
 [module]

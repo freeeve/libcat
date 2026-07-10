@@ -420,6 +420,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 .lcat-neg-hidden { display: none; }
 .lcat-results { list-style: none; margin: 0; padding: 0; }
 .lcat-results > li { padding: 0.9rem 0; border-bottom: 1px solid var(--lcat-border); }
+/* The generic section index (tasks/290): /lists/, and any prose section an
+   adopter adds. Deliberately not .lcat-results -- these are pages, not works. */
+.lcat-pagelist { list-style: none; margin: 1.25rem 0 0; padding: 0; }
+.lcat-pagelist > li { padding: 0.9rem 0; border-bottom: 1px solid var(--lcat-border); }
+.lcat-pagelist-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.lcat-pagelist-summary { margin: 0.35rem 0 0; color: var(--lcat-muted); }
+.lcat-pagelist-summary > :first-child { margin-top: 0; }
+.lcat-pagelist-summary > :last-child { margin-bottom: 0; }
 /* Card is a flex row so an optional cover sits beside the text block; with covers off
    the body is the lone flex child and fills the width (tasks/025). */
 .lcat-card { display: flex; gap: 1rem; align-items: flex-start; }

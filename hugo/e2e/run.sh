@@ -30,6 +30,11 @@ srv=$!
 sleep 1
 node "$here/browse.spec.mjs" "http://127.0.0.1:$port"
 
+# The generic section index (tasks/290) must not be a Works browse. Driven against
+# this same roaringrange build, so "did not hydrate" means the reader declined
+# rather than never booted -- the spec's first check is /works/ hydrating.
+node "$here/section-index.spec.mjs" "http://127.0.0.1:$port"
+
 # Minimal profile (tasks/157): no taxonomy/term pages, shared sidebar. The
 # sidebar's unlinked rows must hydrate into reader toggles and replace the
 # fallback panel (tasks/170), including the exclude toggles (tasks/173) --

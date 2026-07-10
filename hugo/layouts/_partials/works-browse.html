@@ -1,0 +1,29 @@
+{{- /* The Works browse shell: the paginated work-card list, its result count, and
+       the host the client reader hydrates into a facet panel.
+
+       Two pages render it -- the home page and /works/ -- so it lives here rather
+       than in a layout they would both have to inherit from. It must NOT be
+       reachable from the generic section index: a page that carries
+       id="lcat-results" becomes a browse surface, because lcat-browse.js binds by
+       that id alone. That is how /lists/ and every prose section an adopter added
+       used to render as an empty Works browse (tasks/290).
+
+       Callers pass the page. Not partialCached: the paginator and the result count
+       are per-page. */ -}}
+{{- $pages := where .RegularPagesRecursive "Section" "works" -}}
+{{- $paginator := .Paginate $pages -}}
+{{- $browse := eq (site.Params.search.engine | default "") "roaringrange" -}}
+<p class="lcat-resultcount" role="status">{{ i18n "workCount" (len $pages) }}</p>
+{{- /* Host for the client-rendered facet filter panel (tasks/158); populated
+       and unhidden by lcat-browse.js once the reader boots. The config blob
+       carries the scheme grouping the static sidebar gets from
+       [params.subjectSchemes], so the panel can group subjects the same way
+       (tasks/173). */ -}}
+{{ if $browse }}<div id="lcat-browse-facets" class="lcat-browse-facets" hidden></div>
+<script id="lcat-browse-config" type="application/json">{{ dict "subjects" (i18n "subjects") "subjectSchemes" (site.Params.subjectSchemes | default slice) | jsonify | safeJS }}</script>{{ end }}
+<ol class="lcat-results" id="lcat-results"{{ if $browse }} data-lcat-browse="{{ site.Params.search.base | default "/search" }}"{{ end }}>
+  {{ range $paginator.Pages }}
+  <li>{{ partialCached "work-card.html" . .RelPermalink }}</li>
+  {{ end }}
+</ol>
+{{ template "_internal/pagination.html" . }}
