@@ -220,3 +220,116 @@ in sorted id order, the suppressed sentinel (`w1d…`) fell before the cut and t
 tombstoned ones: a clean, plausible, entirely invented asymmetry, and one I nearly filed. It now
 streams through `grep` and counts matches. **A truncated read does not report an error; it
 reports an absence.**
+
+## Outcome
+
+Fixed in **v0.125.0** (minor), commit `4bb220c`. Every claim in the report was
+reproduced before anything changed, and one more leak was found while doing it.
+
+Reproduced on a copy-on-write clone of the playground store (`cp -Rc`, touching
+neither `:8481` nor `:8501`), driving the real CLI. Old binary vs new:
+
+```
+                       old (v0.124.1)   new (v0.125.0)
+catalog.json works               31              31
+MARC records published        3,314              37
+catalog.nq.gz                 19.9MB           54KB
+covers published                  2               0
+```
+
+The 37 is not a discrepancy: `lcat project --provider marc` views one provenance
+graph, and 31 (marc) ∪ 7 (copycat) = 37. The exporter and the projector now
+describe the same collection.
+
+### The suggested nq filter does not work
+
+"Skip quads about it in `copyGzip`" was the natural reading, and it leaks. A
+grain's Instance, its titles, its notes and its provision activity are subjects of
+their own -- `<#…Instance>` -- and **none of them carries the work id**. Measured
+on a sentinel: a 33-quad record has 9 quads naming the id, so a line filter leaves
+**24 quads**, including the whole Instance, on the public site.
+
+So the nq download is now built from the visible grains. Since tasks/298
+`catalog.nq` *is* that merge, an all-visible corpus exports byte-identical output
+(pinned, see below). It also stops the export depending on a file it did not
+write, which retires tasks/298's stale-`catalog.nq` warning by retiring its cause:
+a stale, corrupt or absent `catalog.nq` can no longer reach a reader. The two
+warning tests are replaced by `TestNQDownloadIgnoresTheCatalogNQOnDisk`, which
+asserts the property they were guarding rather than the diagnostic they emitted.
+
+### A second leak, which the report did not have
+
+Dropping the hidden grains is necessary and **not sufficient**. A *visible* Work's
+grain can name a hidden one:
+
+    <#wmeof24ro8hpu2Work> <bibframe/hasPart> <#wietlubmhv5l78Work> <editorial:> .
+
+That quad lives in the visible grain, so it survived the record filter. The
+playground store had exactly one: `wietlubmhv5l78` is suppressed, was gone as a
+subject, and was still named once as an object -- publishing a suppressed record's
+id and a statement about it. `resolveRelations` already strips these on the
+projector side; `writeNQ` does now too. Zero dangling refs on the real store after
+the fix.
+
+I found this by comparing the download's work-IRI set against `catalog.json`'s,
+not by reading the code. The MARC crosswalk does not carry these links today; the
+test asserts that too, so it arrives filtered if it ever learns to.
+
+### Covers, and the reaper
+
+`copyCovers` is driven by what the visible grains claim, not by walking
+`data/covers`. That also declines to publish the tasks/243 stale-format residue,
+for free. The report's point about `--reap` is exactly right and now recorded in
+`covers.go`: a hidden Work keeps its grain and its cover claim, so it is an orphan
+by none of the reaper's three reasons -- and reaping a blob after it has reached a
+CDN does not unpublish it. Its `reasonNoWork` comment claimed a tombstone reaches
+that branch; a tombstone leaves the grain in place, so only a hand-deleted grain
+does. Corrected.
+
+### The manifest number that can be wrong
+
+`Manifest.Works` now counts what shipped and `Manifest.Hidden` what was held back,
+and the run logs `held back 3277 of 3314 works as hidden`. `Works: len(grains)`
+could not disagree with anything, which is why a 31-work catalog publishing 3,274
+records looked healthy.
+
+### What `--public-sources` means
+
+Settled in `runExport`'s doc comment. Both filters answer one question -- what may
+the public see -- and neither touches the grains. The complete graph of record
+lives in the grain tree and is reachable through the **librarian-gated backend
+export service**, which deliberately still exports hidden Works: both stances are
+reversible and staff need the record. It is never written into a directory the
+site serves.
+
+### Mutation-tested
+
+Every guard was stubbed out and the suite re-run:
+
+- visibility filter removed (the original bug): 4 tests fail.
+- suppression ignored, tombstones honoured: the same 4 fail -- the takedown button
+  is tested separately from the retirement one.
+- `copyCovers` walks the blob tree again: 2 fail.
+- the dangling-link filter removed: `TestNQDownloadDropsLinksIntoHiddenWorks` fails.
+- the grain sort removed: `TestNothingIsHeldBackWhenNothingIsHidden` **passed**, so
+  the byte-identity control was vacuous. Its 2-work fixture happened to sit on disk
+  in id order. It now uses 4 works and *fails loudly* if a future hash shard makes
+  path order equal id order again, because then it cannot observe the sort. With
+  that fixed, the mutation is caught.
+
+Gates: `gofmt -s`, `go vet`, root + backend `go test ./...`, and 20s of
+`FuzzFilterSourcesQuad`.
+
+### Not changed
+
+`backend/export` (the on-demand service) still exports hidden Works. That is
+correct -- it is librarian-gated and it is how staff reach the graph of record --
+but it was never an explicit decision, so it is one now, written down in
+`cmd/lcat/export.go` and `docs/build-pipeline.md`.
+
+### For the operator
+
+An already-published site is not fixed by upgrading. Re-run the build, then purge
+the previously published covers, `catalog.nq.gz`, `catalog.mrc.gz` and
+`catalog.xml.gz` from any CDN or mirror. See the adoption note filed in
+libcat-e2e.
