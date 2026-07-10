@@ -21,9 +21,11 @@ import (
 // and is reachable through the librarian-gated backend export service. It is never
 // written into a directory the site serves.
 //
-// --public-sources applies the same provenance allowlist to the nq download that
-// `lcat project` applies to catalog.json. Both filters answer the same question:
-// what may the public see. Neither touches the grains.
+// --public-sources and --public-extras apply the same allowlists to the nq
+// download that `lcat project` applies to catalog.json. All three filters answer
+// the same question: what may the public see. None of them touches the grains.
+// With --public-extras set but not naming `cover`, the covers are not copied
+// either: the public catalog cannot name them, so no public page renders them.
 func runExport(args []string) error {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	in := fs.String("in", "data/out", "grain root (contains data/works and the catalog.nq derived from it)")
@@ -31,6 +33,8 @@ func runExport(args []string) error {
 	manifest := fs.String("manifest", "", "manifest path the downloads page reads (default <out>/downloads.json)")
 	publicSources := fs.String("public-sources", "",
 		"comma-separated extra.sources names allowed in the nq download; others are stripped (tasks/172). Empty (default) keeps everything.")
+	publicExtras := fs.String("public-extras", "",
+		"comma-separated extra keys allowed in the nq download; other lcat:extra quads are dropped (tasks/277). `sources` is governed by --public-sources instead. Empty (default) keeps everything.")
 	orgCode := fs.String("org-code", "",
 		"deployment MARC organization code: derives each record's 040 from graph facts in the MARC downloads (tasks/192). Empty disables.")
 	coversOut := fs.String("covers-out", "",
@@ -41,6 +45,9 @@ func runExport(args []string) error {
 	opts := export.Options{In: *in, Out: *out, OrgCode: *orgCode, CoversOut: *coversOut}
 	if *publicSources != "" {
 		opts.PublicSources = project.SourceSet(*publicSources)
+	}
+	if *publicExtras != "" {
+		opts.PublicExtras = project.SourceSet(*publicExtras)
 	}
 	m, err := export.Run(opts)
 	if err != nil {

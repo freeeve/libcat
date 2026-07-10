@@ -102,6 +102,70 @@ func TestSanitizeSources(t *testing.T) {
 	}
 }
 
+// tasks/277: extras carry institution-private holdings ("this library already has
+// it"). They must stay in the grains and leave the public catalog.
+func TestSanitizeExtras(t *testing.T) {
+	cat := &Catalog{Works: []Work{
+		{ID: "w1", Extra: map[string]string{"cover": "x.jpg", "inQll": "true", "qllEbook": "true"}},
+		{ID: "w2", Extra: map[string]string{"inQll": "true"}},
+		{ID: "w3", Extra: map[string]string{"cover": "y.jpg"}},
+		{ID: "w4"},
+	}}
+	stripped := SanitizeExtras(cat, SourceSet("cover, rating"))
+	if stripped != 3 {
+		t.Fatalf("stripped = %d, want 3", stripped)
+	}
+	if cat.Works[0].Extra["cover"] != "x.jpg" {
+		t.Errorf("an allowlisted extra was dropped: %v", cat.Works[0].Extra)
+	}
+	for _, key := range []string{"inQll", "qllEbook"} {
+		if _, ok := cat.Works[0].Extra[key]; ok {
+			t.Errorf("w1 still carries the private extra %q", key)
+		}
+	}
+	// A Work whose every extra was private carries no extra object at all, rather
+	// than an empty one that marshals as `"extra":{}` and hints at what was there.
+	if cat.Works[1].Extra != nil {
+		t.Errorf("w2 extra = %v, want nil", cat.Works[1].Extra)
+	}
+	if cat.Works[2].Extra["cover"] != "y.jpg" {
+		t.Errorf("unrelated allowlisted extras must survive")
+	}
+}
+
+// `sources` has its own allowlist and is filtered by value, not by key. A
+// public-extras list that does not name it must not silently drop it -- that would
+// let one allowlist quietly undo the other.
+func TestSanitizeExtrasNeverTouchesSources(t *testing.T) {
+	cat := &Catalog{Works: []Work{
+		{ID: "w1", Extra: map[string]string{"sources": "loc, mombian", "inQll": "true"}},
+	}}
+	stripped := SanitizeExtras(cat, SourceSet("cover"))
+	if stripped != 1 {
+		t.Fatalf("stripped = %d, want 1 (inQll only)", stripped)
+	}
+	if got := cat.Works[0].Extra["sources"]; got != "loc, mombian" {
+		t.Fatalf("sources = %q, want it untouched by public-extras", got)
+	}
+}
+
+// The two filters compose: SanitizeSources narrows the value, SanitizeExtras drops
+// the private keys, and neither undoes the other.
+func TestSanitizeSourcesThenExtras(t *testing.T) {
+	cat := &Catalog{Works: []Work{
+		{ID: "w1", Extra: map[string]string{"sources": "loc, mombian", "cover": "x.jpg", "inQll": "true"}},
+	}}
+	SanitizeSources(cat, SourceSet("loc"))
+	SanitizeExtras(cat, SourceSet("cover"))
+	e := cat.Works[0].Extra
+	if e["sources"] != "loc" || e["cover"] != "x.jpg" {
+		t.Fatalf("extras after both filters = %v", e)
+	}
+	if _, ok := e["inQll"]; ok {
+		t.Fatal("the private extra survived")
+	}
+}
+
 // TestSourceSet checks csv parsing: trimming, empty entries, empty input.
 func TestSourceSet(t *testing.T) {
 	got := SourceSet(" loc , ,QLL,")

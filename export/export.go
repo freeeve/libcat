@@ -47,6 +47,12 @@ type Options struct {
 	// discloses more provenance than the site does. Nil keeps every source.
 	// The on-disk graph of record stays complete either way.
 	PublicSources map[string]bool
+	// PublicExtras, when non-nil, is the allowlist of lcat:extra/ *keys*
+	// permitted in the nq download, matching project.SanitizeExtras on the
+	// catalog.json side (tasks/277). Other extra quads are dropped whole.
+	// "sources" is exempt: PublicSources governs it, by value rather than by
+	// key. Nil keeps every extra.
+	PublicExtras map[string]bool
 	// Log receives skip and strip warnings; nil means os.Stderr.
 	Log io.Writer
 	// OrgCode is the deployment's MARC organization code; when set, the
@@ -118,15 +124,22 @@ func Run(opts Options) (*Manifest, error) {
 		fmt.Fprintf(opts.Log, "export: held back %d of %d works as hidden (suppressed or tombstoned)\n", hidden, len(grains))
 	}
 
+	filter := nqFilter{sources: opts.PublicSources, extras: opts.PublicExtras}
 	var files []File
-	nq, err := writeNQ(visible, hiddenIRIs, filepath.Join(opts.Out, "catalog.nq.gz"), opts.PublicSources)
+	nq, err := writeNQ(visible, hiddenIRIs, filepath.Join(opts.Out, "catalog.nq.gz"), filter)
 	if err != nil {
 		return nil, err
 	}
 	files = append(files, nq)
 
-	if err := copyCovers(opts.In, opts.CoversOut, visible, opts.Log); err != nil {
-		return nil, err
+	// A cover the public catalog cannot name is a cover no public page renders,
+	// so publishing the image would leak exactly what the allowlist withheld.
+	if filter.allowsExtra(bibframe.CoverExtraKey) {
+		if err := copyCovers(opts.In, opts.CoversOut, visible, opts.Log); err != nil {
+			return nil, err
+		}
+	} else if opts.CoversOut != "" && opts.Log != nil {
+		fmt.Fprintf(opts.Log, "export: covers not published -- %q is not on the public-extras allowlist\n", bibframe.CoverExtraKey)
 	}
 	paths := make([]string, 0, len(visible))
 	for _, g := range visible {
@@ -287,12 +300,11 @@ func namesHiddenWork(line string, hidden map[string]bool) bool {
 // publishing the hidden id and a statement about it. The projector strips exactly
 // these (resolveRelations keeps only links whose target is still in the
 // projection), so the download does too.
-func writeNQ(visible []visibleGrain, hidden map[string]bool, dst string, public map[string]bool) (File, error) {
+func writeNQ(visible []visibleGrain, hidden map[string]bool, dst string, filter nqFilter) (File, error) {
 	g, w, err := newGzFile(dst)
 	if err != nil {
 		return File{}, err
 	}
-	sourcesPred := "<" + bibframe.ExtraPred + "sources>"
 	bw := bufio.NewWriter(w)
 	var merged bytes.Buffer
 	for _, vg := range visible {
@@ -304,7 +316,7 @@ func writeNQ(visible []visibleGrain, hidden map[string]bool, dst string, public 
 		if err := bibframe.WriteMergedGrain(&merged, vg.id, grain); err != nil {
 			return File{}, fmt.Errorf("%s: %w", vg.path, err)
 		}
-		if public == nil && len(hidden) == 0 {
+		if filter.inert() && len(hidden) == 0 {
 			if _, err := bw.Write(merged.Bytes()); err != nil {
 				return File{}, err
 			}
@@ -317,11 +329,9 @@ func writeNQ(visible []visibleGrain, hidden map[string]bool, dst string, public 
 			if namesHiddenWork(line, hidden) {
 				continue
 			}
-			if public != nil && strings.Contains(line, sourcesPred) {
-				line = filterSourcesQuad(line, public)
-				if line == "" {
-					continue
-				}
+			line, keep := filter.apply(line)
+			if !keep {
+				continue
 			}
 			if _, err := bw.WriteString(line + "\n"); err != nil {
 				return File{}, err
@@ -335,6 +345,75 @@ func writeNQ(visible []visibleGrain, hidden map[string]bool, dst string, public 
 		return File{}, err
 	}
 	return g.finish(len(visible))
+}
+
+// nqFilter is the pair of allowlists the nq download applies to lcat:extra/
+// quads: `sources` is filtered within its literal, every other extra by its key
+// (tasks/172, tasks/277). A struct rather than two adjacent map[string]bool
+// parameters, which nothing would have caught being swapped.
+type nqFilter struct {
+	sources map[string]bool
+	extras  map[string]bool
+}
+
+// inert reports whether the filter would pass every quad through, letting
+// writeNQ copy a grain's bytes without scanning it line by line.
+func (f nqFilter) inert() bool { return f.sources == nil && f.extras == nil }
+
+// allowsExtra reports whether key survives to the public face. An unset
+// allowlist keeps everything, and `sources` is never dropped by key.
+func (f nqFilter) allowsExtra(key string) bool {
+	return f.extras == nil || key == extraSourcesKey || f.extras[key]
+}
+
+// apply filters one quad, returning the (possibly rewritten) line and whether
+// to keep it. Quads that are not lcat:extra/ statements pass through untouched.
+//
+// The key allowlist decides first, for every extra including `sources` -- that is
+// the single place the exemption lives, so a change to allowsExtra cannot leave
+// one of the two callers behind. A surviving `sources` quad is then narrowed
+// within its literal by the value allowlist.
+func (f nqFilter) apply(line string) (string, bool) {
+	key := extraKey(line)
+	if key == "" {
+		return line, true
+	}
+	if !f.allowsExtra(key) {
+		return "", false
+	}
+	if key == extraSourcesKey && f.sources != nil {
+		filtered := filterSourcesQuad(line, f.sources)
+		return filtered, filtered != ""
+	}
+	return line, true
+}
+
+// extraSourcesKey is the one extra the key allowlist never governs: it has its
+// own, and it is filtered by value. Mirrors project.SanitizeExtras.
+const extraSourcesKey = "sources"
+
+// extraKey returns the lcat:extra/ key a quad's predicate names, or "" when the
+// quad is not an extra statement. The predicate is read positionally (N-Quads
+// field 2) rather than by substring search, so a literal object that happens to
+// quote an extra IRI cannot be mistaken for one.
+func extraKey(line string) string {
+	_, rest, ok := strings.Cut(line, " ")
+	if !ok {
+		return ""
+	}
+	pred, _, ok := strings.Cut(rest, " ")
+	if !ok {
+		return ""
+	}
+	key, ok := strings.CutPrefix(pred, "<"+bibframe.ExtraPred)
+	if !ok {
+		return ""
+	}
+	key, ok = strings.CutSuffix(key, ">")
+	if !ok {
+		return ""
+	}
+	return key
 }
 
 // filterSourcesQuad rewrites one extra/sources quad's literal to the public

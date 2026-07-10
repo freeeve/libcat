@@ -28,6 +28,8 @@ func runProject(args []string) error {
 	provider := fs.String("provider", "overdrive", "provenance graph feed(s) to project, comma-separated, first wins")
 	publicSources := fs.String("public-sources", "",
 		"comma-separated extra.sources names allowed on the public face; others are stripped (tasks/172). Empty (default) keeps everything.")
+	publicExtras := fs.String("public-extras", "",
+		"comma-separated extra keys allowed on the public face; others are dropped from catalog.json (tasks/277). `sources` is governed by --public-sources instead. Empty (default) keeps everything.")
 	schemeMap := fs.String("subject-scheme", "",
 		"extra authority namespace -> scheme entries, comma-separated prefix=code pairs (prepended, so they override the built-in table; tasks/141)")
 	allowEmpty := fs.Bool("allow-empty", false,
@@ -43,7 +45,15 @@ func runProject(args []string) error {
 	if err := applySubjectSchemes(splitList(*schemeMap)); err != nil {
 		return err
 	}
-	return projectCatalog(*catalogNQ, splitList(*provider), splitList(*publicSources), *out, *allowEmpty, *similarLimit)
+	return projectCatalog(projectOptions{
+		CatalogPath:   *catalogNQ,
+		Providers:     splitList(*provider),
+		PublicSources: splitList(*publicSources),
+		PublicExtras:  splitList(*publicExtras),
+		Out:           *out,
+		AllowEmpty:    *allowEmpty,
+		SimilarLimit:  *similarLimit,
+	})
 }
 
 // DefaultSimilarLimit is how many neighbours each Work's rail carries. qllpoc
@@ -74,7 +84,25 @@ func applySubjectSchemes(pairs []string) error {
 // merges first-feed-wins, applies the public-sources allowlist when one is
 // given, and writes catalog.json + facets.json + redirects.json + similar.json
 // to out.
-func projectCatalog(catalogPath string, providers, publicSources []string, out string, allowEmpty bool, similarLimit int) error {
+// projectOptions is what one projection run needs. A struct rather than seven
+// positional parameters: two of them are adjacent []string allowlists whose
+// meanings differ (source names vs extra keys), and nothing would have caught
+// them being swapped (tasks/277).
+type projectOptions struct {
+	CatalogPath string
+	Providers   []string
+	// PublicSources allowlists extra.sources attributions (tasks/172).
+	PublicSources []string
+	// PublicExtras allowlists extra keys (tasks/277). "sources" is exempt.
+	PublicExtras []string
+	Out          string
+	AllowEmpty   bool
+	SimilarLimit int
+}
+
+func projectCatalog(opts projectOptions) error {
+	catalogPath, providers, out := opts.CatalogPath, opts.Providers, opts.Out
+	allowEmpty, similarLimit := opts.AllowEmpty, opts.SimilarLimit
 	b, err := os.ReadFile(catalogPath)
 	if err != nil {
 		return err
@@ -103,10 +131,20 @@ func projectCatalog(catalogPath string, providers, publicSources []string, out s
 	if len(cat.Works) == 0 && !allowEmpty {
 		return emptyProjectionError(providers, present)
 	}
-	if len(publicSources) > 0 {
-		allow := project.SourceSet(strings.Join(publicSources, ","))
+	// Order matters: SanitizeSources filters *within* the sources value, and
+	// SanitizeExtras drops private keys but never touches `sources`. Running
+	// extras first would still be correct, but this reads as the two allowlists
+	// answering the two questions in the order the config lists them.
+	if len(opts.PublicSources) > 0 {
+		allow := project.SourceSet(strings.Join(opts.PublicSources, ","))
 		if stripped := project.SanitizeSources(cat, allow); stripped > 0 {
 			fmt.Fprintf(os.Stderr, "project: stripped %d private source attributions from the public catalog\n", stripped)
+		}
+	}
+	if len(opts.PublicExtras) > 0 {
+		allow := project.SourceSet(strings.Join(opts.PublicExtras, ","))
+		if stripped := project.SanitizeExtras(cat, allow); stripped > 0 {
+			fmt.Fprintf(os.Stderr, "project: stripped %d private extra values from the public catalog\n", stripped)
 		}
 	}
 	if err := os.MkdirAll(out, 0o755); err != nil {

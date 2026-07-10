@@ -61,7 +61,7 @@ func readSidecar(t *testing.T, out string) map[string]any {
 // and omits Works with no neighbours rather than storing them empty (tasks/284).
 func TestProjectWritesSimilarSidecar(t *testing.T) {
 	out := t.TempDir()
-	if err := projectCatalog(twoRelatedWorks(t), []string{"marc"}, nil, out, false, DefaultSimilarLimit); err != nil {
+	if err := projectCatalog(projectOptions{CatalogPath: twoRelatedWorks(t), Providers: []string{"marc"}, Out: out, SimilarLimit: DefaultSimilarLimit}); err != nil {
 		t.Fatalf("projectCatalog: %v", err)
 	}
 	idx := readSidecar(t, out)
@@ -103,13 +103,13 @@ func TestProjectWritesSimilarSidecar(t *testing.T) {
 func TestProjectSimilarZeroRemovesAStaleSidecar(t *testing.T) {
 	out := t.TempDir()
 	nq := twoRelatedWorks(t)
-	if err := projectCatalog(nq, []string{"marc"}, nil, out, false, DefaultSimilarLimit); err != nil {
+	if err := projectCatalog(projectOptions{CatalogPath: nq, Providers: []string{"marc"}, Out: out, SimilarLimit: DefaultSimilarLimit}); err != nil {
 		t.Fatalf("first projection: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(out, "similar.json")); err != nil {
 		t.Fatalf("first projection wrote no sidecar: %v", err)
 	}
-	if err := projectCatalog(nq, []string{"marc"}, nil, out, false, 0); err != nil {
+	if err := projectCatalog(projectOptions{CatalogPath: nq, Providers: []string{"marc"}, Out: out, SimilarLimit: 0}); err != nil {
 		t.Fatalf("second projection: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(out, "similar.json")); !os.IsNotExist(err) {

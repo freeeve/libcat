@@ -37,6 +37,7 @@ mapping = "community-mapping.toml"   # shorthand for params.mapping
 out = "site/assets"                  # catalog.json + facets.json + redirects.json + similar.json
 # providers = ["marc", "nquads"]     # default: each source's feed in order
 public-sources = ["loc", "QLL"]      # extra.sources allowlist for the public face
+# public-extras = ["cover", "rating"] # extra *key* allowlist; absent keeps every extra
 # subject-schemes = ["https://homosaurus.org/v5/=homoit"]
 # similar = 8                        # "more like this" neighbours per work; 0 removes the sidecar
 
@@ -44,6 +45,7 @@ public-sources = ["loc", "QLL"]      # extra.sources allowlist for the public fa
 out = "site/static/downloads"        # catalog.nq.gz + catalog.mrc.gz + catalog.xml.gz
 manifest = "site/data/downloads.json"
 # public-sources = [...]             # default: inherits [project] public-sources
+# public-extras = [...]              # default: inherits [project] public-extras
 
 [index]
 out = "site/static/search"           # roaringrange search + browse artifacts
@@ -98,14 +100,43 @@ a 31-work catalog says so in the build log instead of looking healthy.
 The grain tree remains the complete graph of record. Both stances are reversible,
 and staff reach every Work through the librarian-gated backend export service.
 
-### Public provenance allowlist
+### Public allowlists
 
-`public-sources` strips `lcat:extra/sources` attributions not in the allowlist
-from **both** public surfaces -- the projected `catalog.json` and the
-`catalog.nq.gz` download -- so community-source attribution never leaks
-further than the deployment intends. The on-disk graph of record stays
-complete; curators still see full provenance in the backend. An empty/absent
-list keeps everything.
+Two allowlists draw the line between what cataloguers work with and what the
+deployment publishes. Both apply to **every** public surface -- the projected
+`catalog.json`, whatever the browse and index steps derive from it, and the three
+downloads -- and neither touches the grains. The on-disk graph of record stays
+complete, and curators still see everything in the backend. An empty or absent
+list keeps everything, so a deployment that configures neither behaves as it
+always has.
+
+`public-sources` filters `lcat:extra/sources` **by value**: attributions not in
+the allowlist are stripped from the list, and the key disappears when nothing
+public remains. Community-source attribution never leaks further than intended.
+
+`public-extras` filters every other `lcat:extra/*` **by key**: an extra whose key
+is not listed is dropped whole. `lcat:extra/*` is the adopter passthrough, so it
+carries whatever the ingest mapping put there -- including institution-private
+holdings flags ("this library already has it"), acquisition state, and internal
+notes, all of which belong in the grains and not on the public face. `sources` is
+exempt from this list, whatever it names: `public-sources` governs it, and letting
+one allowlist silently undo the other would be a trap.
+
+Both steps report what they removed (`project: stripped N private extra values
+from the public catalog`), so a misconfigured allowlist is loud rather than
+quiet.
+
+Two consequences worth stating:
+
+- **Covers follow `cover`.** If `public-extras` is set and does not name `cover`,
+  the export does not copy the cover blobs either, and says so. The public catalog
+  cannot name a cover it stripped, so no public page renders it -- publishing the
+  image anyway would disclose exactly what the allowlist withheld.
+- **Facets on a stripped extra render empty.** `[params.extraFacets]` and any site
+  template reading `.Params.<extra>` read the *projected* catalog, so a stripped
+  extra is simply absent. Templates guarding with `with` degrade cleanly; a facet
+  configured on a stripped key produces an empty rail. `lcat` cannot see the Hugo
+  site's params, so it cannot warn about this -- check the two lists together.
 
 ### Multi-feed projection
 

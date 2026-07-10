@@ -60,7 +60,14 @@ func runBuild(args []string) error {
 		}
 		// A build ingests before it projects, so zero works means the pipeline
 		// produced nothing -- fail rather than publish an empty site (tasks/246).
-		if err := projectCatalog(filepath.Join(cfg.Out, "catalog.nq"), providers, cfg.Project.PublicSources, cfg.Project.Out, false, cfg.Project.similarLimit()); err != nil {
+		if err := projectCatalog(projectOptions{
+			CatalogPath:   filepath.Join(cfg.Out, "catalog.nq"),
+			Providers:     providers,
+			PublicSources: cfg.Project.PublicSources,
+			PublicExtras:  cfg.Project.PublicExtras,
+			Out:           cfg.Project.Out,
+			SimilarLimit:  cfg.Project.similarLimit(),
+		}); err != nil {
 			return fmt.Errorf("project: %w", err)
 		}
 	}
@@ -124,6 +131,10 @@ type projectStep struct {
 	// PublicSources is the extra.sources allowlist for the public catalog;
 	// empty keeps everything.
 	PublicSources []string `toml:"public-sources"`
+	// PublicExtras is the extra *key* allowlist for the public catalog
+	// (tasks/277); empty keeps everything. "sources" is governed by
+	// PublicSources instead, whatever this names.
+	PublicExtras []string `toml:"public-extras"`
 	// SubjectSchemes are authority prefix=code pairs (tasks/141).
 	SubjectSchemes []string `toml:"subject-schemes"`
 	// Similar is how many neighbours each Work carries in similar.json
@@ -147,6 +158,9 @@ type exportStep struct {
 	// PublicSources overrides the [project] allowlist for the nq download;
 	// unset inherits it, so one policy covers both public surfaces.
 	PublicSources []string `toml:"public-sources"`
+	// PublicExtras overrides the [project] extra-key allowlist for the nq
+	// download the same way (tasks/277).
+	PublicExtras []string `toml:"public-extras"`
 	// OrgCode is the deployment's MARC organization code: the MARC
 	// downloads derive each record's 040 from graph facts (tasks/192).
 	OrgCode string `toml:"org-code"`
@@ -236,19 +250,15 @@ func buildIngest(cfg *buildConfig, src buildSource) error {
 }
 
 // buildExportStep derives the download artifacts, inheriting the [project]
-// public-sources allowlist unless [export] sets its own.
+// public-sources and public-extras allowlists unless [export] sets its own.
 func buildExportStep(cfg *buildConfig) error {
 	opts := export.Options{In: cfg.Out, Out: cfg.Export.Out, OrgCode: cfg.Export.OrgCode, CoversOut: cfg.Export.CoversOut}
-	publicSources := cfg.Export.PublicSources
-	if publicSources == nil && cfg.Project != nil {
-		publicSources = cfg.Project.PublicSources
+	var projectSources, projectExtras []string
+	if cfg.Project != nil {
+		projectSources, projectExtras = cfg.Project.PublicSources, cfg.Project.PublicExtras
 	}
-	if len(publicSources) > 0 {
-		opts.PublicSources = map[string]bool{}
-		for _, s := range publicSources {
-			opts.PublicSources[s] = true
-		}
-	}
+	opts.PublicSources = allowlist(inheritList(cfg.Export.PublicSources, projectSources))
+	opts.PublicExtras = allowlist(inheritList(cfg.Export.PublicExtras, projectExtras))
 	m, err := export.Run(opts)
 	if err != nil {
 		return err
@@ -265,6 +275,30 @@ func buildExportStep(cfg *buildConfig) error {
 	}
 	fmt.Printf("exported %d works to %s; manifest %s\n", m.Works, cfg.Export.Out, manifest)
 	return nil
+}
+
+// inheritList resolves an [export] allowlist against its [project] counterpart:
+// an unset (nil) list inherits, so one policy covers both public surfaces, while
+// an explicitly empty list is [export] declining to inherit.
+func inheritList(own, inherited []string) []string {
+	if own == nil {
+		return inherited
+	}
+	return own
+}
+
+// allowlist turns a config list into an export allowlist set. An empty list
+// yields nil, which the export package reads as "no allowlist configured, keep
+// everything" -- the same absent-means-everything rule the project step follows.
+func allowlist(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	set := map[string]bool{}
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
 }
 
 // buildHugoStep runs the site generator with output passed through.
