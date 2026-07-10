@@ -191,3 +191,39 @@ grep -rn 'deleteItemTemplate' ~/libcat/backend/ui/src   # one hit: the definitio
 grep -rn 'updateItemTemplate' ~/libcat/backend/ui/src   # none
 grep -rn 'barcodeWidth' ~/libcat/backend/ui/src/components/ItemsPanel.svelte   # one hit: :126, a read
 ```
+
+## Outcome
+
+Shipped in **libcat v0.141.3** (patch -- makes a half-wired feature whole; the
+new `updateItemTemplate` export and the guard test are additive, but the
+headline is that a broken lifecycle now works). Took the first fork, not the
+delete-it-all fork: item templates got the lifecycle macros have.
+
+**Lifecycle.** `ItemsPanel.svelte` now imports `deleteItemTemplate` (the dead
+export) and a new `updateItemTemplate` (the `PUT` route had no client
+function). Beside the template `<select>`, owner-only **Rename** and **Delete**
+controls render under `{#if ownsTemplate}` where `ownsTemplate = template.owner
+=== me` -- mirroring `Macros.svelte`. `renameTemplate` prompts and `PUT`s the
+relabelled record; `removeTemplate` confirms and `DELETE`s, then drops it from
+the list and clears the select. Both map a 403 to "only the owner can
+edit/delete a template"; the server enforces ownership regardless.
+
+**barcodeWidth.** A number input (0-12) sits next to the barcode-prefix input
+on the bulk row, backed by new `bulkWidth` state. `saveAsTemplate` persists it,
+`applyTemplate` copies it into `bulkWidth` the way the prefix rides into
+`bulkPrefix`, and `bulk()` reads it from the form instead of off the selected
+template -- so the width survives clearing the select, exactly like the prefix.
+
+**The guard.** `api.exports.test.ts` globs every `/src/**` file's raw text and
+fails if any `export function` in `api.ts` appears in no other source file. It
+was mutation-verified (a dead probe export makes it red) and it is what would
+have caught `deleteItemTemplate` the day it landed.
+
+### Verified
+
+- `npm run check` clean; full UI suite green (`api.exports.test.ts` included).
+- Playwright against `:8481`, driving the real Work editor: after **Save row as
+  template**, the owner sees **Rename** and **Delete** (O7); the create request
+  carries `barcodeWidth: 6` (O8) and the stored template round-trips it; **Delete**
+  removes it from the server. All five assertions pass.
+- Playground rebuilt and restarted on v0.141.3.
