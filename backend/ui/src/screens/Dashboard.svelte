@@ -50,6 +50,10 @@
 
   let stats = $state<Stat[]>([]);
   let pending = $state<number | null>(null);
+  // True when the queue returned a full page with a cursor, i.e. the count is a
+  // floor, not a total -- the tile shows "50+" rather than claiming exactly 50
+  // (tasks/328).
+  let pendingMore = $state(false);
   let queueError = $state("");
 
   /** Editing-activity rollup (librarian only); the section stays hidden on
@@ -97,6 +101,9 @@
     try {
       const page = await fetchQueue({ status: "PENDING" });
       pending = page.items.length;
+      // A cursor means the page filled and more await beyond it: the number is
+      // a floor. Without this the tile reads "50" whether 50 or 500 are pending.
+      pendingMore = !!page.cursor;
     } catch {
       queueError = "queue unavailable";
     }
@@ -230,7 +237,7 @@
             <h2>Review queue</h2>
             <p class="muted">
               {#if pending !== null}
-                {pending} pending suggestion{pending === 1 ? "" : "s"}
+                {pending}{pendingMore ? "+" : ""} pending suggestion{pending === 1 && !pendingMore ? "" : "s"}
               {:else if queueError}
                 {queueError}
               {:else}
