@@ -203,12 +203,106 @@ every hop. Options, cheapest first:
 Doing (1) and reporting the number. Not touching (2) without looking at what it
 does to the rail.
 
+## The OPAC half, shipped in v0.118.0 (`e06cd3b`)
+
+### Parallelism alone was not enough. I was wrong about that.
+
+The note above says 16 cores takes the 84 s serial pass to "~6 s. Enough on its
+own." Measured, it was not:
+
+| n | parallel precompute, before the alloc fix |
+|---|---|
+| 10,000 | 1.40 s, 1.0 GB allocated |
+| 62,602 | **66.3 s, 43.8 GB allocated** |
+
+Sixteen cores bought about 1.5x, because the pass was allocation-bound, not
+CPU-bound. My first hypothesis for *why* was also wrong -- I guessed the
+language/availability bonus loop walked the whole catalog per query; it iterates
+the score map, so it walks candidates. Reading rather than guessing found it:
+
+`rank` built an explanation for **every** candidate -- `topShared` sorts a slice
+and allocates a dedupe map, per candidate -- and then discarded all but the top 8.
+A dense subject band (a heading on ~645 of 62,602 Works) passes the DF cap and
+drags thousands of candidates into the score map on every query.
+
+Explanations are now resolved for the survivors only, by re-walking the focus
+Work's handful of contributions and binary-searching each posting list. Posting
+lists are ascending because `Build` appends offsets in order -- an invariant now
+pinned by a test, since if it ever breaks the search silently misses and every
+neighbour quietly loses its explanation while keeping its score.
+
+| n | after | |
+|---|---|---|
+| whole-catalog pass, 62,602 | **6.7 s, 15.7 GB** | was 66.3 s, 43.8 GB |
+| `Neighbors`, 62,602 | 0.58 ms, **72 allocs** | was 1.58 ms, 5,841 allocs |
+| `Build`, 62,602 | 26 ms, 69 MB | |
+
+So the original ~6 s estimate was right by accident: it needed the allocation fix,
+not the cores. Option (2), lowering `DFCapFraction`, remains untouched and remains
+a ranking decision.
+
+### The rail was not reproducible
+
+Found by construction, not by luck. `expandSubjects` returns a map, Go randomizes
+map iteration, and `Shared` is truncated to `maxShared = 5` -- so which
+explanations survived a weight tie was decided by iteration order. A probe over 200
+builds of one catalog produced **six distinct orderings**.
+
+On the real playground catalog, 2 of 27 rails changed contents between two runs of
+the same binary on the same input: `rt195-3gb5ml` and `rt195-0s0xwl` traded the
+fifth slot. A published sidecar whose bytes move when the catalog has not is
+exactly `tasks/291`.
+
+Subjects now contribute in sorted order, and `topShared` breaks weight ties by
+value. Mutation testing showed each fix *masks* the other in the `Shared` test --
+either alone restores determinism -- so both are kept and the code says why. I also
+tried to demonstrate the float-summation-order hazard the sorted contribution
+guards against and **could not construct an input where the bits changed**; the
+comment says so rather than claiming a fix for an unobserved defect.
+
+### One scorer, two callers -- now enforced
+
+The scorer took `ingest.WorkSummary`, so its "the package is pure, no store, no
+HTTP, no Hugo" doc comment was false and `project` could not call it without
+importing the ingest pipeline. It now takes its own `similar.Work`, and each side
+converts into it. `similar` imports `math`, `slices`, `sort`, `maps`, nothing else.
+
+`TestBothConvertersAgreeOnTheSameGraph` projects and summarizes **the same
+nquads** and requires the two `similar.Work` values to be equal, with a companion
+test asserting the fixture exercises every signal so agreement-on-nil cannot pass.
+Three drift mutations (drop the Series hoist, key subjects on scheme not IRI,
+ignore Held) each fail it with a readable message.
+
+`Build` also normalizes every attribute slice. Neither caller de-duplicates
+subjects or tags, so a subject stated in two graphs (`tasks/286`) posted twice and
+counted twice -- scoring a coincidence of serialization as evidence.
+
+### Shipped
+
+- `project.Catalog.Similar(limit)` -> `similar.json`: `{version, limit, works}`,
+  each neighbour `{id, title, shared[]}`. Works with no neighbours are omitted.
+- `lcat project --similar=N` (default 8), `[project] similar = N` in build TOML.
+  A pointer in the config struct, because `0` means *no rail* and absent means the
+  default. `--similar=0` **removes** a sidecar an earlier projection wrote rather
+  than merely not rewriting it -- Hugo renders whatever `similar.json` it finds.
+- `page.html` renders the rail below the editions, `data-pagefind-ignore` so a
+  neighbour's title does not make this page a search hit for that title. Shared
+  subjects are stored as IRIs (the sidecar is language-neutral) and resolved to
+  labels from the page's own subject list, in its own language.
+- **No `SchemaVersion` bump**, contrary to the plan above. That number exists so a
+  consumer can detect a mismatch in an artifact it cannot render without;
+  `similar.json` is optional on both sides. Bumping it would force every adopter
+  into a lockstep reproject to announce a mismatch that cannot occur. The sidecar
+  carries its own `version: 1` and the adapter fails loudly on a mismatch of that.
+
+Verified: old Hugo + new sidecar, new Hugo + no sidecar, and a wrong sidecar
+version (build fails, exit 1). `hugo --quiet` swallows the ERROR line -- check the
+exit code, not the output.
+
 ### Remaining
 
-- `project` emits a `similar.json` sidecar (parallel precompute), bump
-  `project.SchemaVersion`, and Hugo renders a section on `page.html` beside the
-  asserted `lcat-relations` block -- visually distinct, because these are computed.
 - `GET /v1/works/{id}/similar?limit=` (librarian) off a cached index, and a
-  `WorkEditor` panel.
+  `WorkEditor` panel. `Build` at 26 ms / 69 MB, rebuilt on the works-list freshness
+  signal, then 0.58 ms per request.
 - Suppressed Works stay in the admin index and are absent from the projection,
   which happens upstream. Tombstoned Works are already excluded on both.
