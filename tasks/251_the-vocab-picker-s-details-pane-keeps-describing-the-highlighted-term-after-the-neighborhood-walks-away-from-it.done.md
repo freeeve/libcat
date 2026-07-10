@@ -110,3 +110,53 @@ reads `… › Cats` and the URI still reads `…/sh85021262`, while the breadcr
 `Kittens`. Clicking **Use this term** stages `Kittens`. Undo the staged add and delete
 the autosaved draft (`GET /v1/drafts` then `DELETE /v1/drafts/{id}`) -- this report's
 staging was cleaned up that way.
+
+## Outcome
+
+Shipped in **v0.140.7** (`c790df0`). Took your second option -- **one component owns
+"which term am I describing."** The whole identity block (heading with path, URI,
+definition, "Also known as") now lives inside `NeighborhoodPanel`, rendered from *its*
+`current`, so it and the walk buttons can never name different terms. There is no
+cross-component state to keep in sync, which is what made the lift option (option 1)
+fragile at the edges -- a stale describe-term on tab switch or highlight change.
+
+`VocabPicker.svelte`: the shared identity block moved into the **live-tab branch
+only** (live tabs have no walk, so they keep describing the highlighted suggestion,
+exactMatch and all). The non-live branch is now just the keyed `NeighborhoodPanel`.
+
+`NeighborhoodPanel.svelte`: renders `h3` (path + label), the URI (`.ident-uri`),
+definition and alt-labels from `current` at the top of the panel, above the
+breadcrumb and relation groups. The old bolded `.here` breadcrumb label is gone --
+redundant with the heading -- and `refocus()` (the tasks/250 focus move) now lands on
+that `.ident` heading, so a screen reader announces the walked-to term's full identity
+rather than a lone breadcrumb.
+
+### The test you asked for
+
+`neighborhoodpanel.test.ts` walks one step and asserts the rendered `.ident-uri`
+equals `onselect.mock.calls[0][0].id` -- the URI shown above the button is exactly the
+id the button stages. Mutation-checked: pointing `.ident-uri` at the original `term`
+instead of the walked `current` (the reported bug) fails it. A second test pins the
+pre-walk state (describes the highlighted term). Full UI suite 322/322, `svelte-check`
+0 errors.
+
+### Verified end to end on live :8481
+
+Your exact flow -- **Add subject…**, `lcsh`, search `cats`, walk to a narrower term
+(`Vashti (Cat)`):
+
+```
+before walk : heading "… › Cats"        URI .../sh85021262
+after walk  : heading "Vashti (Cat)"    URI .../sh99014663
+```
+
+The URI follows the walk (was frozen on `sh85021262` before), the heading names the
+walked term, and the tasks/250 behaviour is intact -- focus stays inside the dialog
+and Escape still closes. Read-only: the picker was opened and closed, nothing staged
+or saved.
+
+### Not touched
+
+Live-source tabs are unchanged -- they have no `NeighborhoodPanel`, so their identity
+block (with the "Same as" exactMatch list) still renders in `VocabPicker` from the
+highlighted suggestion, which is correct because there is no walk to disagree with.
