@@ -128,6 +128,89 @@ Pick one, in order of preference.
 Whichever way, an export's preview count and the works screen's `matched` should agree,
 or the difference should be stated on screen.
 
+## Outcome
+
+Shipped **option 1** in **v0.116.0** (`8f4f765`). The report's diagnosis was exact,
+including the observation that the href could not be fixed alone.
+
+### The extraction is the real fix
+
+`batch.Selection` gains `Facets map[string][]string` and `Tombstoned string`. But
+the load-bearing change is that the bucketing rules -- `visibilityOf`,
+`holdingsOf`, `needsOf`, the extras split, the tag case-fold -- moved out of
+`backend/httpapi` into `ingest/facets.go`, where `batch` can reach them.
+
+Two callers now share one definition: the listing that *counts* a facet and the
+selection that *resolves* it. Had I copied the predicates into `batch` instead,
+this task would have been fixed and a slower version of it would have been
+created -- a link that resolves by a rule the rail did not draw. That is tasks/253
+one layer down, and it is why the httpapi facet code now has no bucketing logic of
+its own at all.
+
+### The two invariants I had to not break
+
+**tasks/205.** `kind=search` with an empty query still fails closed. Facets do not
+rescue it, because a whitespace-only search that silently selected the catalog is
+exactly the bug 205 fixed. "Everything, filtered" is `kind=all` + `facets`, and
+`exportsHash` emits precisely that when the query is blank. Pinned by
+`TestFacetsDoNotRescueAnEmptySearchQuery`.
+
+**"Entire catalog" means the entire catalog.** A selection defaults to
+`tombstoned: include`, *unlike* the works listing, which defaults to exclude
+(tasks/280). Flipping the selection default would have silently dropped retired
+records from every existing export. The works screen sends `exclude` explicitly
+instead, which is what makes the counts agree. Pinned by
+`TestSelectionIncludesTombstonedByDefault`.
+
+### Verified live, which is the acceptance criterion
+
+```
+works screen  (tag=fiction. AND holdings=none, tombstoned excluded):  matched=11  total=38
+export preview (kind=all + same facets + tombstoned=exclude):         matched=11
+export preview OLD (kind=all, facets dropped -- the bug):             matched=2763
+tombstoned=only:                                                      matched=2725
+tombstoned=yes:                                                       400
+kind=search + "  " + facets:                                          400 (tasks/205 holds)
+```
+
+11 and 11. The report asked for exactly this.
+
+### The link, and what the exports screen says now
+
+`exportsHash(q, filters, showTombstoned)` carries the facets namespaced as
+`f.<group>=<value>` so a facet group named `kind` or `q` cannot overwrite the
+exports screen's own params -- there is a test for that, since `sources` is a
+deployment-defined extras key and nothing stops one being called `ids`.
+
+The exports screen names the filters it received (`Filtered by tag=poetry,
+holdings=none, retired records excluded`) and offers **Export without filters**.
+When the selection kind is `ids` or `savedQuery`, which name their own works, it
+says so rather than silently applying or silently dropping them. The report's
+option 2 -- state the mismatch on screen -- turned out to be worth doing *as well
+as* option 1, for the kinds where facets genuinely cannot apply.
+
+Mutation-proven: reverting `exportsHash` to drop the facets fails 5 of the 15
+`worksurl` tests.
+
+### Adoption
+
+Server plus SPA; minor because there is something to adopt, not something broken.
+
+- `batch.Selection` gains `facets` and `tombstoned`, both optional. Existing
+  clients are unaffected: no field means no filter, and `tombstoned` defaults to
+  `include`, the prior behavior.
+- An unrecognized `tombstoned` value is a `400` rather than a silent `include`.
+- `POST /v1/exports`, `POST /v1/batch/ops` and `POST /v1/batch/resolve` all accept
+  the new fields, since they share `Resolve`.
+- `httpapi.visibilityOf`/`holdingsOf`/`needsOf` are gone; use `ingest.Visibility`,
+  `ingest.Holdings`, `ingest.Needs`, or `ingest.MatchesFacets` for the whole rule.
+
+### Not done
+
+A `kind=savedQuery` selection cannot store facets. Saved queries hold a free-text
+query today; giving them facets is a separate change to their storage and their
+editor, and no screen currently offers it.
+
 ## Repro
 
 ```bash
