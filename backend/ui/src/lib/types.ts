@@ -258,7 +258,12 @@ export interface AuthorityView {
 export interface AuthorityMergeResult {
   loser: string;
   winner: string;
+  /** Work grains repointed at the winner. On a failed merge, what landed before it stopped. */
   rewritten: number;
+  /** Works naming the loser when the pass began; rewritten < carriers means retry to finish (tasks/305). */
+  carriers: number;
+  /** Every carrier rewritten and the loser retired. */
+  complete: boolean;
 }
 
 /** profiles.Profile -- the field definitions an editor form renders from. */

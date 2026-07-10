@@ -91,6 +91,10 @@ func postMerge(t *testing.T, h http.Handler, loser string) (int, string) {
 }
 
 // A broken store is a 500, and its message names nothing.
+//
+// The store here fails the very first write, which since tasks/305 is the first
+// Work rewrite rather than the loser's retirement. Nothing landed, and the message
+// says exactly that -- the one case where "the merge did not happen" is true.
 func TestAuthorityMergeStoreFailureIsNotAConflict(t *testing.T) {
 	h, bs := mergeAPIOver(t, &os.PathError{Op: "open", Path: "/srv/libcat/data/authorities/ho/.blob-99", Err: syscall.EACCES})
 	loser := seedMergeable(t, h, bs)
@@ -103,7 +107,7 @@ func TestAuthorityMergeStoreFailureIsNotAConflict(t *testing.T) {
 	if m := leakyMessage.FindString(msg); m != "" {
 		t.Fatalf("the response leaks %q: %q", m, msg)
 	}
-	if msg != "merge failed" {
+	if msg != "merge failed; nothing was changed" {
 		t.Fatalf("message = %q", msg)
 	}
 }

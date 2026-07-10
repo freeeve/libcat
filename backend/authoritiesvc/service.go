@@ -76,9 +76,22 @@ type Service struct {
 
 // MergeResult summarizes one authority merge.
 type MergeResult struct {
-	Loser     string `json:"loser"`
-	Winner    string `json:"winner"`
-	Rewritten int    `json:"rewritten"`
+	Loser  string `json:"loser"`
+	Winner string `json:"winner"`
+	// Rewritten counts the Work grains repointed at the winner. On a failure it
+	// is what the pass managed before it stopped, and it is meaningful: the works
+	// it counts really are repointed (tasks/305).
+	Rewritten int `json:"rewritten"`
+	// Carriers is how many Works named the loser when the pass began. Rewritten <
+	// Carriers means the merge did not finish and the heading is still live; the
+	// same request run again resumes, because the loop skips works that no longer
+	// name the loser.
+	Carriers int `json:"carriers"`
+	// Complete reports that every carrier was rewritten AND the loser was retired.
+	// It distinguishes the two ways Merge can return an error with work behind it:
+	// a rewrite that stopped partway (Complete false, retry to finish) from a
+	// finished merge whose index reload failed (Complete true, nothing to redo).
+	Complete bool `json:"complete"`
 }
 
 // Create mints a local authority id, writes the term's grain, and refreshes
@@ -196,40 +209,76 @@ func (s *Service) Merge(ctx context.Context, loserID string, winner vocab.TermRe
 		return MergeResult{}, fmt.Errorf("%w: authority grain for %s does not describe %s -- namespace mismatch", ErrValidation, loserID, loserURI)
 	}
 	subject := s.winnerSubject(winner)
-	if _, err := publish.MutateGrain(ctx, s.Blob, loserPath, func(old []byte) ([]byte, error) {
-		return bibframe.AddAuthorityMergeMarker(old, loserURI, winner.ID, LocalScheme)
-	}); err != nil {
-		return MergeResult{}, err
-	}
 	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")
 	if err != nil {
 		return MergeResult{}, err
 	}
-	result := MergeResult{Loser: loserURI, Winner: winner.ID}
-	changed := []string{loserPath}
+	// Carriers is fixed before the first write, so a failure can say "1 of 2"
+	// rather than "1", and a retry's "1 of 1" reads as the resume it is.
+	var carriers []ingest.WorkSummary
 	for _, summary := range summaries {
-		if !slices.Contains(summary.Subjects, loserURI) {
-			continue
+		if slices.Contains(summary.Subjects, loserURI) {
+			carriers = append(carriers, summary)
 		}
+	}
+	result := MergeResult{Loser: loserURI, Winner: winner.ID, Carriers: len(carriers)}
+
+	// Rewrite the works, THEN retire the loser (tasks/305). The marker is a
+	// durable claim that every carrying Work now points at the winner; writing it
+	// first meant a rewrite that failed partway left that claim standing over a
+	// catalog describing one concept two ways -- some works on the winner, the
+	// rest on a heading marked retired. Nothing in the loop needs the marker: it
+	// matches on loserURI and writes subject, neither of which comes from the
+	// loser grain. Marking last leaves a failure fully resumable by re-issuing the
+	// same merge, which is what the handler now tells the operator to do.
+	//
+	// Same execute-then-stamp shape as tasks/300's promotion.
+	var changed []string
+	finish := func(err error) (MergeResult, error) {
+		// Both outcomes are audited and both reload. The audit entry is the only
+		// record that a heading was touched and N works repointed, and it used to
+		// be written on the success path only -- absent for exactly the runs where
+		// somebody needs it. The index used to be rebuilt on the success path only,
+		// so a failed merge left the process contradicting its own store.
+		note := fmt.Sprintf("%d works rewritten", result.Rewritten)
+		if err != nil && !result.Complete {
+			note = fmt.Sprintf("partial: rewrote %d of %d works, then failed; heading not retired, retry to finish",
+				result.Rewritten, result.Carriers)
+		}
+		s.audit(ctx, suggest.AuditEntry{
+			Action: "AUTHORITY_MERGE", Actor: actor,
+			Terms: []string{LocalScheme + ":" + loserURI, winner.Scheme + ":" + winner.ID},
+			Note:  note,
+		})
+		if s.Trigger != nil && len(changed) > 0 {
+			_ = s.Trigger.Notify(ctx, trigger.Event{Kind: "grains-changed", Paths: changed, At: time.Now().UTC()})
+		}
+		rerr := s.Reload(ctx)
+		if err != nil {
+			return result, err
+		}
+		return result, rerr
+	}
+
+	for _, summary := range carriers {
 		path := paths[summary.WorkID]
 		workID := summary.WorkID
 		if _, err := publish.MutateGrain(ctx, s.Blob, path, func(old []byte) ([]byte, error) {
 			return bibframe.ReplaceSubjectReference(old, workID, loserURI, subject, winner.Scheme)
 		}); err != nil {
-			return result, fmt.Errorf("rewrite %s: %w", workID, err)
+			return finish(fmt.Errorf("rewrite %s: %w", workID, err))
 		}
 		result.Rewritten++
 		changed = append(changed, path)
 	}
-	s.audit(ctx, suggest.AuditEntry{
-		Action: "AUTHORITY_MERGE", Actor: actor,
-		Terms: []string{LocalScheme + ":" + loserURI, winner.Scheme + ":" + winner.ID},
-		Note:  fmt.Sprintf("%d works rewritten", result.Rewritten),
-	})
-	if s.Trigger != nil {
-		_ = s.Trigger.Notify(ctx, trigger.Event{Kind: "grains-changed", Paths: changed, At: time.Now().UTC()})
+	if _, err := publish.MutateGrain(ctx, s.Blob, loserPath, func(old []byte) ([]byte, error) {
+		return bibframe.AddAuthorityMergeMarker(old, loserURI, winner.ID, LocalScheme)
+	}); err != nil {
+		return finish(err)
 	}
-	return result, s.Reload(ctx)
+	changed = append(changed, loserPath)
+	result.Complete = true
+	return finish(nil)
 }
 
 // AutoLink matches a just-saved Work's uncontrolled string subjects against

@@ -365,6 +365,38 @@ be proposed again. It exists for the states the one-way state machine cannot lea
 -- notably the promotion a deployment with no publisher wired approves but never
 executes, which the decide route mints on purpose and reports in its `note`.
 
+### `POST /v1/authorities/merge`: the heading is retired last
+
+Merging a local heading rewrites **every work referencing it** to the winner, then
+retires the loser with `lcat:mergedInto`. The order is the point (tasks/305). The
+marker is a durable claim that the corpus was repointed; writing it first meant a
+rewrite that failed partway left that claim standing over a catalog describing one
+concept two ways -- some works on the winner, the rest on a heading marked retired,
+both still labelling, nothing visibly broken.
+
+Retiring last means a failure leaves the heading **live** and every work either
+repointed or not. Re-issuing the identical request **resumes**: the loop skips works
+that no longer name the loser, and `AddAuthorityMergeMarker` is idempotent. There is
+no state to clear.
+
+Every outcome -- success or failure -- writes an `AUTHORITY_MERGE` audit entry
+carrying the count, and notifies the downstream rebuild about the grains it did
+rewrite. The audit entry used to exist only on success, which is to say it was
+absent for exactly the runs that needed it.
+
+| response | meaning |
+|---|---|
+| `200 {"rewritten": n, "carriers": n, "complete": true}` | every carrier repointed, loser retired |
+| `500 merge partially applied: i of n works rewritten; the heading is still live, retry to finish` | resumable; `rewritten` and `carriers` are in the body |
+| `500 merge failed; nothing was changed` | the first write failed; the corpus is untouched |
+| `500 merge applied, but the vocabulary index was not reloaded` | the store is correct; nothing to redo |
+| `409 the record changed while the merge ran, retry` | a concurrent grain write |
+
+`rewritten < carriers` is the signal that the merge did not finish. Any error that
+is not one of the classified cases above is a server fault and answers `500`; it
+used to fall through to `409` carrying the raw error string, which is the tasks/272
+shape surviving on the one path 272 did not enumerate.
+
 ### Health probes: `/v1/healthz` and `/v1/readyz`
 
 Two probes that answer different questions, and must be wired to different

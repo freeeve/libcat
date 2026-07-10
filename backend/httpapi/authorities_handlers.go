@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -185,16 +186,39 @@ func registerAuthorities(mux *http.ServeMux, svc *authoritiesvc.Service, prof *p
 		case errors.Is(err, publish.ErrGrainConflict):
 			writeError(w, http.StatusConflict, "the record changed while the merge ran, retry")
 			return
-		case errors.Is(err, publish.ErrGrainStore):
-			// Merge writes through publish.MutateGrain twice, so a store failure
-			// used to answer 409 with an *os.PathError as its body: the wrong
-			// status, claiming a concurrent edit, and the wrong message, naming
-			// the blob root (tasks/272).
-			logger.Error("authority merge failed", "loser", req.Loser, "winner", req.Winner.ID, "err", err)
-			writeError(w, http.StatusInternalServerError, "merge failed")
-			return
 		case err != nil:
-			writeError(w, http.StatusConflict, err.Error())
+			// Merge writes through publish.MutateGrain once per carrying Work and
+			// once for the loser, so a store failure used to answer 409 with an
+			// *os.PathError as its body: the wrong status, claiming a concurrent
+			// edit, and the wrong message, naming the blob root (tasks/272). Every
+			// unclassified error took that same 409 path -- a read failure on the
+			// loser grain, a SummariesOf failure -- so 272's fix stopped one case
+			// short. They are server faults; answer 500 and log the cause.
+			//
+			// "merge failed" was also not true (tasks/305). The rewrite runs before
+			// the retirement, so a failure leaves the heading live and every work
+			// either repointed or not; the works already rewritten stay rewritten,
+			// and re-issuing the same merge resumes at the one that failed. Say the
+			// count and say what to do, or the only reasonable reading is "nothing
+			// happened" and a half-merged catalog goes uninvestigated.
+			logger.Error("authority merge failed", "loser", req.Loser, "winner", req.Winner.ID,
+				"rewritten", result.Rewritten, "carriers", result.Carriers, "complete", result.Complete, "err", err)
+			msg := "merge failed; nothing was changed"
+			switch {
+			case result.Complete:
+				msg = "merge applied, but the vocabulary index was not reloaded; it is correct on disk"
+			case result.Rewritten > 0:
+				msg = fmt.Sprintf("merge partially applied: %d of %d works rewritten; the heading is still live, retry to finish",
+					result.Rewritten, result.Carriers)
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":     msg,
+				"loser":     result.Loser,
+				"winner":    result.Winner,
+				"rewritten": result.Rewritten,
+				"carriers":  result.Carriers,
+				"complete":  result.Complete,
+			})
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
