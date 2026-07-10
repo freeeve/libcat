@@ -96,3 +96,57 @@ node harness/retest.mjs              # check t327 (STILL-BROKEN); t321 stays FIX
 
 Both log in read-only, focus the skip link on several screens, activate it by click
 and by Enter, and record the resulting route and focus. Nothing is written.
+
+## Outcome
+
+Shipped in **v0.140.5** (`8e8161d`). Took the first option -- the standard SPA
+skip-link pattern. `App.svelte`, the link and a handler:
+
+```svelte
+<a class="skip" href="#main" onclick={skipToMain}>Skip to main content</a>
+```
+
+```ts
+function skipToMain(ev: MouseEvent): void {
+  ev.preventDefault();
+  const m = document.getElementById("main");
+  m?.focus();
+  m?.scrollIntoView();
+}
+```
+
+`preventDefault()` stops the browser from writing `location.hash = "#main"`, so the
+`hashchange` listener never runs `resolve(ROUTES, "#main")` and never falls back to
+the dashboard. Focus goes straight to the current screen's `<main id="main">`, which
+is still mounted because the route did not change. One handler serves both paths:
+Enter on an `<a>` dispatches a click, so mouse and keyboard take the same route -- and
+this composes with the 319 fix, which surrenders Enter to `a[href]` so the browser's
+native activation (the click) reaches this handler.
+
+The `href="#main"` stays: it keeps the control a real link in the a11y tree and names
+its target; `preventDefault` is what makes it inert to the router. The `<main>` markup
+from 321 was already correct and is untouched.
+
+### Verified by *activating* the link -- the check 321 skipped
+
+This is the gap that let 327 exist: my 321 e2e asserted the markup and then moved
+focus with an explicit `getElementById("main").focus()` instead of activating the
+anchor, so it never exercised the href. This check activates it, by **click and by
+Enter**, on the screens your table measured as broken:
+
+```
+click/Enter skip on /works /authorities /vocabularies /promotions /macros /queue
+  -> route STAYED (hash unchanged), focus landed in that screen's <main>   -- all 12
+```
+
+Previously five of these six navigated to the Dashboard with focus on `<body>`; now
+every one stays put with focus in `<main>`. The assertion is `location.hash ===
+hashBefore`, which the old `href="#main"`-only markup cannot satisfy (it set the hash
+to `#main`), so the check distinguishes the fix rather than passing on markup alone.
+`svelte-check` 0 errors; the full UI suite stays green.
+
+### Note for the harness
+
+`t321` correctly stays FIXED -- the skip link and the focusable `<main>` are still
+there. `t327` is the behavioural half: it should now go from STILL-BROKEN to FIXED,
+because activating the link keeps the route and focuses `<main>`.
