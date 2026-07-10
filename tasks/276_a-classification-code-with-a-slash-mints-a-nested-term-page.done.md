@@ -263,3 +263,114 @@ curl -s localhost:8482/classifications/813/
 curl -s localhost:8482/sitemap.xml | grep '813'
 # <loc>http://localhost:8482/classifications/813/.6/</loc>
 ```
+
+## Outcome
+
+Shipped in `00ec5a9`, released as **v0.135.0**. `probe_opac_taxonomy.mjs` goes
+**3/6 -> 6/6**. Every bullet under Expected is done, and the secondary one (the
+`lcat serve` listing) shipped separately as tasks/278 in v0.133.0.
+
+### The key is a slug; the value is untouched
+
+Classifications key on `partial "lcat-slug.html" .value`, as filed. `813/.6` →
+`/classifications/813-6/`. The code stays verbatim in the record, in
+`catalog.json`, in `facets.json` and on the Work detail page.
+
+It was not a one-line change, because **three places have to agree on the key**:
+
+1. the content adapter, which indexes it;
+2. `facets-body.html`, which recomputes the key from `facets.json` rather than
+   reading the adapter's param -- slug the adapter alone and `lcat-term-url` asks
+   Hugo for a page that no longer exists, so every classification facet row renders
+   *unlinked*, and nothing errors;
+3. `lcat-classification-labels.html`, keyed by the raw code and indexed by
+   `.Data.Term`. Once the term is `813-6` the lookup misses and the heading falls
+   back to Hugo's humanized slug.
+
+(3) also fixed a real gap: the map now falls back to the raw code, not to nothing,
+so a term page shows `813/.6` even where the graph carries no label. The code is
+the one thing that page cannot recover for itself -- its key has lost the
+punctuation, and `classificationList` lives on Work pages.
+
+### Contributors had it too, and are the reason it isn't one rule
+
+`grep` for `/` in queerbooks' 62,602-work `catalog.json` found **14 contributors**:
+`Brzuzy, Stephan/ie`, `Forry/Fino, Amanda`, `Divide, Liberal/Democratic`. Same
+defect, same mechanism, bigger corpus.
+
+But contributors are keyed on the name, and slugging 50,176 real names collapses
+**616 groups** of them -- overwhelmingly punctuation variants of one person
+(`Chesterton, G. K.` / `Chesterton, G.K.` / `Chesterton, G.K`), plus case variants
+(`Burns, Robert` / `Burns, robert`). Merging those is authority control, and a good
+idea, and not this task. It would also rewrite 49,267 of 50,176 contributor URLs.
+
+So `lcat-cap.html` -- the partial that *is* the indexed contributor key -- replaces
+`/` with `-` and nothing else. Only 14 URLs move, and they were nested pages under
+an index-less parent before. `kuang-r.f.` is byte-identical. A new
+`lcat-contributor-names.html` restores the name for display on the ~14 term pages
+whose key can no longer spell it; it maps only those, because a 50k-entry map built
+to answer fourteen questions is not a map.
+
+Extra facets were never affected -- tasks/143 already slugs their keys.
+
+### The guard
+
+The adapter errors on any taxonomy key containing `/`, naming the work, the
+taxonomy and the value:
+
+```
+ERROR libcat: work wexamplethree indexes the contributors taxonomy by
+"Forry/Fino, Amanda", which contains a path separator -- it would mint a nested
+term page under an index-less parent (tasks/276)
+```
+
+No dimension can trip it now, which is why it is asserted rather than trusted.
+Mutation-checked both ways: reverting the classification slug fires it on
+`813/.6`; reverting `lcat-cap`'s replacement fires it on the contributor. It would
+have caught 023, 128, 134 and this one -- all four of which were found in a
+published catalog instead of in a build.
+
+`formats` and `languages` stay raw (controlled vocabularies), and that is what let
+the seam test drive the guard from data rather than from a mutation.
+
+### `link_check.cjs` cannot be taught the character
+
+Its comment claimed `+`/`/`; it only ever checked `+`, and no version of it could
+check `/`. Both halves of the report's reasoning are now in its header: the link
+*resolves*, and once a key is a path the separator that does not belong is
+indistinguishable from the ones that do. The check moved to where the key is still
+a key.
+
+### Tests
+
+`hugo/classifications_seam_test.cjs`, 11 checks, added to `test:js`. The
+exampleSite now carries a Dewey code and a slashed contributor name, so the fixture
+exercises what the corpus does. Three mutations, each killed by exactly one check:
+un-slugging the rail (`the facet rail links the slug and displays the code`),
+keying the label map by the raw code (`the term page still shows the code the
+cataloguer typed`), dropping the contributor-name map (`a contributor keeps every
+character but the one that cannot be a path`).
+
+`no taxonomy mints a nested term page` asserts the property across all six
+dimensions rather than the instance, so a corpus that changes its Dewey number does
+not empty it.
+
+### Measured
+
+Playground OPAC, clean rebuild (`rm -rf opac/public` -- `hugo --destination` does
+not clean, and a stale `813/.6/` survives otherwise, which briefly looked like the
+fix had failed):
+
+```
+/classifications/813-6/    200   <h1>Classification: 813/.6</h1>
+/classifications/813/.6/   404
+/classifications/813/      404
+sitemap.xml                <loc>.../classifications/813-6/</loc>   (no dot-segment)
+facet rail                 href="/classifications/813-6/" -> "813/.6"
+```
+
+### Adoption note
+
+Classification term URLs change for any code carrying punctuation: `813/.6` →
+`813-6`, `PS3607.A35943` → `ps3607-a35943`. A contributor's URL changes only if
+their name contains a slash. Recorded in `hugo/README.md`.
