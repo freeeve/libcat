@@ -19,7 +19,7 @@ func TestServeHandlerRange(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "browse-index.rrs"), []byte("0123456789abcdef"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(serveHandler(dir))
+	srv := httptest.NewServer(serveHandler(dir, false))
 	defer srv.Close()
 
 	req, err := http.NewRequest("GET", srv.URL+"/browse-index.rrs", nil)
@@ -42,8 +42,11 @@ func TestServeHandlerRange(t *testing.T) {
 	if got := res.Header.Get("Content-Range"); got != "bytes 4-7/16" {
 		t.Fatalf("Content-Range = %q", got)
 	}
-	if got := res.Header.Get("Cache-Control"); got != "no-store" {
-		t.Fatalf("Cache-Control = %q, want no-store (stale artifacts break preview reloads)", got)
+	// no-cache, not no-store: the browser may keep the record store and revalidate
+	// it, so a rebuild is still visible on reload without re-downloading megabytes
+	// of artifacts on every navigation (tasks/278).
+	if got := res.Header.Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("Cache-Control = %q, want no-cache", got)
 	}
 
 	// A plain GET stays a full 200.

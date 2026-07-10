@@ -76,7 +76,7 @@ func TestServeAnswersRetiredWorkIDs(t *testing.T) {
 		project.Redirect{From: "wmerged", To: "wlive"},
 		project.Redirect{From: "wgone", To: ""},
 	)
-	srv := httptest.NewServer(serveHandler(dir))
+	srv := httptest.NewServer(serveHandler(dir, false))
 	defer srv.Close()
 
 	if code, loc, _ := get(t, srv, "/works/wmerged/"); code != http.StatusMovedPermanently || loc != "/works/wlive/" {
@@ -98,7 +98,7 @@ func TestServeAnswersRetiredWorkIDs(t *testing.T) {
 // can only serve files answers 200 + meta refresh; a host that can do better does.
 func TestTheRedirectBeatsTheStubOnDisk(t *testing.T) {
 	dir := retiredSite(t, project.Redirect{From: "wmerged", To: "wlive"})
-	srv := httptest.NewServer(serveHandler(dir))
+	srv := httptest.NewServer(serveHandler(dir, false))
 	defer srv.Close()
 
 	code, loc, _ := get(t, srv, "/works/wmerged/")
@@ -121,7 +121,7 @@ func TestTheRedirectBeatsTheStubOnDisk(t *testing.T) {
 // the default language's.
 func TestARedirectStaysInTheReadersLanguage(t *testing.T) {
 	dir := retiredSite(t, project.Redirect{From: "wmerged", To: "wlive"})
-	srv := httptest.NewServer(serveHandler(dir))
+	srv := httptest.NewServer(serveHandler(dir, false))
 	defer srv.Close()
 
 	if code, loc, _ := get(t, srv, "/es/works/wmerged/"); code != http.StatusMovedPermanently || loc != "/es/works/wlive/" {
@@ -139,7 +139,7 @@ func TestARedirectStaysInTheReadersLanguage(t *testing.T) {
 func TestAnUnusableSuccessorIsGoneNotAnOpenRedirect(t *testing.T) {
 	for _, bad := range []string{"https://example.net/phish", "//example.net", "../../etc/passwd", "w1\r\nX-Injected: 1", "w/1"} {
 		dir := retiredSite(t, project.Redirect{From: "wmerged", To: bad})
-		srv := httptest.NewServer(serveHandler(dir))
+		srv := httptest.NewServer(serveHandler(dir, false))
 		code, loc, _ := get(t, srv, "/works/wmerged/")
 		srv.Close()
 		if code != http.StatusGone || loc != "" {
@@ -149,7 +149,7 @@ func TestAnUnusableSuccessorIsGoneNotAnOpenRedirect(t *testing.T) {
 	// Control: a well-formed id in the same position does redirect, so the test above
 	// is measuring the validity check and not a table that never redirects.
 	dir := retiredSite(t, project.Redirect{From: "wmerged", To: "wlive"})
-	srv := httptest.NewServer(serveHandler(dir))
+	srv := httptest.NewServer(serveHandler(dir, false))
 	defer srv.Close()
 	if code, _, _ := get(t, srv, "/works/wmerged/"); code != http.StatusMovedPermanently {
 		t.Fatalf("a valid successor -> %d, want 301", code)
@@ -161,7 +161,7 @@ func TestAnUnusableSuccessorIsGoneNotAnOpenRedirect(t *testing.T) {
 // after the server started answers 404 until someone restarts it.
 func TestTheMapIsRereadWhenTheBuildChanges(t *testing.T) {
 	dir := retiredSite(t)
-	srv := httptest.NewServer(serveHandler(dir))
+	srv := httptest.NewServer(serveHandler(dir, false))
 	defer srv.Close()
 
 	if code, _, _ := get(t, srv, "/works/wgone/"); code != http.StatusNotFound {
@@ -184,7 +184,7 @@ func TestAMissingOrCorruptMapServesTheSiteAnyway(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "redirects.json")); err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer(serveHandler(dir))
+	srv := httptest.NewServer(serveHandler(dir, false))
 	defer srv.Close()
 	if code, _, _ := get(t, srv, "/works/wlive/"); code != http.StatusOK {
 		t.Errorf("with no map, a live work -> %d, want 200", code)

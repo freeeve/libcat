@@ -172,6 +172,30 @@ Chains collapse: `A -> B -> C` is emitted as `A -> C` and `B -> C`. A merge whos
 survivor is itself later tombstoned answers `301` and then `410`, which is correct
 -- do not expect a `200` at the end of every chain.
 
+### Serving the built site
+
+`lcat serve --dir public --addr :8502` is the OPAC's server, not only a preview
+(tasks/181). Two properties follow from that, both chosen to agree with the static
+hosts a catalog would otherwise be published to:
+
+- **Index-less directories answer 404, never a listing.** Hugo emits
+  `/page/N/index.html` and never `/page/index.html`, so every paginated site has an
+  index-less `/page/` one URL truncation away from a link its own home page emits;
+  `/search/` and `/lcat/` are asset directories that will never carry an index. Go's
+  `http.FileServer` would list all three. S3, CloudFront, GitHub Pages, Netlify and
+  nginx do not, and neither does this (tasks/278). Files *inside* those directories
+  are still served -- the browse reader fetches them by name.
+
+  This is why a preview is worth having: a Dewey number `813/.6` mints
+  `/classifications/813/.6/` and leaves `/classifications/813/` index-less. Under a
+  listing that broken ancestor looked like a working page (tasks/276). Now it 404s
+  locally, the way it does on the host.
+
+- **`Cache-Control: no-cache`,** which means "cache, but revalidate" -- a rebuild is
+  visible on the next reload, and a browse session stops re-downloading the
+  multi-megabyte record store on every navigation. `--dev` sends `no-store` instead,
+  writing nothing to the browser cache at all.
+
 ### Multi-feed projection
 
 The projector views one provenance graph at a time, so each feed projects
