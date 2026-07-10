@@ -320,6 +320,84 @@ test("readConfig: disabled and absent return null", () => {
   assert.equal(A.readConfig(fakeDoc("not json")), null);
 });
 
+// ---- Hugo lowercases param keys (tasks/287) ----
+// The end-to-end proof lives in availability_seam_test.cjs, which reads the
+// bytes Hugo actually emits. These pin the normalizer's contract.
+
+test("readConfig: lowercased Hugo keys reach the adapter camelCased", () => {
+  var cfg = A.readConfig(
+    fakeDoc(
+      JSON.stringify({
+        enabled: true,
+        overdrive: { slug: "examplelib", transport: "proxied", proxyurl: "https://p.example", baseurl: "https://b.example", actionurltemplate: "https://a.example/{id}", timeoutms: 900 },
+      })
+    )
+  );
+  assert.equal(cfg.overdrive.proxyUrl, "https://p.example");
+  assert.equal(cfg.overdrive.baseUrl, "https://b.example");
+  assert.equal(cfg.overdrive.actionUrlTemplate, "https://a.example/{id}");
+  assert.equal(cfg.overdrive.timeoutMs, 900);
+});
+
+test("readConfig: camelCase still works, and unknown keys are untouched", () => {
+  // A site config read from somewhere other than Hugo params must not regress,
+  // and a deployment's own keys are none of the normalizer's business.
+  var cfg = A.readConfig(fakeDoc(JSON.stringify({ enabled: true, daia: { baseUrl: "https://d.example", myOwnKey: { nestedKey: 1 } } })));
+  assert.equal(cfg.daia.baseUrl, "https://d.example");
+  assert.deepEqual(cfg.daia.myOwnKey, { nestedKey: 1 });
+});
+
+test("readConfig: canonicalization reaches into arrays and nested objects", () => {
+  var cfg = A.readConfig(fakeDoc(JSON.stringify({ enabled: true, daia: [{ baseurl: "https://one.example" }, { baseurl: "https://two.example" }] })));
+  assert.equal(cfg.daia[0].baseUrl, "https://one.example");
+  assert.equal(cfg.daia[1].baseUrl, "https://two.example");
+});
+
+// spyConsole collects what the adapter logs. Injected via deps.console: these tests
+// run concurrently with every other async test, and monkeypatching the global console
+// would swallow their ok/FAIL lines and race on the restore.
+function spyConsole() {
+  var spy = { errors: [], warns: [] };
+  spy.error = function () {
+    spy.errors.push(Array.prototype.slice.call(arguments).join(" "));
+  };
+  spy.warn = function () {
+    spy.warns.push(Array.prototype.slice.call(arguments).join(" "));
+  };
+  return spy;
+}
+
+test("resolve: a misconfigured provider is reported once at error level, not once per batch", async () => {
+  var spy = spyConsole();
+  // proxied with no proxyUrl: exactly what Hugo's lowercasing used to produce.
+  var bad = { slug: "examplelib", transport: "proxied" };
+  var ids = [];
+  for (var i = 0; i < 60; i++) ids.push("id" + i); // 3 batches
+  var adapter = A.adapters.overdrive;
+  delete adapter._configErrorLogged;
+  try {
+    var got = await A.resolve("overdrive", ids, bad, { fetch: makeFetch({}), now: NOW, store: A.makeStore(1000), console: spy });
+    assert.equal(Object.keys(got).length, 60);
+    assert.equal(got.id0.status, "unknown");
+  } finally {
+    delete adapter._configErrorLogged;
+  }
+  assert.equal(spy.errors.length, 1, "a config error should be reported once, not once per batch: " + JSON.stringify(spy.errors));
+  assert.match(spy.errors[0], /misconfigured/);
+  assert.equal(spy.warns.length, 0, "a config error is not a transient network warning: " + JSON.stringify(spy.warns));
+});
+
+test("resolve: a network failure still warns per batch", async () => {
+  var spy = spyConsole();
+  var boom = function () {
+    return Promise.reject(new Error("offline"));
+  };
+  var got = await A.resolve("overdrive", ["a", "b"], cfg, { fetch: boom, now: NOW, store: A.makeStore(1000), console: spy });
+  assert.equal(got.a.status, "unknown");
+  assert.equal(spy.errors.length, 0, "a transient failure is not a config error: " + JSON.stringify(spy.errors));
+  assert.equal(spy.warns.length, 1, "a fetch failure should warn: " + JSON.stringify(spy.warns));
+});
+
 // Report.
 process.on("exit", function () {
   if (process.exitCode) console.error("\nSOME TESTS FAILED");

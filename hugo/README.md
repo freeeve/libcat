@@ -305,6 +305,11 @@ kept out of the graph (ARCHITECTURE §5), so the static build stays backend-free
     # baseUrl / actionUrlTemplate / timeoutMs are optional overrides
 ```
 
+Hugo lowercases every param key when it loads the config, so what reaches the browser
+is `proxyurl`, not `proxyUrl`. The adapter canonicalizes the keys it knows about, so
+either spelling works and the camelCase above is what you should write. Keys the module
+does not know are passed through untouched (`tasks/287`).
+
 Each edition carries `data-instance` and, for OverDrive, `data-overdrive-reserve` (the
 scheme-tagged Reserve ID from `catalog.json`). The adapter batches those ids (<=25 per
 call), POSTs to Thunder's public `/libraries/{slug}/media/availability`, normalizes to

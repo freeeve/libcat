@@ -38,6 +38,17 @@
   "use strict";
 
   var THUNDER_BASE = "https://thunder.api.overdrive.com/v2";
+
+  // configError marks a failure the operator can fix, as distinct from a provider
+  // outage. Degrading a misconfiguration to "unknown" is indistinguishable on the
+  // page from a failed fetch, and it issues no request to notice missing -- so it
+  // is reported at error level, once per adapter, rather than warned per batch
+  // (tasks/287).
+  function configError(msg) {
+    var e = new Error("lcat-availability: " + msg);
+    e.isConfigError = true;
+    return e;
+  }
   var OVERDRIVE_BATCH = 25; // Thunder /media/availability caps ids per call
   var DEFAULT_TTL_MS = 5 * 60 * 1000; // short cache: availability is volatile
   var DEFAULT_TIMEOUT_MS = 8000;
@@ -92,11 +103,11 @@
   function overdriveRequest(ids, cfg) {
     if (cfg.transport === "proxied") {
       if (!cfg.proxyUrl) {
-        throw new Error("lcat-availability: overdrive.proxyUrl required for proxied transport");
+        throw configError("overdrive.proxyUrl required for proxied transport");
       }
       return { url: cfg.proxyUrl, body: { provider: "overdrive", slug: cfg.slug, ids: ids } };
     }
-    if (!cfg.slug) throw new Error("lcat-availability: overdrive.slug not configured");
+    if (!cfg.slug) throw configError("overdrive.slug not configured");
     var base = cfg.baseUrl || THUNDER_BASE;
     return {
       url: base + "/libraries/" + encodeURIComponent(cfg.slug) + "/media/availability",
@@ -225,11 +236,11 @@
   function daiaRequest(ids, cfg) {
     if (cfg.transport === "proxied") {
       if (!cfg.proxyUrl) {
-        throw new Error("lcat-availability: daia.proxyUrl required for proxied transport");
+        throw configError("daia.proxyUrl required for proxied transport");
       }
       return { url: cfg.proxyUrl, method: "POST", body: { provider: "daia", ids: ids } };
     }
-    if (!cfg.baseUrl) throw new Error("lcat-availability: daia.baseUrl not configured");
+    if (!cfg.baseUrl) throw configError("daia.baseUrl not configured");
     var q = ids.map(function (id) { return "id=" + encodeURIComponent(id); }).join("&");
     return { url: cfg.baseUrl + (cfg.baseUrl.indexOf("?") >= 0 ? "&" : "?") + q + "&format=json", method: "GET" };
   }
@@ -353,7 +364,7 @@
 
     var batches = chunk(missing, adapter.batchSize).map(function (batch) {
       // One promise per batch; register it per-id for de-dup, resolve to a per-id map.
-      var p = fetchBatchSafe(adapter, batch, cfg, { fetch: deps.fetch, now: now });
+      var p = fetchBatchSafe(adapter, batch, cfg, { fetch: deps.fetch, now: now, console: deps.console });
       batch.forEach(function (id) {
         var key = providerKey + ":" + id;
         store.inflight[key] = p.then(function (map) {
@@ -376,12 +387,30 @@
 
   // fetchBatchSafe runs an adapter batch, turning any failure into an empty map so one
   // provider outage degrades to "unknown" rather than throwing.
+  //
+  // A configuration failure is reported at error level and only once: it will recur
+  // on every batch, it is not transient, and warning about it per batch buries it.
+  // A network failure stays a per-batch warning, because which batch failed matters.
+  //
+  // deps.console is injectable so tests can assert on what was logged without
+  // monkeypatching the global console.
   async function fetchBatchSafe(adapter, ids, cfg, deps) {
     try {
       return await adapter.fetchBatch(ids, cfg, deps);
     } catch (e) {
-      if (typeof console !== "undefined" && console.warn) {
-        console.warn("lcat-availability: " + adapter.providerKey + " fetch failed:", e);
+      var log = (deps && deps.console) || (typeof console !== "undefined" ? console : null);
+      if (log) {
+        if (e && e.isConfigError) {
+          if (!adapter._configErrorLogged && log.error) {
+            adapter._configErrorLogged = true;
+            log.error(
+              "lcat-availability: " + adapter.providerKey + " is misconfigured; every id will read \"unknown\":",
+              e.message
+            );
+          }
+        } else if (log.warn) {
+          log.warn("lcat-availability: " + adapter.providerKey + " fetch failed:", e);
+        }
       }
       return {};
     }
@@ -458,6 +487,43 @@
 
   // ---- DOM wiring (browser only) ------------------------------------------------
 
+  // Every config key any adapter reads, in the spelling it reads. Hugo lowercases
+  // param keys when it loads the config, and `jsonify` dumps the map as stored --
+  // template lookup hides this because it is case-insensitive, but the browser
+  // receives {"proxyurl": ...} and `cfg.proxyUrl` is undefined (tasks/287).
+  //
+  // Normalizing here, once, at the boundary, means an adopter may write either
+  // spelling in TOML (Hugo accepts both, the README documents camelCase) and no
+  // adapter has to know.
+  var CANONICAL_KEYS = [
+    "enabled",
+    "slug",
+    "transport",
+    "baseUrl",
+    "proxyUrl",
+    "actionUrlTemplate",
+    "timeoutMs",
+    "overdrive",
+    "daia",
+  ];
+  var CANONICAL_BY_LOWER = CANONICAL_KEYS.reduce(function (m, k) {
+    m[k.toLowerCase()] = k;
+    return m;
+  }, {});
+
+  // canonicalizeKeys rewrites known keys to the spelling the adapters read,
+  // recursively. Unknown keys pass through untouched: a deployment's own extras
+  // are not ours to rename.
+  function canonicalizeKeys(v) {
+    if (v === null || typeof v !== "object") return v;
+    if (Array.isArray(v)) return v.map(canonicalizeKeys);
+    var out = {};
+    Object.keys(v).forEach(function (k) {
+      out[CANONICAL_BY_LOWER[k.toLowerCase()] || k] = canonicalizeKeys(v[k]);
+    });
+    return out;
+  }
+
   // readConfig parses the JSON config the template emits, or null when absent/disabled.
   // Hugo's `jsonify` emits a plain object in a standalone site but a JSON-encoded
   // *string* when the module is imported into another site (a config-merge quirk);
@@ -468,6 +534,7 @@
     try {
       var cfg = JSON.parse(node.textContent || "null");
       if (typeof cfg === "string") cfg = JSON.parse(cfg);
+      cfg = canonicalizeKeys(cfg);
       return cfg && cfg.enabled ? cfg : null;
     } catch (e) {
       return null;
