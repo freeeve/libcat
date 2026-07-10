@@ -376,17 +376,89 @@ func TestDownloadInstallRemoveLifecycle(t *testing.T) {
 	if got := ix.Search("lcgft", "chapbook", 5); len(got) != 1 {
 		t.Fatalf("refreshed term missing: %+v", got)
 	}
-	// Remove: snapshot and sidecar go, terms drop out of the index.
+	// Control: the install really did build sidecar artifacts, so their absence
+	// after the removal below means the removal took them (tasks/252).
+	if before := blobPaths(t, s.Blob, s.prefix()+"sidecar/"); len(before) == 0 {
+		t.Fatal("no sidecar artifacts to remove -- the removal check below would pass vacuously")
+	}
+	// Remove: snapshot, meta and sidecar go, terms drop out of the index.
 	if err := s.RemoveSnapshot(ctx, "lcgft"); err != nil {
 		t.Fatal(err)
 	}
 	if got := ix.Search("lcgft", "zin", 5); len(got) != 0 {
 		t.Fatalf("terms survive removal: %+v", got)
 	}
+	// This comment used to stand in for the assertion, and the artifacts stayed on
+	// disk for as long as it did. 169MB of them, for a removed lcsh.
+	if after := blobPaths(t, s.Blob, s.prefix()+"sidecar/"); len(after) != 0 {
+		t.Errorf("RemoveSnapshot left the sidecar behind: %v", after)
+	}
+	if _, _, err := s.Blob.Get(ctx, s.snapshotPath("lcgft")); !errors.Is(err, blob.ErrNotFound) {
+		t.Errorf("snapshot survives removal: %v", err)
+	}
 	if err := s.RemoveSnapshot(ctx, "lcgft"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("double remove: %v", err)
 	}
 }
+
+// blobPaths lists the object paths under prefix.
+func blobPaths(t *testing.T, st blob.Store, prefix string) []string {
+	t.Helper()
+	var out []string
+	for e, err := range st.List(t.Context(), prefix) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, e.Path)
+	}
+	return out
+}
+
+// TestRemoveSnapshotCleansUpAfterADeletedSource is the leak the harness actually
+// found: the source row is deleted first, so RemoveSnapshot cannot ask the registry
+// what scheme to clean up and has to read the install meta instead. Views
+// synthesizes this orphan install precisely so it stays removable (tasks/252).
+func TestRemoveSnapshotCleansUpAfterADeletedSource(t *testing.T) {
+	s := newService(t)
+	ctx := t.Context()
+	ix, err := vocab.Load(ctx, s.Blob, s.AuthoritiesPrefix, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Index = ix
+	if err := s.PutSource(ctx, Source{Name: "zzleak", Scheme: "zzleak"}); err != nil {
+		t.Fatal(err)
+	}
+	terms, err := s.InstallUpload(ctx, "zzleak", strings.NewReader(zzleakNT))
+	if err != nil || terms != 1 {
+		t.Fatalf("install: terms=%d err=%v", terms, err)
+	}
+	if before := blobPaths(t, s.Blob, s.prefix()+"sidecar/"); len(before) == 0 {
+		t.Fatal("install built no sidecar artifacts")
+	}
+
+	// The operator deletes the source, then remembers the snapshot.
+	if err := s.DeleteSource(ctx, "zzleak"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSource(ctx, "zzleak"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("source still registered: %v", err)
+	}
+	// DeleteSource leaves the install alone on purpose: the .nq still serves.
+	if _, _, err := s.Blob.Get(ctx, s.snapshotPath("zzleak")); err != nil {
+		t.Fatalf("DeleteSource removed the snapshot its scheme still serves: %v", err)
+	}
+
+	if err := s.RemoveSnapshot(ctx, "zzleak"); err != nil {
+		t.Fatal(err)
+	}
+	if after := blobPaths(t, s.Blob, s.prefix()+"sidecar/"); len(after) != 0 {
+		t.Errorf("orphan install left %d sidecar artifacts: %v", len(after), after)
+	}
+}
+
+const zzleakNT = `<http://example.org/z/1> <http://www.w3.org/2004/02/skos/core#prefLabel> "Z"@en .
+`
 
 // TestInstallUpload is the hand-supplied dump path: same converter and index
 // swap as a download, no snapshot URL required, provenance recorded as

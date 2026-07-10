@@ -2,6 +2,7 @@ package vocab
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -222,5 +223,74 @@ func TestSidecarSearchIndex(t *testing.T) {
 	}
 	if hits := side.Search("homosaurus", strings.Repeat("z", 40), 5); len(hits) != 0 {
 		t.Fatalf("phantom hits: %v", asJSON(t, hits))
+	}
+}
+
+// sidecarFiles lists every artifact path currently under the sidecar directory.
+func sidecarFiles(t *testing.T, st blob.Store) []string {
+	t.Helper()
+	var out []string
+	for e, err := range st.List(t.Context(), "data/authorities/"+sidecarDirPart) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, e.Path)
+	}
+	return out
+}
+
+// TestRemoveSidecarLeavesNothingBuildSidecarWrote is the drift guard for
+// sidecarSuffixes. It enumerates the blob store instead of trusting that list, so an
+// artifact that BuildSidecar starts writing and RemoveSidecar forgets fails here
+// rather than accumulating on an operator's disk (tasks/252).
+func TestRemoveSidecarLeavesNothingBuildSidecarWrote(t *testing.T) {
+	_, st := sidecarFixture(t, []string{"lcsh"})
+	// Plus the pre-v2 blob a rebuild orphans, which removal must also take.
+	legacy := sidecarPath("data/authorities/", "lcsh", ".search.bin")
+	if _, err := st.Put(t.Context(), legacy, []byte("legacy"), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Control: without this, a removal that deletes nothing passes the check below.
+	before := sidecarFiles(t, st)
+	if len(before) < 8 {
+		t.Fatalf("BuildSidecar wrote only %d artifacts (%v) -- removing them would prove nothing", len(before), before)
+	}
+
+	if err := RemoveSidecar(t.Context(), st, "data/authorities/", "lcsh"); err != nil {
+		t.Fatal(err)
+	}
+	if after := sidecarFiles(t, st); len(after) != 0 {
+		t.Errorf("RemoveSidecar left %d of %d artifacts behind: %v", len(after), len(before), after)
+	}
+	// Removing a scheme twice is as harmless as removing it once: the snapshot is
+	// gone by now, and an operator retrying a failed removal must not see an error.
+	if err := RemoveSidecar(t.Context(), st, "data/authorities/", "lcsh"); err != nil {
+		t.Errorf("second removal: %v", err)
+	}
+}
+
+// TestRemoveSidecarDoesNotReachIntoANeighbouringScheme pins why removal enumerates
+// exact suffixes rather than deleting everything under `sidecar/<scheme>`. A scheme
+// is validated only as non-empty (vocabsrc.validateSource), so one scheme's name can
+// prefix another's, and prefix-matching the directory would take the neighbour with
+// it.
+func TestRemoveSidecarDoesNotReachIntoANeighbouringScheme(t *testing.T) {
+	_, st := sidecarFixture(t, []string{"lcsh"})
+	neighbour := sidecarPath("data/authorities/", "lcsh.local", manifestSuffix)
+	if _, err := st.Put(t.Context(), neighbour, []byte(`{"scheme":"lcsh.local"}`), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveSidecar(t.Context(), st, "data/authorities/", "lcsh"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.Get(t.Context(), neighbour); err != nil {
+		t.Fatalf("removing scheme %q took %q with it: %v", "lcsh", neighbour, err)
+	}
+	// Control: the scheme actually asked for is gone, so the survival above is not
+	// simply a removal that did nothing.
+	if _, _, err := st.Get(t.Context(), sidecarPath("data/authorities/", "lcsh", manifestSuffix)); !errors.Is(err, blob.ErrNotFound) {
+		t.Fatalf("lcsh manifest survived its own removal: %v", err)
 	}
 }

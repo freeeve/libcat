@@ -204,6 +204,40 @@ func buildSidecarTerms(ctx context.Context, st blob.Store, prefix, scheme, sourc
 	return m, nil
 }
 
+// sidecarSuffixes is every file a scheme's sidecar occupies, manifest first and
+// the pre-v2 search blob last. TestRemoveSidecarLeavesNothingBuildSidecarWrote
+// holds this in step with the artifacts BuildSidecar puts.
+var sidecarSuffixes = []string{
+	manifestSuffix,
+	".rrsr.bin", ".rrsr.idx",
+	".uri.rril", ".id1.rril", ".id2.rril", ".id3.rril",
+	".search.rrt",
+	".search.bin", // pre-v2 LCVS search blob; a rebuild orphans it
+}
+
+// RemoveSidecar deletes a scheme's sidecar artifacts, undoing BuildSidecar. It is
+// the caller's job to remove the snapshot the manifest names; removing that alone
+// leaves the artifacts resident forever (tasks/252).
+//
+// The manifest goes first, mirroring the order BuildSidecar writes it in: the
+// manifest is what arms a scheme, so a process that dies mid-delete leaves the
+// scheme served from maps rather than armed on a half-deleted index. A missing
+// artifact is not an error -- the set has changed across sidecar versions, and
+// removing a scheme twice must be as harmless as removing it once.
+//
+// Artifacts are keyed by scheme, not by source name. Two sources declaring the same
+// scheme already overwrite each other's sidecar in BuildSidecar; removal follows the
+// same keying, so the survivor serves from maps until its next install.
+func RemoveSidecar(ctx context.Context, st blob.Store, prefix, scheme string) error {
+	for _, suffix := range sidecarSuffixes {
+		path := sidecarPath(prefix, scheme, suffix)
+		if err := st.Delete(ctx, path); err != nil && !errors.Is(err, blob.ErrNotFound) {
+			return fmt.Errorf("vocab: remove sidecar %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
 // encodeSearch serializes search entries as an RRTI term index (tasks/169):
 // each normalized label is a dictionary term whose posting carries doc<<1|alt
 // encoded IDs, so a prefix query range-reads only the dict blocks spanning

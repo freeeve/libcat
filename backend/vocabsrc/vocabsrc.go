@@ -222,6 +222,13 @@ func (s *Service) PutSource(ctx context.Context, src Source) error {
 
 // DeleteSource removes a stored registry entry. A built-in cannot be deleted
 // (deleting a stored override restores the shipped definition).
+//
+// It deliberately leaves an installed snapshot and its sidecar alone (tasks/252).
+// The snapshot keeps serving its terms after its source row is gone, so deleting
+// the artifacts here would demote a live scheme to the map loader while its .nq
+// still resolves. Views synthesizes an orphan install for exactly this state, and
+// RemoveSnapshot -- which does clean up -- is the way out of it. Deleting the
+// registry entry is not a statement about the vocabulary it installed.
 func (s *Service) DeleteSource(ctx context.Context, name string) error {
 	err := s.DB.Delete(ctx, store.Record{Key: sourceKey(name)}, store.CondNone)
 	if errors.Is(err, store.ErrNotFound) {
@@ -335,13 +342,31 @@ func (s *Service) Reload(ctx context.Context) error {
 	return s.Index.Reload(ctx, s.Blob, s.prefix(), schemes)
 }
 
-// RemoveSnapshot deletes an installed snapshot and its sidecar, then reloads
-// the index so the scheme's terms drop out.
+// RemoveSnapshot deletes an installed snapshot, its install meta, and the sidecar
+// index artifacts built from it, then reloads the index so the scheme's terms drop
+// out.
+//
+// The scheme comes from the install meta rather than the source registry, because
+// removing a snapshot whose source row is already gone -- the orphan install Views
+// synthesizes so it stays removable -- is exactly the case that leaves artifacts
+// behind (tasks/252). The sidecar goes first: its manifest is what arms the scheme,
+// so an interrupted removal degrades the scheme to the map loader instead of arming
+// it on an index whose snapshot has been deleted.
 func (s *Service) RemoveSnapshot(ctx context.Context, name string) error {
-	if _, _, err := s.Blob.Get(ctx, s.metaPath(name)); errors.Is(err, blob.ErrNotFound) {
+	meta, _, err := s.Blob.Get(ctx, s.metaPath(name))
+	if errors.Is(err, blob.ErrNotFound) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
+	}
+	var info InstallInfo
+	if err := json.Unmarshal(meta, &info); err != nil {
+		return fmt.Errorf("vocabsrc: install meta for %q is unreadable, so its sidecar cannot be located: %w", name, err)
+	}
+	if info.Scheme != "" {
+		if err := vocab.RemoveSidecar(ctx, s.Blob, s.prefix(), info.Scheme); err != nil {
+			return err
+		}
 	}
 	if err := s.Blob.Delete(ctx, s.snapshotPath(name)); err != nil && !errors.Is(err, blob.ErrNotFound) {
 		return err
