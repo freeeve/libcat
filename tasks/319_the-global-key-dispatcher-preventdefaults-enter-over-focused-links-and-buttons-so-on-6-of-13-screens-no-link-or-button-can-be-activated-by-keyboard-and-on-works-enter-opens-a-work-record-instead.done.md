@@ -186,3 +186,80 @@ was its own bug: a 90-stop tab-walk cap read as "unreachable controls" and as a
 gives the declared 3px ring; `a[href^="#"]` matched the brand link `<a href="#/">`
 and reported a skip link that does not exist; and `/copycat` reported "0 header tab
 stops" because it autofocuses an input inside `<main>`.
+
+## Outcome
+
+Shipped in **v0.140.4** (`6ecfe71`). Took your suggested fix, verbatim in spirit.
+`backend/ui/src/lib/keyboard.ts`, `onKeydown`, just before the plain-key dispatch:
+
+```ts
+const ACTIVATES: Record<string, string> = {
+  Enter: "a[href], button, summary, [role=button], [role=link], [role=menuitem]",
+  " ": "button, summary, [role=button], input[type=checkbox], input[type=radio]",
+};
+function surrendersToTarget(ev, chord, target) {
+  const native = ACTIVATES[ev.key];
+  return !!native && !chord.startsWith("mod+") && !!target?.closest?.(native);
+}
+// ...
+if (surrendersToTarget(ev, chord, target)) return;   // before `const b = lookup(chord)`
+```
+
+Both things you said to get right are respected:
+
+- **It is not folded into the form-control selector.** It is a separate, key-specific
+  guard: only the key that natively activates the focused element is surrendered, and
+  only to the element that consumes it. `j`/`k`/`g` and the sequence prefixes still
+  fire with a link focused -- a unit test pins that (`j` over an `<a href>` still
+  fires and still `preventDefault`s).
+- **`mod+` chords keep firing everywhere** -- the `!chord.startsWith("mod+")` clause,
+  and a test presses `mod+Enter` over a link and asserts the binding runs.
+
+`NumpadEnter` reports `ev.key === "Enter"`, so it is covered by the same entry -- the
+report's third row (`NumpadEnter -> a work record`) is fixed by the same line.
+
+The guard sits after the `?` and sequence-prefix handling and before both the
+plain-key dispatch and the sequence-arming `preventDefault`, so a surrendered key
+never arms a sequence either. On the seven screens that already worked (no `Enter`
+binding), behaviour is unchanged -- the key was reaching the browser before and still
+does; those screens are now correct by rule rather than by the absence of a binding.
+
+### Tests
+
+Five cases added to `keyboard.test.ts` (`describe "native activation keys
+(tasks/319)"`), the two you named plus three controls:
+
+```
+Enter over <a href>   -> defaultPrevented false, binding NOT called   (A1)
+Space over <button>   -> defaultPrevented false, binding NOT called
+Enter over <body>     -> defaultPrevented true,  binding called       (feature intact)
+j     over <a href>   -> defaultPrevented true,  binding called       (not over-broadened)
+mod+Enter over <a>    -> defaultPrevented true,  binding called       (mod exempt)
+```
+
+Mutation-checked: stubbing `surrendersToTarget` to `return false` fails exactly the
+two surrender cases and leaves the three controls green, so the tests exercise the
+guard and not something incidental. Full UI suite 318/318, `svelte-check` 0 errors.
+
+### Verified end to end on live :8481
+
+Drove the real login, then on each of the **six** screens you measured as blocked,
+focused the primary-nav **Batch** link directly and pressed Enter:
+
+```
+/works  /authorities  /macros  /exports  /duplicates  /queue   -> #/batch, every one
+```
+
+(was: a work/authority record on two of them, nothing on the other four). Enter on
+the theme `<button>` toggles it. The row-list Enter feature is intact -- Enter over a
+non-activatable target still fires the "open selected" binding, which is the
+`<body>` control test above and is why the `/works` list still opens on Enter when a
+row (not a link) holds the selection.
+
+### Left out of scope, as you flagged
+
+The Arrow-key question (`ArrowDown` over a link scrolls in the platform but a
+row-list app reasonably claims it) is a judgement call you separated from the minimum
+fix. I left `j`/`k`/`Arrow*` firing as they were rather than half-fix it only where a
+`RowList` is mounted; if you want arrows surrendered too, that is its own task with a
+consistent everywhere-or-nowhere rule.
