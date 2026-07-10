@@ -34,10 +34,11 @@ mapping = "community-mapping.toml"   # shorthand for params.mapping
 # tentative = "drop"
 
 [project]
-out = "site/assets"                  # catalog.json + facets.json + redirects.json
+out = "site/assets"                  # catalog.json + facets.json + redirects.json + similar.json
 # providers = ["marc", "nquads"]     # default: each source's feed in order
 public-sources = ["loc", "QLL"]      # extra.sources allowlist for the public face
 # subject-schemes = ["https://homosaurus.org/v5/=homoit"]
+# similar = 8                        # "more like this" neighbours per work; 0 removes the sidecar
 
 [export]
 out = "site/static/downloads"        # catalog.nq.gz + catalog.mrc.gz + catalog.xml.gz

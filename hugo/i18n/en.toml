@@ -53,6 +53,18 @@ other = "Part of"
 [contains]
 other = "Contains"
 
+[moreLikeThis]
+other = "More like this"
+
+# The rail is computed, not catalogued. Say so where the reader can see it, so a
+# surprising recommendation reads as a machine's guess rather than a librarian's
+# assertion (tasks/284).
+[moreLikeThisNote]
+other = "Suggested automatically from shared subjects, tags, contributors and series."
+
+[sharesLabel]
+other = "Shares"
+
 [backToAllWorks]
 other = "Back to all works"
 

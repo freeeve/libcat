@@ -251,7 +251,7 @@ if you need those localized.
 
 Both JSON files carry a top-level `version` (`project.SchemaVersion`). The adapter
 fails the build loudly if `catalog.json`'s version does not match the version the
-module targets (`params.catalogSchemaVersion`, currently **10**). Reproject with a
+module targets (`params.catalogSchemaVersion`, currently **11**). Reproject with a
 matching `lcat` if you hit a mismatch. v6 added the holdings signal: `held` on each
 instance and work (physical items, or a live-availability identifier whose feed
 still lists the work -- tasks/078). Whether unheld works are hidden, badged, or
@@ -268,6 +268,36 @@ top-level `terms` vocabulary sideband (referenced subjects plus their
 transitive `skos:broader` ancestors with labels); the module itself doesn't
 read it -- the browse-artifact builder does (tasks/178) -- but the version
 check keeps projector and consumers in lockstep.
+
+`similar.json` is versioned **separately** (`version: 1`) and is **optional**. It
+is not part of `SchemaVersion` on purpose: that number exists so a consumer can
+detect a mismatch in an artifact it cannot render without, and this module renders
+fine with no `similar.json` at all. Bumping `SchemaVersion` for it would force
+every adopter into a lockstep reproject to announce a mismatch that cannot occur.
+
+## More like this (tasks/284)
+
+`lcat project` writes a `similar.json` sidecar: for each Work, up to 8 ranked
+neighbours with the attribute values that put them there. The Work detail page
+renders it below the editions, labelled as computed and visually distinct from the
+`lcat-relations` block, which carries relations a **cataloger asserted**
+(`hasPart`/`partOf`). These are inferred.
+
+The method is a two-hop walk over the bipartite graph of Works and their
+attributes -- series (weight 5), contributors (3), tags (2), subjects (1) -- with
+each shared attribute weighted by rarity (`w / log2(df+2)`), an attribute held by
+more than 20% of the catalog skipped as undiscriminating, and subjects expanded
+through the `skos:broader` tree so two books match on a nearby concept, not just an
+identical IRI. Same-language neighbours get a flat bonus, applied only to Works
+some other signal already scored.
+
+Each card names what it shares. A recommendation nobody can explain is worse than
+no recommendation, and "why is this here?" is the only question a librarian asks.
+
+Shared subjects are stored as authority IRIs, because the sidecar is
+language-neutral; the detail page resolves them to labels from its own subject
+list, in its own language. Nothing to configure. `lcat project --similar=0` (or
+`similar = 0` under `[project]`) removes the sidecar and the rail with it.
 
 ## Display labels for language codes
 

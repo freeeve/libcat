@@ -111,6 +111,46 @@
   </section>
   {{ end }}
 
+  {{- /* "More like this" (tasks/284). Sits below the editions and apart from the
+         lcat-relations block above, which carries relations a cataloger *asserted*
+         (hasPart/partOf). These are *computed* -- a two-hop walk over shared
+         subjects, tags, contributors and series -- so they are labelled as such and
+         each card says what it shares. A recommendation nobody can explain is worse
+         than none.
+
+         data-pagefind-ignore: a neighbour's title on this page must not make this
+         page a search hit for that title. */ -}}
+  {{ with .Params.similar }}
+  {{- /* The sidecar stores shared subjects as authority IRIs, deliberately: a
+         label is language-specific and the sidecar is not. This page already
+         carries the labels for its own subjects, in its own language, so resolve
+         them here. Tags, contributors and series titles are already human text
+         and pass through untouched. */ -}}
+  {{- $labels := dict -}}
+  {{- $lang := site.Language.Lang -}}
+  {{- range $.Params.subjectList -}}
+    {{- $l := .id -}}
+    {{- with .labels -}}{{- $l = or (index . $lang) (index . "en") $l -}}{{- end -}}
+    {{- $labels = merge $labels (dict .id $l) -}}
+  {{- end -}}
+  <section class="lcat-similar" aria-labelledby="lcat-sim" data-pagefind-ignore>
+    <h2 id="lcat-sim">{{ i18n "moreLikeThis" }}</h2>
+    <p class="lcat-similar-note">{{ i18n "moreLikeThisNote" }}</p>
+    <ul class="lcat-similar-list">
+      {{ range . }}
+      <li class="lcat-similar-item">
+        <a href="{{ printf "/works/%s/" .id | relLangURL }}">{{ or .title .id }}</a>
+        {{- with .shared }}
+        {{- $why := slice }}
+        {{- range . }}{{ $why = $why | append (or (index $labels .) .) }}{{ end }}
+        <span class="lcat-similar-why">{{ i18n "sharesLabel" }}: {{ delimit $why ", " }}</span>
+        {{- end }}
+      </li>
+      {{ end }}
+    </ul>
+  </section>
+  {{ end }}
+
   <p data-pagefind-ignore><a href="{{ "/works/" | relURL }}">&larr; {{ i18n "backToAllWorks" }}</a></p>
 </article>
 {{ end }}

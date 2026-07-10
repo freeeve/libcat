@@ -3,20 +3,17 @@ package similar
 import (
 	"fmt"
 	"testing"
-
-	"github.com/freeeve/libcat/ingest"
 )
 
 // synthCatalog builds n Works with a realistic attribute spread: a long tail of
 // subjects, a shorter tail of contributors, a few tags, and series on a tenth.
 // The DF cap and the singleton floor both bite here, which is the point -- a
 // benchmark over unique attributes would measure an empty walk.
-func synthCatalog(n int) []ingest.WorkSummary {
-	works := make([]ingest.WorkSummary, 0, n)
+func synthCatalog(n int) []Work {
+	works := make([]Work, 0, n)
 	for i := range n {
-		s := ingest.WorkSummary{
+		s := Work{
 			WorkID: fmt.Sprintf("w%08d", i),
-			Title:  fmt.Sprintf("Work %d", i),
 			Subjects: []string{
 				fmt.Sprintf("s:%d", i%(n/20+1)), // ~20 works per subject
 				fmt.Sprintf("s:%d", i%97),       // a denser band

@@ -22,6 +22,19 @@
     {{- errorf "libcat: catalog.json schema version %v, module targets %d -- reproject with a matching lcat (tasks/009)" $data.version $want -}}
   {{- end -}}
   {{- $lang := site.Language.Lang -}}
+  {{- /* "More like this" (tasks/284): the precomputed neighbour rail, a sidecar
+         rather than a field on each Work. Optional on purpose -- a site whose
+         `lcat project` predates it, or which ran `--similar=0`, simply renders no
+         rail. It carries its own schema version because catalog.json's exists to
+         detect a mismatch the module cannot render without, and this one it can. */ -}}
+  {{- $similar := dict -}}
+  {{- with resources.Get "similar.json" -}}
+    {{- $sim := . | transform.Unmarshal -}}
+    {{- if ne ($sim.version | int) 1 -}}
+      {{- errorf "libcat: similar.json schema version %v, module targets 1 -- reproject with a matching lcat (tasks/284)" $sim.version -}}
+    {{- end -}}
+    {{- $similar = or $sim.works dict -}}
+  {{- end -}}
   {{- range $data.works -}}
     {{- /* Contributor names are free text and taxonomy-indexed as-is, so an
            oversized label (e.g. a whole artist list in one field) would mint a
@@ -99,6 +112,7 @@
       "subjectList" .subjects
       "instances" .instances
       "relations" .relations
+      "similar" (index $similar .id)
       "workID" .id -}}
     {{- /* Extra facet params sit between: they override the raw extras value
            under the same key (the split slice replaces the joined string) but

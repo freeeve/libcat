@@ -462,6 +462,15 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 .lcat-availability[data-status="holdable"] { color: var(--lcat-avail-hold); }
 .lcat-availability[data-status="unavailable"] { color: var(--lcat-avail-none); }
 .lcat-meta dt { font-weight: 600; }
+/* "More like this" (tasks/284). Set apart from the asserted lcat-relations block:
+   these neighbours are computed, and the note plus the per-item "Shares:" line say
+   so, so a surprising suggestion reads as a machine's guess and not a cataloger's
+   claim. */
+.lcat-similar { border-top: 1px solid var(--lcat-border); margin-top: var(--lcat-gap); padding-top: var(--lcat-gap); }
+.lcat-similar-note { color: var(--lcat-muted, #667); font-size: 0.85em; margin: 0 0 0.75rem; }
+.lcat-similar-list { list-style: none; padding: 0; margin: 0; }
+.lcat-similar-item { padding: 0.35rem 0; }
+.lcat-similar-why { display: block; color: var(--lcat-muted, #667); font-size: 0.8em; }
 /* Optional cover art (tasks/025): rendered by lcat-cover.html only when the site sets
    [params] covers = true. Set BOTH width and height in CSS per variant -- the <img>
    carries width/height HTML hints for CLS, and without an explicit CSS height that hint

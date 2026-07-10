@@ -35,12 +35,42 @@
 package similar
 
 import (
+	"maps"
 	"math"
 	"slices"
 	"sort"
-
-	"github.com/freeeve/libcat/ingest"
 )
+
+// Work is the scorer's input: the attributes a Work is scored on, and nothing
+// else. It is deliberately not ingest.WorkSummary or project.Work.
+//
+// Both surfaces must recommend the same neighbours -- an OPAC page and the admin
+// editor disagreeing about what a Work resembles is the tasks/253 failure class,
+// where the facet rail and the query disagreed about what was filtered. The
+// guarantee is that each caller converts its own record into this one type
+// (ingest.WorkSummary.SimilarWork, project.Work.SimilarWork), and a test drives
+// both converters from the same graph and requires the results to be equal.
+//
+// Values are opaque strings compared by equality, so the two callers must agree
+// on spelling as well as shape: subjects are authority IRIs, contributors are
+// agent labels, languages are local names ("en").
+type Work struct {
+	WorkID string
+	// Tombstoned Works are excluded from the index outright (tasks/280).
+	Tombstoned bool
+
+	// Held earns the availability bonus: a neighbour the reader can actually
+	// borrow outranks one they cannot. Both callers already agree on the
+	// predicate -- project.Work.Held is defined as physical items or a live
+	// availability identifier, which is ingest's HasAvailability || Items > 0.
+	Held bool
+
+	Series       []string
+	Contributors []string
+	Tags         []string
+	Subjects     []string
+	Languages    []string
+}
 
 // Relation names the attribute kinds the walk traverses.
 type Relation int
@@ -119,7 +149,7 @@ type Scored struct {
 // Index is a built, read-only postings index. Safe for concurrent Neighbors.
 type Index struct {
 	opts  Options
-	works []ingest.WorkSummary
+	works []Work
 	byID  map[string]int
 	// postings[rel][value] lists the work offsets carrying that value.
 	postings [numRelations]map[string][]int
@@ -129,7 +159,23 @@ type Index struct {
 }
 
 // attrsOf returns the Work's values for one relation.
-func attrsOf(s ingest.WorkSummary, rel Relation) []string {
+// normalize sorts, de-duplicates and drops empty values, copying rather than
+// aliasing the caller's slice.
+func normalize(vs []string) []string {
+	if len(vs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(vs))
+	for _, v := range vs {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+func attrsOf(s Work, rel Relation) []string {
 	switch rel {
 	case RelSeries:
 		return s.Series
@@ -152,7 +198,14 @@ func attrsOf(s ingest.WorkSummary, rel Relation) []string {
 // produce them -- but the failure they cause is nasty and silent: the focus Work
 // occupies several offsets, Neighbors excludes only the one it looked up, and the
 // Work recommends itself at the top of its own rail.
-func Build(works []ingest.WorkSummary, opts Options) *Index {
+//
+// Every attribute slice is normalized on the way in: sorted, de-duplicated, empty
+// values dropped. A Work carrying one subject twice would otherwise post to it
+// twice and count it twice, scoring a coincidence of serialization as evidence --
+// and neither caller de-duplicates subjects or tags upstream. Normalizing here
+// rather than asking the callers to also means an ordering difference between the
+// projector and the admin index cannot change anyone's neighbours.
+func Build(works []Work, opts Options) *Index {
 	ix := &Index{opts: opts, byID: make(map[string]int, len(works))}
 	for _, w := range works {
 		if w.Tombstoned {
@@ -161,6 +214,11 @@ func Build(works []ingest.WorkSummary, opts Options) *Index {
 		if _, dup := ix.byID[w.WorkID]; dup {
 			continue
 		}
+		w.Series = normalize(w.Series)
+		w.Contributors = normalize(w.Contributors)
+		w.Tags = normalize(w.Tags)
+		w.Subjects = normalize(w.Subjects)
+		w.Languages = normalize(w.Languages)
 		ix.byID[w.WorkID] = len(ix.works)
 		ix.works = append(ix.works, w)
 		ix.langs = append(ix.langs, w.Languages)
@@ -207,13 +265,23 @@ func (ix *Index) usable(others, df int) bool { return others >= 1 && df <= ix.df
 
 // scorer accumulates one query's candidate scores.
 type scorer struct {
-	ix     *Index
-	focus  int
-	score  map[int]float64
-	shared map[int][]sharedAttr
+	ix       *Index
+	focus    int
+	score    map[int]float64
+	contribs []contribution
 }
 
 type sharedAttr struct {
+	value  string
+	weight float64
+}
+
+// contribution is one attribute of the focus Work that survived the cap and the
+// floor -- an edge the walk actually crossed. There are a handful of these per
+// query, against thousands of candidates, which is why explanations are rebuilt
+// from them rather than accumulated per candidate.
+type contribution struct {
+	rel    Relation
 	value  string
 	weight float64
 }
@@ -231,13 +299,29 @@ func (sc *scorer) contribute(rel Relation, value string, weight float64) {
 	// Rarity is measured over the whole catalog, so df counts the focus: a
 	// heading on 400 Works is common whether or not this is one of them.
 	w := weight * idf(len(works))
+	sc.contribs = append(sc.contribs, contribution{rel: rel, value: value, weight: w})
 	for _, other := range works {
 		if other == sc.focus {
 			continue
 		}
 		sc.score[other] += w
-		sc.shared[other] = append(sc.shared[other], sharedAttr{value: value, weight: w})
 	}
+}
+
+// sharedWith names the attributes that put the Work at offset other on the list.
+//
+// Build appends offsets in ascending order, so every posting list is sorted and
+// membership is a binary search. Rebuilding the explanation for the few survivors
+// costs len(contribs) * log(df); accumulating it for every candidate cost a slice
+// append per candidate per attribute, and dominated the whole-catalog precompute.
+func (sc *scorer) sharedWith(other int) []string {
+	attrs := make([]sharedAttr, 0, len(sc.contribs))
+	for _, c := range sc.contribs {
+		if _, found := slices.BinarySearch(sc.ix.postings[c.rel][c.value], other); found {
+			attrs = append(attrs, sharedAttr{value: c.value, weight: c.weight})
+		}
+	}
+	return topShared(attrs)
 }
 
 // expandSubjects walks the concept tree around the focus Work's subjects,
@@ -290,7 +374,7 @@ func (ix *Index) Neighbors(workID string, n int) []Scored {
 	if !ok || n <= 0 {
 		return nil
 	}
-	sc := &scorer{ix: ix, focus: focus, score: map[int]float64{}, shared: map[int][]sharedAttr{}}
+	sc := &scorer{ix: ix, focus: focus, score: map[int]float64{}}
 	me := ix.works[focus]
 
 	for _, rel := range []Relation{RelSeries, RelContributor, RelTag} {
@@ -298,8 +382,20 @@ func (ix *Index) Neighbors(workID string, n int) []Scored {
 			sc.contribute(rel, v, ix.opts.Weights[rel])
 		}
 	}
-	for iri, mult := range ix.expandSubjects(me.Subjects) {
-		sc.contribute(RelSubject, iri, ix.opts.Weights[RelSubject]*mult)
+	// Sorted, not map order. similar.json is a published artifact: a rail that
+	// reshuffles between two projections of an identical catalog churns the OPAC's
+	// pages and their checksums for nothing (cf. tasks/291).
+	//
+	// Go randomizes map iteration, so this fixes the order in which a candidate's
+	// score is accumulated. Float addition is not associative in general; I could
+	// not construct an input here where the summation order actually changed the
+	// result's bits, so treat this as cheap insurance (one sort of a handful of
+	// keys per query) rather than a fix for an observed defect. What *is* observed
+	// is Shared: it is truncated to maxShared, so contribution order decided which
+	// explanations survived, and topShared's tie-break now pins that independently.
+	expanded := ix.expandSubjects(me.Subjects)
+	for _, iri := range slices.Sorted(maps.Keys(expanded)) {
+		sc.contribute(RelSubject, iri, ix.opts.Weights[RelSubject]*expanded[iri])
 	}
 
 	// Language and availability are bonuses on an already-scored candidate, never
@@ -315,7 +411,7 @@ func (ix *Index) Neighbors(workID string, n int) []Scored {
 				break
 			}
 		}
-		if ix.works[i].HasAvailability || ix.works[i].Items > 0 {
+		if ix.works[i].Held {
 			sc.score[i] += ix.opts.AvailabilityBonus
 		}
 	}
@@ -325,10 +421,15 @@ func (ix *Index) Neighbors(workID string, n int) []Scored {
 // rank orders candidates by score, breaking ties by work id so the same catalog
 // always yields the same rail -- a build step that reshuffled its output on every
 // run would churn the OPAC's pages for nothing.
+//
+// Shared is resolved only for the n survivors. A dense subject band puts thousands
+// of candidates in the score map, and building each one's explanation -- a sort and
+// a dedupe map apiece -- to then discard all but eight dominated the whole-catalog
+// precompute: 43 GB of allocation at 62,602 Works.
 func (ix *Index) rank(sc *scorer, n int) []Scored {
 	out := make([]Scored, 0, len(sc.score))
 	for i, score := range sc.score {
-		out = append(out, Scored{WorkID: ix.works[i].WorkID, Score: score, Shared: topShared(sc.shared[i])})
+		out = append(out, Scored{WorkID: ix.works[i].WorkID, Score: score})
 	}
 	sort.Slice(out, func(a, b int) bool {
 		if out[a].Score != out[b].Score {
@@ -339,15 +440,25 @@ func (ix *Index) rank(sc *scorer, n int) []Scored {
 	if len(out) > n {
 		out = out[:n]
 	}
+	for i := range out {
+		out[i].Shared = sc.sharedWith(ix.byID[out[i].WorkID])
+	}
 	return out
 }
 
 // maxShared bounds the explanation, not the score.
 const maxShared = 5
 
-// topShared names the attributes that contributed most, best first.
+// topShared names the attributes that contributed most, best first. Equal weights
+// break by value, never by insertion order: maxShared truncates, so the tie-break
+// decides which explanations the reader sees.
 func topShared(attrs []sharedAttr) []string {
-	sort.SliceStable(attrs, func(a, b int) bool { return attrs[a].weight > attrs[b].weight })
+	sort.Slice(attrs, func(a, b int) bool {
+		if attrs[a].weight != attrs[b].weight {
+			return attrs[a].weight > attrs[b].weight
+		}
+		return attrs[a].value < attrs[b].value
+	})
 	out := make([]string, 0, min(len(attrs), maxShared))
 	seen := map[string]bool{}
 	for _, a := range attrs {

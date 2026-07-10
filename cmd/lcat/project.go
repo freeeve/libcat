@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/freeeve/libcat/project"
 )
@@ -31,6 +32,8 @@ func runProject(args []string) error {
 		"extra authority namespace -> scheme entries, comma-separated prefix=code pairs (prepended, so they override the built-in table; tasks/141)")
 	allowEmpty := fs.Bool("allow-empty", false,
 		"write a catalog with zero works instead of failing (a fresh deployment before its first ingest; tasks/246)")
+	similarLimit := fs.Int("similar", DefaultSimilarLimit,
+		"neighbours per work in the similar.json \"more like this\" sidecar; 0 skips it entirely (tasks/284)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -40,8 +43,13 @@ func runProject(args []string) error {
 	if err := applySubjectSchemes(splitList(*schemeMap)); err != nil {
 		return err
 	}
-	return projectCatalog(*catalogNQ, splitList(*provider), splitList(*publicSources), *out, *allowEmpty)
+	return projectCatalog(*catalogNQ, splitList(*provider), splitList(*publicSources), *out, *allowEmpty, *similarLimit)
 }
+
+// DefaultSimilarLimit is how many neighbours each Work's rail carries. qllpoc
+// reveals 8 at a time from a deeper pool; a static page has no "show more", so 8
+// is the whole rail.
+const DefaultSimilarLimit = 8
 
 // applySubjectSchemes prepends deployment prefix=code entries to the
 // namespace -> scheme table, so they override the built-ins (tasks/141).
@@ -64,8 +72,9 @@ func applySubjectSchemes(pairs []string) error {
 // projectCatalog is the projection step shared by `lcat project` and `lcat
 // build`: it projects each named feed from the catalog.nq at catalogPath,
 // merges first-feed-wins, applies the public-sources allowlist when one is
-// given, and writes catalog.json + facets.json + redirects.json to out.
-func projectCatalog(catalogPath string, providers, publicSources []string, out string, allowEmpty bool) error {
+// given, and writes catalog.json + facets.json + redirects.json + similar.json
+// to out.
+func projectCatalog(catalogPath string, providers, publicSources []string, out string, allowEmpty bool, similarLimit int) error {
 	b, err := os.ReadFile(catalogPath)
 	if err != nil {
 		return err
@@ -120,6 +129,38 @@ func projectCatalog(catalogPath string, providers, publicSources []string, out s
 	fmt.Printf("projected %d works to %s (schema v%d); facets: %d languages, %d subjects, %d contributors; %d redirects\n",
 		len(cat.Works), out, project.SchemaVersion,
 		len(facets.Languages), len(facets.Subjects), len(facets.Contributors), len(redirects.Redirects))
+	return writeSimilar(cat, out, similarLimit)
+}
+
+// writeSimilar computes and writes the "more like this" sidecar (tasks/284).
+//
+// It reports how many Works ended up with no neighbours at all rather than only
+// how many did: on a catalog whose subjects are thin, a rail that is empty
+// everywhere is the useful signal, and a silent success would hide it.
+func writeSimilar(cat *project.Catalog, out string, limit int) error {
+	path := filepath.Join(out, "similar.json")
+	if limit <= 0 {
+		// Turning the rail off has to remove the sidecar, not merely stop
+		// rewriting it: the Hugo module renders whatever similar.json it finds,
+		// so a stale one from the previous projection would keep serving
+		// neighbours for works that may no longer exist.
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		fmt.Println("similar: skipped (--similar=0); the OPAC renders no \"more like this\" rail")
+		return nil
+	}
+	start := time.Now()
+	idx := cat.Similar(limit)
+	if err := writeJSON(path, idx); err != nil {
+		return err
+	}
+	withNone := len(cat.Works) - len(idx.Works)
+	fmt.Printf("similar: %d of %d works have neighbours (<=%d each) in %s\n",
+		len(idx.Works), len(cat.Works), limit, time.Since(start).Round(time.Millisecond))
+	if withNone > 0 {
+		fmt.Fprintf(os.Stderr, "similar: %d works have no neighbours -- they share no subject, tag, contributor or series with any other work\n", withNone)
+	}
 	return nil
 }
 

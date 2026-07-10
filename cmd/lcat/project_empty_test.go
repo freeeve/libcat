@@ -53,7 +53,7 @@ func TestProjectRefusesToEmptyTheSiteOnAProviderTypo(t *testing.T) {
 	nq := catalogWith(t, "marc")
 	out, sentinel := sentinelOut(t)
 
-	err := projectCatalog(nq, []string{"overdrive"}, nil, out, false)
+	err := projectCatalog(nq, []string{"overdrive"}, nil, out, false, DefaultSimilarLimit)
 	if err == nil {
 		t.Fatal("projecting a marc-only catalog as overdrive succeeded; it must fail")
 	}
@@ -80,7 +80,7 @@ func TestProjectRefusesToEmptyTheSiteOnAProviderTypo(t *testing.T) {
 func TestProjectSucceedsWithTheMatchingProvider(t *testing.T) {
 	nq := catalogWith(t, "marc")
 	out := t.TempDir()
-	if err := projectCatalog(nq, []string{"marc"}, nil, out, false); err != nil {
+	if err := projectCatalog(nq, []string{"marc"}, nil, out, false, DefaultSimilarLimit); err != nil {
 		t.Fatalf("projecting marc as marc failed: %v", err)
 	}
 	for _, name := range []string{"catalog.json", "facets.json", "redirects.json"} {
@@ -95,7 +95,7 @@ func TestProjectSucceedsWithTheMatchingProvider(t *testing.T) {
 func TestAllowEmptyWritesTheEmptyCatalog(t *testing.T) {
 	nq := catalogWith(t, "marc")
 	out, sentinel := sentinelOut(t)
-	if err := projectCatalog(nq, []string{"overdrive"}, nil, out, true); err != nil {
+	if err := projectCatalog(nq, []string{"overdrive"}, nil, out, true, DefaultSimilarLimit); err != nil {
 		t.Fatalf("--allow-empty still failed: %v", err)
 	}
 	got, err := os.ReadFile(sentinel)
@@ -114,7 +114,7 @@ func TestProjectOnAFeedlessCatalogSaysSo(t *testing.T) {
 	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := projectCatalog(path, []string{"marc"}, nil, t.TempDir(), false)
+	err := projectCatalog(path, []string{"marc"}, nil, t.TempDir(), false, DefaultSimilarLimit)
 	if err == nil {
 		t.Fatal("an empty catalog projected successfully")
 	}
@@ -131,7 +131,7 @@ func TestProjectOnAFeedlessCatalogSaysSo(t *testing.T) {
 func TestProjectWarnsButProceedsWhenOnlySomeFeedsAreMissing(t *testing.T) {
 	nq := catalogWith(t, "marc")
 	out := t.TempDir()
-	if err := projectCatalog(nq, []string{"marc", "overdrve"}, nil, out, false); err != nil {
+	if err := projectCatalog(nq, []string{"marc", "overdrve"}, nil, out, false, DefaultSimilarLimit); err != nil {
 		t.Fatalf("a partially-matching provider list failed: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(out, "catalog.json")); err != nil {
@@ -142,7 +142,7 @@ func TestProjectWarnsButProceedsWhenOnlySomeFeedsAreMissing(t *testing.T) {
 // Regression: an empty --provider keeps its original error, not the new one.
 func TestNoProvidersKeepsItsOriginalError(t *testing.T) {
 	nq := catalogWith(t, "marc")
-	err := projectCatalog(nq, nil, nil, t.TempDir(), false)
+	err := projectCatalog(nq, nil, nil, t.TempDir(), false, DefaultSimilarLimit)
 	if err == nil || !strings.Contains(err.Error(), "no feeds to project") {
 		t.Fatalf("want the original 'no feeds to project', got %v", err)
 	}

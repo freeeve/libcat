@@ -39,6 +39,15 @@ other = "Ediciones y formatos"
 [isbn]
 other = "ISBN"
 
+[moreLikeThis]
+other = "Obras similares"
+
+[moreLikeThisNote]
+other = "Sugerencias automáticas a partir de materias, etiquetas, autores y series compartidas."
+
+[sharesLabel]
+other = "Comparte"
+
 [backToAllWorks]
 other = "Volver a todas las obras"
 

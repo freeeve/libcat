@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "limit": 8,
+  "works": {
+    "wexampleone": [
+      {
+        "id": "wexampletwo",
+        "title": "The House of the Spirits",
+        "shared": [
+          "https://homosaurus.org/v3/homoit0000669"
+        ]
+      }
+    ],
+    "wexampletwo": [
+      {
+        "id": "wexampleone",
+        "title": "Herculine",
+        "shared": [
+          "https://homosaurus.org/v3/homoit0000669",
+          "https://homosaurus.org/v3/homoit0000282"
+        ]
+      }
+    ]
+  }
+}

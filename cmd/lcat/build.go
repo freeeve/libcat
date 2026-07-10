@@ -60,7 +60,7 @@ func runBuild(args []string) error {
 		}
 		// A build ingests before it projects, so zero works means the pipeline
 		// produced nothing -- fail rather than publish an empty site (tasks/246).
-		if err := projectCatalog(filepath.Join(cfg.Out, "catalog.nq"), providers, cfg.Project.PublicSources, cfg.Project.Out, false); err != nil {
+		if err := projectCatalog(filepath.Join(cfg.Out, "catalog.nq"), providers, cfg.Project.PublicSources, cfg.Project.Out, false, cfg.Project.similarLimit()); err != nil {
 			return fmt.Errorf("project: %w", err)
 		}
 	}
@@ -126,6 +126,19 @@ type projectStep struct {
 	PublicSources []string `toml:"public-sources"`
 	// SubjectSchemes are authority prefix=code pairs (tasks/141).
 	SubjectSchemes []string `toml:"subject-schemes"`
+	// Similar is how many neighbours each Work carries in similar.json
+	// (tasks/284). A pointer because 0 means "no rail" and absent means the
+	// default -- an int could not tell those apart.
+	Similar *int `toml:"similar"`
+}
+
+// similarLimit resolves the [project] similar setting: absent is the default,
+// explicit 0 disables the sidecar.
+func (p *projectStep) similarLimit() int {
+	if p.Similar == nil {
+		return DefaultSimilarLimit
+	}
+	return *p.Similar
 }
 
 type exportStep struct {
