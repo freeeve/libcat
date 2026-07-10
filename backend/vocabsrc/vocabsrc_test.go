@@ -270,12 +270,14 @@ func TestConvertFiltersAndTags(t *testing.T) {
 	}
 }
 
-// The operator has to be able to find the bad line. ParseNQuads sees one 1MB chunk
-// at a time and numbers lines within it, so an unadjusted SyntaxError.Line sends
-// them to line 3 of a five-million-line dump (tasks/317).
+// The operator has to be able to find the bad line. The bad line sits past the first
+// megabyte on purpose: that is where the old chunked bulk parser restarted its line
+// numbering, and a running base had to correct it (tasks/317). The streaming decoder
+// numbers from the start of the dump instead (tasks/320); this test is what says so
+// from outside, and it fails the same way under either mistake.
 func TestAMalformedLineIsReportedAtItsLineInTheWholeDump(t *testing.T) {
 	var b strings.Builder
-	// Enough well-formed statements to push the bad line past the first chunk.
+	// Enough well-formed statements to push the bad line past a bulk parser's chunk.
 	const stmt = "<https://homosaurus.org/v3/homoit0000001> <http://www.w3.org/2004/02/skos/core#prefLabel> \"Filler\"@en .\n"
 	for b.Len() < 3<<20 {
 		b.WriteString(stmt)
@@ -601,9 +603,10 @@ func (s *syntheticDump) Read(p []byte) (int, error) {
 	}
 }
 
-// TestConvertToStreamsWithBoundedMemory pins the tasks/110 acceptance: a
-// dump far larger than the converter's chunk converts with heap growth near
-// the chunk size (plus the concept set), not the dump or output size.
+// TestConvertToStreamsWithBoundedMemory pins the tasks/110 acceptance: a dump far
+// larger than memory converts with heap growth bounded by the concept set, not by
+// the dump or the output. Since tasks/320 the converter decodes one statement at a
+// time, so the concept set is the only thing left that scales with the input.
 func TestConvertToStreamsWithBoundedMemory(t *testing.T) {
 	const n = 400_000 // ~60MB of input, ~60MB of output
 	runtime.GC()
@@ -623,9 +626,9 @@ func TestConvertToStreamsWithBoundedMemory(t *testing.T) {
 	if written < 50<<20 {
 		t.Fatalf("output only %d bytes -- synthetic dump too small to prove anything", written)
 	}
-	// The concepts set legitimately holds n URIs (~30MB here); everything
-	// else must stay chunk-sized. Half the output size is a generous line
-	// well under the old whole-dump buffer.
+	// The concepts set legitimately holds n URIs (~30MB here); everything else is
+	// one statement at a time. Half the output size is a generous line, well under
+	// the old whole-dump buffer.
 	if grew := int64(after.HeapAlloc) - int64(before.HeapAlloc); grew > written/2 {
 		t.Fatalf("heap grew %d bytes for %d bytes of output -- converter is buffering the dump", grew, written)
 	}
@@ -640,6 +643,11 @@ func (w countWriter) Write(p []byte) (int, error) {
 
 // TestConvertToCaps pins the defensive ceilings: an over-cap dump and a
 // newline-less body both fail cleanly instead of growing without bound.
+//
+// Each ceiling cuts the reader off mid-line, so the decoder's own account of the
+// truncated tail is a SyntaxError blaming the dump. ConvertTo has to report the
+// ceiling that caused the truncation instead, and matching the sentinel rather than
+// the message is what pins that ordering.
 func TestConvertToCaps(t *testing.T) {
 	if _, err := ConvertTo(io.Discard, &syntheticDump{n: 100_000}, "lcsh", 1<<20); !errors.Is(err, errDumpTooLarge) {
 		t.Fatalf("over-cap dump: err = %v, want errDumpTooLarge", err)

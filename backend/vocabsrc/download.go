@@ -358,6 +358,56 @@ var (
 	errLineTooLong  = errors.New("no newline within the line cap -- not line-delimited N-Triples/N-Quads?")
 )
 
+// cappedReader enforces both ceilings on the decompressed dump before any parser
+// sees it, because the parser will not enforce them for us: rdf.Decoder reads
+// lines with bufio.ReadString, which grows a delimiter-less body without bound.
+//
+// The breach is sticky and is reported to the caller in preference to whatever
+// the parser makes of the truncated tail -- see ConvertTo.
+type cappedReader struct {
+	r         io.Reader
+	limit     int64 // the configured ceiling, kept for the error message
+	remaining int64 // decompressed bytes still permitted
+	sinceNL   int   // bytes handed over since the last newline
+	err       error // the ceiling that was breached, once one is
+}
+
+func (c *cappedReader) Read(p []byte) (int, error) {
+	if c.err != nil {
+		return 0, c.err
+	}
+	n, err := c.r.Read(p)
+	if n > 0 {
+		if c.remaining -= int64(n); c.remaining < 0 {
+			c.err = fmt.Errorf("%w (%d MB)", errDumpTooLarge, c.limit>>20)
+		} else if c.overlongLine(p[:n]) {
+			c.err = errLineTooLong
+		}
+	}
+	if c.err != nil {
+		return n, c.err
+	}
+	return n, err
+}
+
+// overlongLine reports whether b carries a line past the line ceiling, counting in
+// the run of bytes already seen since the last newline. It walks every line in b
+// rather than only the trailing one, so the ceiling holds whatever buffer size the
+// parser happens to read with.
+func (c *cappedReader) overlongLine(b []byte) bool {
+	for {
+		i := bytes.IndexByte(b, '\n')
+		if i < 0 {
+			c.sinceNL += len(b)
+			return c.sinceNL > maxDumpLine
+		}
+		if c.sinceNL += i; c.sinceNL > maxDumpLine {
+			return true
+		}
+		c.sinceNL, b = 0, b[i+1:]
+	}
+}
+
 // Convert buffers ConvertTo -- for callers that want the converted bytes in
 // hand; the install paths stream through ConvertTo into the blob store.
 func Convert(r io.Reader, scheme string) ([]byte, int, error) {
@@ -371,12 +421,12 @@ func Convert(r io.Reader, scheme string) ([]byte, int, error) {
 
 // ConvertTo streams a SKOS N-Triples/N-Quads dump (gzipped or plain) into
 // authority-tree N-Quads under the authority:<scheme> graph, keeping only the
-// predicates the index reads. Lines are independent in N-Quads, so the input
-// parses and emits in bounded chunks -- peak memory is the chunk plus the
-// concept-count set, not the dump (tasks/110). Common wrong-format uploads (zip
-// archives, XML exports) are named outright -- publishers like OCLC FAST
-// distribute both. maxBytes caps the decompressed input (0 = the 4GB default).
-// Returns the distinct prefLabel-bearing concept count.
+// predicates the index reads. It decodes one statement at a time, so peak memory
+// is a statement plus the concept-count set, not the dump (tasks/110). Common
+// wrong-format uploads (zip archives, XML exports) are named outright --
+// publishers like OCLC FAST distribute both. maxBytes caps the decompressed
+// input (0 = the 4GB default). Returns the distinct prefLabel-bearing concept
+// count.
 //
 // A malformed line refuses the whole dump, naming the line (tasks/317). It used to
 // be skipped, and that was not a decision -- it was whatever libcodex's parser did.
@@ -386,6 +436,12 @@ func Convert(r io.Reader, scheme string) ([]byte, int, error) {
 // The subject pages it labels are then wrong, and nothing anywhere says so. Five
 // real LC/Homosaurus/FAST dumps were parsed strictly to check this; the only one
 // that failed was that truncated download.
+//
+// The line number in that refusal is the dump's own (tasks/320). This used to feed
+// 1MB chunks to rdf.ParseNQuads and add a running base to each SyntaxError.Line,
+// because a bulk parser numbers from the start of the bytes it was handed; the
+// streaming decoder numbers from the start of the stream, so the base is gone and
+// cannot drift from the parser again.
 func ConvertTo(w io.Writer, r io.Reader, scheme string, maxBytes int64) (int, error) {
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxSnapshotMB << 20
@@ -411,75 +467,43 @@ func ConvertTo(w io.Writer, r io.Reader, scheme string, maxBytes int64) (int, er
 		}
 	}
 	graph := bibframe.AuthorityGraph(scheme)
+	capped := &cappedReader{r: br, limit: maxBytes, remaining: maxBytes}
+	dec := rdf.NewDecoder(capped, rdf.NQuads)
+	bw := bufio.NewWriterSize(w, 1<<20)
 	var enc rdf.Encoder
 	var out []byte
-	var consumed int64
 	concepts := map[string]bool{}
-	chunk := make([]byte, 0, 1<<20)
-	// Lines fully parsed before the current chunk. A SyntaxError's Line is relative
-	// to the bytes handed to the parser, and the parser sees one chunk at a time, so
-	// without this an operator is sent to line 4,312 of a five-million-line dump.
-	lineBase := 0
-	flush := func() error {
-		if len(chunk) == 0 {
-			return nil
-		}
-		ds, err := rdf.ParseNQuads(chunk)
+	for {
+		q, err := dec.DecodeQuad()
 		if err != nil {
+			// A breached ceiling cuts the reader off mid-line, so the decoder reports
+			// the truncation it sees rather than the ceiling that caused it. The
+			// ceiling is the real reason and outranks the syntax error it produced.
+			if capped.err != nil {
+				return 0, capped.err
+			}
+			if errors.Is(err, io.EOF) {
+				break
+			}
 			var se *rdf.SyntaxError
 			if errors.As(err, &se) {
-				return fmt.Errorf("line %d is not a valid N-Triples/N-Quads statement (%q) -- the dump is truncated or corrupt; a partial download is the usual cause", lineBase+se.Line, se.Text)
+				return 0, fmt.Errorf("line %d is not a valid N-Triples/N-Quads statement (%q) -- the dump is truncated or corrupt; a partial download is the usual cause", se.Line, se.Text)
 			}
-			return err
-		}
-		lineBase += bytes.Count(chunk, []byte("\n"))
-		out = out[:0]
-		for _, q := range ds.Quads {
-			if !q.S.IsIRI() || !keepPredicates[q.P.Value] {
-				continue
-			}
-			if q.P.Value == skosPrefLabel {
-				concepts[q.S.Value] = true
-			}
-			out = enc.AppendQuad(out, rdf.Quad{S: q.S, P: q.P, O: q.O, G: graph})
-		}
-		chunk = chunk[:0]
-		if len(out) == 0 {
-			return nil
-		}
-		_, err = w.Write(out)
-		return err
-	}
-	for {
-		// ReadSlice (not ReadBytes) so a delimiter-less body accumulates in
-		// buffer-sized pieces under our caps instead of growing one
-		// unbounded line inside bufio.
-		line, err := br.ReadSlice('\n')
-		chunk = append(chunk, line...)
-		if errors.Is(err, bufio.ErrBufferFull) {
-			err = nil
-		}
-		if consumed += int64(len(line)); consumed > maxBytes {
-			return 0, fmt.Errorf("%w (%d MB)", errDumpTooLarge, maxBytes>>20)
-		}
-		if len(chunk) >= 1<<20 || (err != nil && len(chunk) > 0) {
-			if !bytes.HasSuffix(chunk, []byte("\n")) && err == nil {
-				if len(chunk) > maxDumpLine {
-					return 0, errLineTooLong
-				}
-				// A line longer than the chunk: keep appending until its end.
-				continue
-			}
-			if ferr := flush(); ferr != nil {
-				return 0, ferr
-			}
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
 			return 0, err
 		}
+		if !q.S.IsIRI() || !keepPredicates[q.P.Value] {
+			continue
+		}
+		if q.P.Value == skosPrefLabel {
+			concepts[q.S.Value] = true
+		}
+		out = enc.AppendQuad(out[:0], rdf.Quad{S: q.S, P: q.P, O: q.O, G: graph})
+		if _, err := bw.Write(out); err != nil {
+			return 0, err
+		}
+	}
+	if err := bw.Flush(); err != nil {
+		return 0, err
 	}
 	return len(concepts), nil
 }
