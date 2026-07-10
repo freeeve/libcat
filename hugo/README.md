@@ -357,7 +357,10 @@ and due date) that the digital adapters leave empty.
     # baseUrl = "https://your-ils.example/daia"  # for a CORS-open DAIA server, use direct instead
 ```
 
-Editions carry `data-daia-id` (the DAIA document id). The adapter batches ids (a
+Editions carry `data-daia-id` when their Instance has a `providerIds` entry whose
+`bf:source` scheme is **`daia`** -- catalog it as an Identifier on the Instance with that
+source, and `lcat project` forwards it (see "Wiring an edition to an adapter" below).
+The adapter batches ids (a
 repeated `id=` query for `direct`, a `{ "provider": "daia", "ids": [...] }` POST for
 `proxied`), then maps each DAIA `document`'s holdings to the normalized model: the best
 holding wins the overall `status` (`available` when a copy circulates, `holdable` when
@@ -367,6 +370,29 @@ textContent, or the full `data-locations` JSON for a per-branch table. Same prox
 contract as above: the proxy returns the ILS's **raw** `{ document: [...] }` so the
 client normalizes identically. Live availability stays out of the graph, so the catalog
 still cannot facet or sort by "available now" from the static index (`tasks/004`).
+
+### Wiring an edition to an adapter
+
+An adapter only runs on editions that carry its DOM attribute. `page.html` emits one
+attribute per edition per **scheme**, from a lookup table -- it names no provider:
+
+```toml
+# data/lcat/availabilityAttrs.toml   (bf:source scheme -> adapter domAttr)
+"overdrive-reserve" = "data-overdrive-reserve"
+"daia"              = "data-daia-id"
+```
+
+So a third adapter needs a `registerAdapter({ providerKey, domAttr, … })` call and a row
+here. **No layout change**, which is what `registerAdapter` already promises on the JS
+side. A site adds its own row by shipping `data/lcat/availabilityAttrs.toml`; site data
+merges over module data per key. Attribute names must match `^data-[a-z0-9-]+$` -- the
+template builds the attribute with `safeHTMLAttr` (Go's `html/template` will not compute
+an attribute *name*, and silently emits `ZgotmplZ` if you ask it to), so anything else is
+dropped rather than injected.
+
+A `providerIds` entry whose scheme has no row is projected into `catalog.json` but never
+reaches the DOM. That is deliberate: OverDrive's `overdrive` title id is not a holdings
+key, and only `overdrive-reserve` resolves availability (`tasks/288`).
 
 ## Search
 

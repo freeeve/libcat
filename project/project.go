@@ -262,6 +262,12 @@ type Item struct {
 // availability adapter selects its key by scheme (e.g. OverDrive's "overdrive-reserve"
 // Reserve ID vs the "overdrive" title id) rather than guessing from a flat list
 // (ARCHITECTURE §9, tasks/004). Source is empty for an untagged identifier.
+//
+// Every scheme is projected; the hugo module decides which ones reach the DOM, via
+// data/lcat/availabilityAttrs.toml. The schemes its bundled adapters resolve are
+// "overdrive-reserve" (OverDrive Reserve ID) and "daia" (DAIA document id, e.g.
+// "ppn:12345" -- tasks/288). A scheme with no adapter is still projected and simply
+// never queried.
 type ProviderID struct {
 	Source string `json:"source,omitempty"`
 	Value  string `json:"value"`

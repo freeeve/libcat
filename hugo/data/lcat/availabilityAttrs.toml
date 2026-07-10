@@ -1,0 +1,17 @@
+# Maps a ProviderID bf:source scheme to the DOM attribute the matching
+# lcat-availability.js adapter collects on (its registerAdapter domAttr).
+#
+# page.html emits one attribute per edition per mapped scheme. A providerId whose
+# scheme is absent here is projected into catalog.json but never reaches the DOM --
+# that is deliberate: "overdrive" is OverDrive's title id, not a holdings key, and
+# only "overdrive-reserve" resolves availability.
+#
+# A third adapter needs a registerAdapter() call and a row here. Nothing in
+# layouts/ changes. A site can add a row by shipping its own
+# data/lcat/availabilityAttrs.toml -- site data wins over module data.
+#
+# Attribute names must match ^data-[a-z0-9-]+$; page.html drops anything else
+# rather than emit it (tasks/288).
+
+"overdrive-reserve" = "data-overdrive-reserve"
+"daia" = "data-daia-id"

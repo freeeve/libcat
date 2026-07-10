@@ -152,7 +152,8 @@
     }
    ],
    "formats": [
-    "ebook"
+    "ebook",
+    "print"
    ],
    "instances": [
     {
@@ -165,6 +166,27 @@
       {
        "source": "overdrive-reserve",
        "value": "aaaa1111-bbbb-2222-cccc-333344445555"
+      }
+     ],
+     "held": true
+    },
+    {
+     "id": "iextwoprint",
+     "format": "print",
+     "isbns": [
+      "9780553383799"
+     ],
+     "providerIds": [
+      {
+       "source": "daia",
+       "value": "ppn:example-daia-1"
+      }
+     ],
+     "items": [
+      {
+       "callNumber": "PQ8098.1.L54 C313",
+       "location": "Main Library, Fiction",
+       "barcode": "31234000012345"
       }
      ],
      "held": true

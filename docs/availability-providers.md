@@ -44,12 +44,21 @@ The normalized model is a superset: digital sources fill `copiesOwned/Available`
 number + shelf status). One adapter interface serves both; the UI renders only the
 normalized shape, so adding a physical ILS does not change the templates.
 
+That last clause was aspirational until `tasks/288`: `page.html` hardcoded
+`overdrive-reserve` and emitted no other scheme's attribute, so the bundled DAIA adapter
+collected nothing and never ran. An adapter is now wired by a row in
+`hugo/data/lcat/availabilityAttrs.toml` mapping its `bf:source` scheme to its
+`registerAdapter` `domAttr` -- no layout edit. `hugo/availability_seam_test.cjs` fails if
+any registered adapter's attribute is absent from a real rendered page.
+
 ## Open items (tracked in `tasks/004`)
 
 - The proxy **function** itself is a deployment artifact (an edge/serverless handler),
   not shipped by the module; the client contract is defined and tested.
-- A **physical-ILS adapter** (DAIA/ILS-DI) populating `locations[]` proves the superset;
-  it needs the proxy and a live endpoint to validate.
+- A **physical-ILS adapter** (DAIA/ILS-DI) populating `locations[]` proves the superset.
+  Shipped and reachable since `tasks/288` (`exampleSite` carries a print edition with a
+  `daia` document id); still wants a live endpoint and the proxy to validate against a
+  real ILS.
 - A coarse **"available now" facet sidecar** (periodically refreshed, explicitly stale)
   is the only way to facet/sort by availability from the static index -- a Tier 2
   add-on; scope decision pending.
