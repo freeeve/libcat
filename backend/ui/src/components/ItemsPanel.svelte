@@ -9,16 +9,20 @@
     ConflictError,
     bulkAddItems,
     createItemTemplate,
+    deleteItemTemplate,
     fetchItems,
     fetchItemTemplates,
     putItems,
+    updateItemTemplate,
   } from "../lib/api";
   import { isReadOnly } from "../lib/config";
+  import { sessionStore } from "../lib/stores";
   import type { ItemTemplate, WorkItem } from "../lib/types";
 
   let { workId, instanceId }: { workId: string; instanceId: string } = $props();
 
   const readOnly = isReadOnly();
+  const me = $derived($sessionStore?.email ?? "");
 
   let items = $state<WorkItem[]>([]);
   // The etag of the grain this list was read from. The save is a whole-list
@@ -33,9 +37,14 @@
   let templateId = $state("");
   let bulkCount = $state(2);
   let bulkPrefix = $state("");
+  let bulkWidth = $state<number | undefined>(undefined);
   let bulkPreview = $state<WorkItem[]>([]);
 
   const template = $derived(templates.find((t) => t.id === templateId) ?? null);
+  // Only the owner may edit or remove a template; shared templates from a
+  // colleague are apply-only here (the server enforces it too; this hides the
+  // controls that would 403). Mirrors Macros.svelte.
+  const ownsTemplate = $derived(template != null && template.owner === me);
 
   onMount(() => {
     void load();
@@ -81,6 +90,9 @@
       },
     ];
     if (template.barcodePrefix) bulkPrefix = template.barcodePrefix;
+    // The width rides into the form the way the prefix does, so it survives
+    // clearing the select and is re-savable (tasks/293).
+    bulkWidth = template.barcodeWidth;
     dirty = true;
   }
 
@@ -98,6 +110,7 @@
         location: last.location,
         note: last.note,
         barcodePrefix: bulkPrefix || undefined,
+        barcodeWidth: bulkWidth || undefined,
         shared,
       });
       templates = [...templates, created];
@@ -105,6 +118,39 @@
       status = `template "${label}" saved${shared ? " (shared)" : ""}`;
     } catch (e) {
       error = e instanceof ApiError ? e.message : "saving the template failed";
+    }
+  }
+
+  /** Renames the selected owned template (edit lifecycle, tasks/293). */
+  async function renameTemplate(): Promise<void> {
+    if (!template || !ownsTemplate) return;
+    const label = prompt("Rename template", template.label)?.trim();
+    if (!label || label === template.label) return;
+    error = "";
+    try {
+      const updated = await updateItemTemplate(template.id ?? "", { ...template, label });
+      templates = templates.map((t) => (t.id === updated.id ? updated : t));
+      status = `template renamed to "${label}"`;
+    } catch (e) {
+      error = e instanceof ApiError ? (e.status === 403 ? "only the owner can edit a template" : e.message) : "rename failed";
+    }
+  }
+
+  /** Removes the selected owned template (tasks/293; calls the long-dead
+      deleteItemTemplate). */
+  async function removeTemplate(): Promise<void> {
+    if (!template || !ownsTemplate) return;
+    if (!confirm(`Delete the item template "${template.label}"?`)) return;
+    const id = template.id ?? "";
+    const label = template.label;
+    error = "";
+    try {
+      await deleteItemTemplate(id);
+      templates = templates.filter((t) => t.id !== id);
+      templateId = "";
+      status = `template "${label}" deleted`;
+    } catch (e) {
+      error = e instanceof ApiError ? (e.status === 403 ? "only the owner can delete a template" : e.message) : "delete failed";
     }
   }
 
@@ -123,7 +169,7 @@
         instanceId,
         count: bulkCount,
         barcodePrefix: bulkPrefix,
-        barcodeWidth: template?.barcodeWidth,
+        barcodeWidth: bulkWidth || undefined,
         callNumber: template?.callNumber ?? items[items.length - 1]?.callNumber ?? "",
         location: template?.location ?? items[items.length - 1]?.location ?? "",
         note: template?.note ?? "",
@@ -205,6 +251,10 @@
           {/each}
         </select>
         <button class="button button--quiet mini" onclick={applyTemplate} disabled={!template}>Apply</button>
+        {#if ownsTemplate}
+          <button class="button button--quiet mini" onclick={() => void renameTemplate()}>Rename</button>
+          <button class="button button--quiet mini" onclick={() => void removeTemplate()}>Delete</button>
+        {/if}
       {/if}
       {#if items.length > 0}
         <button class="button button--quiet mini" onclick={() => void saveAsTemplate(false)}>Save row as template</button>
@@ -220,6 +270,7 @@
       <span class="muted">Bulk add</span>
       <input class="count" type="number" min="1" max="100" aria-label="Copy count" bind:value={bulkCount} />
       <input class="bc mono" aria-label="Barcode prefix" bind:value={bulkPrefix} placeholder="barcode prefix (B-)" />
+      <input class="width" type="number" min="0" max="12" aria-label="Barcode number width" bind:value={bulkWidth} placeholder="width" title="Zero-padded counter width, e.g. 6 -> B-000001" />
       <button class="button button--quiet mini" onclick={() => void bulk(true)} disabled={busy || !bulkPrefix || bulkCount < 1}>
         Preview barcodes
       </button>
@@ -279,6 +330,9 @@
   }
   .count {
     width: 4rem;
+  }
+  .width {
+    width: 4.5rem;
   }
   .mini-select {
     font-size: 0.8rem;

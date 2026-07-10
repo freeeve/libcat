@@ -753,6 +753,11 @@ export function createItemTemplate(t: ItemTemplate): Promise<ItemTemplate> {
   return call("POST", "/v1/item-templates", t);
 }
 
+/** Updates an owned item template -- rename or re-field (librarian). */
+export function updateItemTemplate(id: string, t: ItemTemplate): Promise<ItemTemplate> {
+  return call("PUT", `/v1/item-templates/${encodeURIComponent(id)}`, t);
+}
+
 /** Removes an owned item template (librarian). */
 export function deleteItemTemplate(id: string): Promise<void> {
   return call("DELETE", `/v1/item-templates/${encodeURIComponent(id)}`);
