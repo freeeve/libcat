@@ -138,3 +138,61 @@ nested CSS shipped, a plain `CSSStyleRule` *also* exposes an empty, truthy
 `cssRules` -- so the guard skipped every style rule in the sheet and pronounced
 the stylesheet clean. A check that cannot see the rule it was written for is not
 passing; it is broken.
+
+## Outcome
+
+Shipped in `e2c799d`, released as **v0.136.0**. `probe_admin_dark_mode.mjs` goes
+**6/8 -> 8/8**, and `D4` measures the live enabled Execute button at **6.6:1**.
+
+Taken exactly as specified, including both warnings:
+
+```css
+:root                   { --danger: #a34224;  --danger-ink: #ffffff; }
+html[data-theme="dark"] { --danger: #e09479;  --danger-ink: #10261c; }
+```
+
+and `color: var(--danger-ink)` at `app.css:163`, `Exports.svelte:476`,
+`VocabSources.svelte:389`. Every ratio in the report reproduced: 6.25 / 2.42 /
+6.60, and `--danger` as ink holds 7.19:1 on `--bg` and 6.29:1 on `--surface`.
+
+### The palette is now checked, not asserted
+
+`a11y.test.ts` skips axe's `color-contrast` rule -- jsdom has no rendering engine
+-- and its header said instead that *"the palette in app.css is chosen for WCAG AA
+contrast."* That sentence was the only evidence there was, and Execute shipped at
+2.42:1 behind it.
+
+A ratio between two hex colours needs no engine. `contrast.test.ts` (23 assertions)
+now checks, in both themes:
+
+- every background token against its paired ink token (`--accent`/`--accent-ink`,
+  `--danger`/`--danger-ink`);
+- every ink token (`--ink`, `--ink-muted`, `--danger`, `--info`) against both
+  `--bg` and `--surface` -- this is what encodes *why* `--danger` cannot simply be
+  darkened;
+- and the structural rule: **no rule anywhere in the SPA may paint a literal colour
+  on a `var()` background.** A theme that redefines a background must be able to
+  redefine its ink. That is the property `grep -rn "color: #fff"` was standing in
+  for, asserted over the whole tree rather than over three known files.
+
+Mutation-checked. Restoring the dark `--danger-ink` to `#ffffff` fails
+`dark: --danger-ink on --danger holds AA`. Restoring one badge to `color: #fff`
+fails `holds across the SPA`, naming the file. And **darkening `--danger` for dark
+mode** -- the fix the report warns against -- fails three checks at once: the ink
+no longer holds on either surface. The test now argues the report's case.
+
+Both suites carry a control that would have caught the `D5` failure mode on our
+side: the palette block asserts both themes parsed, and the structural check
+asserts it found style rules to look at before concluding they are all clean.
+
+### One incidental
+
+Vitest stubs CSS imports to `""`, and the stub beats an explicit `?raw` query, so
+`contrast.test.ts` read an empty string and threw rather than passing vacuously --
+the control did its job before the check did. `vite.config.ts` now processes
+`app.css` for real, scoped to that one file: no component test wants its `<style>`
+evaluated. The pattern cannot be anchored (`/app\.css$/`) because it is matched
+against a module id that carries the `?raw` query.
+
+No new dependency: the sources come in through Vite's raw glob rather than
+`node:fs`, so `svelte-check` needs no Node types.
