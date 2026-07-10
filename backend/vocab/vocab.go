@@ -535,13 +535,24 @@ func (s *snapshot) sidecarSorted() []*sidecarScheme {
 
 // Schemes lists the loaded vocabulary keys, sorted.
 func (ix *Index) Schemes() []string {
-	snap := ix.load()
-	out := make([]string, 0, len(snap.schemes)+len(snap.sidecar))
-	for s := range snap.schemes {
-		out = append(out, s)
+	return ix.load().schemeNames()
+}
+
+// schemeNames is the sorted union of the two backends' scheme names.
+//
+// A scheme appears in both maps once it carries a sidecar and an overlay of
+// live picks, so the union must dedupe. It did not have to before tasks/265,
+// when a scheme served from exactly one backend; the admin SPA keys its vocab
+// tabs by scheme name and a repeat crashed the picker.
+func (s *snapshot) schemeNames() []string {
+	out := make([]string, 0, len(s.schemes)+len(s.sidecar))
+	for name := range s.schemes {
+		out = append(out, name)
 	}
-	for s := range snap.sidecar {
-		out = append(out, s)
+	for name := range s.sidecar {
+		if _, both := s.schemes[name]; !both {
+			out = append(out, name)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -598,15 +609,7 @@ func (ix *Index) Resolve(id string) (*Term, bool) {
 // resolveExact is Resolve's exact-IRI pass across every scheme.
 func (ix *Index) resolveExact(id string) (*Term, bool) {
 	snap := ix.load()
-	schemes := make([]string, 0, len(snap.schemes)+len(snap.sidecar))
-	for s := range snap.schemes {
-		schemes = append(schemes, s)
-	}
-	for s := range snap.sidecar {
-		schemes = append(schemes, s)
-	}
-	sort.Strings(schemes)
-	for _, s := range schemes {
+	for _, s := range snap.schemeNames() {
 		if t, ok := snap.schemes[s][id]; ok {
 			return t, true
 		}

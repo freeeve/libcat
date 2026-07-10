@@ -2,6 +2,7 @@ package vocab
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/freeeve/libcat/storage/blob"
@@ -61,6 +62,40 @@ func TestOverlayDoesNotMakeTheSnapshotResident(t *testing.T) {
 	}
 	if n := len(snap.schemes["homosaurus"]); n != 1 {
 		t.Fatalf("resident terms = %d, want 1: the snapshot was replayed into maps", n)
+	}
+}
+
+// A scheme that carries both a sidecar and an overlay must be named once.
+// The admin SPA keys its vocab tabs by scheme name, so a repeat throws
+// each_key_duplicate and the picker dialog never renders -- which is what one
+// cached live pick did to every sidecar-backed scheme.
+func TestSchemesNamesADualBackedSchemeOnce(t *testing.T) {
+	ix, st := sidecarFixture(t, []string{"homosaurus", "lcsh"})
+	cacheTerm(t, ix, st, "data/authorities/cache/homosaurus/a.nq",
+		"<"+homoLocal+"> <http://www.w3.org/2004/02/skos/core#prefLabel> \"Locally merged concept\"@en <authority:homosaurus> .\n")
+
+	snap := ix.load()
+	if snap.sidecar["homosaurus"] == nil || len(snap.schemes["homosaurus"]) == 0 {
+		t.Fatal("the fixture does not have a scheme in both backends; nothing is under test")
+	}
+	got := ix.Schemes()
+	if !slices.IsSorted(got) {
+		t.Fatalf("Schemes() = %v, want sorted", got)
+	}
+	seen := map[string]bool{}
+	for _, s := range got {
+		if seen[s] {
+			t.Fatalf("Schemes() = %v, names %q twice", got, s)
+		}
+		seen[s] = true
+	}
+	if len(got) != 2 {
+		t.Fatalf("Schemes() = %v, want exactly homosaurus and lcsh", got)
+	}
+	// Resolve walks the same union; a duplicate there is wasted work, not a
+	// wrong answer, but it must still find the overlay's term.
+	if _, ok := ix.Resolve(homoLocal); !ok {
+		t.Fatal("Resolve missed the overlay term")
 	}
 }
 
