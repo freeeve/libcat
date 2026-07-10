@@ -323,3 +323,104 @@ sub(await cat.search("lesbian", 0, 100000, 0, []))           // 8307
 
 Then type `lesbian` in the search box. The **LGBTQ+ people** row reads `8307`. Click it:
 the page says `51 results`, and the row now reads `51`.
+
+## Outcome
+
+Fixed in **v0.122.0**, commit `bbcbe68`. Every bullet under **Expected** shipped.
+The report's diagnosis was correct in every particular, including the mechanism,
+the three jobs `PAGE` was doing, and why nothing caught it.
+
+### Reproduced first, on a fixture
+
+`:8502` is not this repo's to depend on, and the e2e's `fixture-catalog.json` has
+three works -- with a page size of 60 it cannot tell "the base set is the match
+set" from "the base set is its first page". So: a 600-work catalog where every
+number is a different number (400 match the query, 300 match query+facet, 500
+carry the facet). Driven through the real page, before any change:
+
+    UI  query only:   count="60+ results"   cards=60   rail=300
+    UI  query+facet:  count="60+ results"   cards=60   rail=60
+    reader truth:     query 400,  query+facet 300
+
+The rail promised 300, delivered 60, then rewrote itself to 60 -- the reported
+sequence exactly, and `"60+ results"` was wrong twice over.
+
+### The fix
+
+The base set is the whole ranked match set: `search(q, 0, allIds.length, 0, [])`.
+A query cannot match more docs than the corpus holds, so that bound is exact and
+never truncates -- which is what makes the total exact.
+
+One thing the report did not anticipate. `search()` returns record bytes for
+**every id it returns**, so simply raising `len` would decode ~10k records per
+keystroke to render sixty cards. The catalog is now opened *without* the record
+sidecar (`open` + `openFacets`, not `openAll`); the separate `RrsRecords` handle
+already fetched exactly the page being rendered, and now does so on both paths.
+That also removes a duplicate record store the module was holding open.
+
+I kept `filters` out of `search()` rather than passing them as the report
+suggests. Passing them returns the filtered ids and their counts in one call, but
+the drill-down recount -- each active field recounted with *its own* selections
+removed -- would then need a separate `search()` per active field. With an
+unfiltered base, the existing `filterIds(base.ids, ...)` machinery is already
+correct and unchanged. Same result, one call, one shape.
+
+`PAGE` keeps exactly one job: the render slice. The `+` is gone. A list that is a
+page of a larger set says so.
+
+### The secondaries
+
+**The pager.** It pages the server-rendered, unfiltered corpus. Hidden while
+browse owns the list, restored when query and facets clear. Driving it is the
+better answer -- `search(q, offset, ...)` takes an offset -- but that is a feature
+with its own URL/a11y surface, and a visible control that silently drops the
+reader's query is worse than none in the meantime.
+
+**Found while fixing it, unreported:** the browse labels
+(`data-lcat-noresults`, `data-lcat-resultsword`) were **never emitted by any
+template**. The script's English fallbacks shipped to every language, so `/es/`
+read "60+ results". They are i18n keys now (`browseNoResults`,
+`browseResultsWord`, `browseShowing`), verified rendering as "mostrando los
+primeros {shown} de {total} {results}" on the Spanish build.
+
+### After
+
+    UI  query only:   count="showing the first 60 of 400 results"   cards=60   rail=300
+    UI  query+facet:  count="showing the first 60 of 300 results"   cards=60   rail=300
+
+### Coverage, and proving it can fail
+
+`hugo/e2e/browse-scope.spec.mjs`, wired into `run.sh` as a third pass over the
+600-work catalog, with `pagerSize = 2` forced so a static pager is on screen --
+otherwise the "browse hides the pager" check passes because there is no pager.
+(It did. The check caught its own vacuity on the first run, because I asserted the
+pager is visible *cold* before asserting it is hidden.)
+
+Ground truth comes from a second `RrsCatalog` booted in-page from the same
+artifacts, so no cross-engine comparison is involved. The two assertions with
+teeth are the report's: the UI's total against the reader's, and the facet row's
+count **sampled before the click** against what is delivered after it.
+
+Against the old module, **8 of the 18 checks go red**:
+
+    FAIL - query-only total is the match set: 60+ results
+    FAIL - query+facet delivers what the rail promised: 60 == 300
+    FAIL - rail is not overwritten by a smaller count after the click (300 -> 60)
+    FAIL - static pager is hidden while browse owns the list
+    …
+
+The two that pass in both worlds are the controls, and they are informative:
+"rail promises the truth before the click (300)" passes because the *engine* was
+always right, and "renders one page of cards" passes because sixty cards is
+correct either way. The bug was never in the counts or the rendering. It was in
+what the module thought `ids` meant.
+
+Gates: `npm run test:js`, a11y (124 pages), link_check, the existing browse and
+browse-minimal e2e passes (17 + 16), and a default-engine build that gains no
+browse attributes.
+
+### Not done
+
+Browse still has no pagination. Past the first 60 the reader is told the total and
+given no way to reach the rest. `search(q, offset, PAGE, ...)` supports it; it
+wants a task of its own.
