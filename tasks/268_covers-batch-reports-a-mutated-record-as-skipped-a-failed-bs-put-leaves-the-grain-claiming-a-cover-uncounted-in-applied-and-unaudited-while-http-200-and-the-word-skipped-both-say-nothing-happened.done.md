@@ -186,3 +186,55 @@ curl -s -o /dev/null -w '%{http_code}\n' localhost:8471/covers/$W.png
 
 chmod -R u+w /tmp/site-rw && rm -rf /tmp/site-rw /tmp/libcat-head
 ```
+
+## Outcome
+
+Fixed in **v0.105.0** (`fe0b670`). `probe_cover_batch_failure.mjs` 8/8 against
+committed HEAD; `retest.mjs` **t268 FIXED**, nothing regressed.
+
+The count of eleven `res.Skipped` assignments was exact, and so was the reading
+of which one is different. Everything in this report held.
+
+### What shipped
+
+**Compensate first.** A failed `bs.Put` restores the cover the entry replaced --
+not `""`, because on a replacement the previous cover's bytes are still stored
+and still serving. With the statement undone, `skipped` means "nothing happened"
+again for every value it can hold.
+
+**Then report honestly.** `coverBatchResult` gains `failed` and `changed`; the
+response counts `applied`, `skipped` and `failed` as three disjoint outcomes. A
+`failed` entry makes the response **207**, not a 200 that claims the whole run
+succeeded.
+
+**Audit what moved.** Entries that left a statement on a record are audited: the
+applied ones, and the one whose statement could not be rolled back. That last is
+exactly the work an operator has to find and repair, and it was the one entry
+nothing named. A compensated entry changed nothing and is not audited (tasks/249).
+
+**The sweep too.** `sweepStaleCovers` returns its error since tasks/266, and the
+batch observes it. That entry's cover *did* apply and its record is right, so it
+is `failed` but **not** `changed`: the repair is a leftover public blob, not a
+phantom record. Two different failures, two different repairs, so `changed` does
+not cover both.
+
+**The UI had the same conflation.** `BatchOps.svelte` derived skipped as
+`results.length - applied`, which counted a mutated record as skipped just as the
+backend did. It now renders the three outcomes distinctly and flags a `changed`
+entry as needing a person.
+
+### Deliberately not done
+
+The report asked to consider `COVER_SET_FAILED`. I did not add it. A compensated
+entry changed nothing, and auditing a no-change event is the bug tasks/249
+removed; the attempt is in an `ERROR` log with `file`, `workId`, `actor` and
+`recordChanged`. An audit action for attempts is a coherent feature and belongs
+with **259**, which is about admin actions that write no audit entry at all.
+
+### Gap found by mutation
+
+Clearing the statement instead of restoring it on a failed batch *replacement*
+passed the whole suite -- no batch test covered replacing an existing cover.
+`TestCoverBatchFailedReplacementRestoresThePreviousCover` closes it. Every other
+guard (the 207, the `failed`/`skipped` split, the audit of a changed record, the
+sweep report) was also proven by stubbing it out and watching a named test fail.
