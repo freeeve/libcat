@@ -158,7 +158,7 @@ curl -s -H "Authorization: Bearer $TOK" localhost:8481/v1/queries | jq -r '.quer
 
 ## Outcome
 
-Shipped in **v0.141.0** (`500d994`). Sorted by **label then id**, the choice you called
+Shipped in **v0.140.1** (`500d994`). Sorted by **label then id**, the choice you called
 the better default for the dropdown -- and the one that makes the whole Batch ops screen
 consistent, since the Macro and item-template selects thirty-five lines down already come
 back alphabetical through `listOwned`. The doc comment now says label order and records
