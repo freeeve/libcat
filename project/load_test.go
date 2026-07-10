@@ -178,7 +178,7 @@ func TestLoadDatasetKeepsNonAuthorityGraphsWhole(t *testing.T) {
 //
 // The consequence is real. A truncated catalog.nq projects a smaller catalog and
 // exits 0, which is the failure class tasks/246 refuses elsewhere. Filed as
-// libcodex tasks/113; the fix belongs in the decoder.
+// libcodex tasks/115; the fix belongs in the decoder.
 func TestAMalformedLineIsSilentlySkippedByBothParsers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "catalog.nq")
 	good := `<#waaWork> <` + rdfNS_ + `type> <` + bfIRI + `Work> <feed:marc> .` + "\n"
@@ -189,7 +189,7 @@ func TestAMalformedLineIsSilentlySkippedByBothParsers(t *testing.T) {
 
 	ds, err := LoadDataset(path)
 	if err != nil {
-		t.Fatalf("LoadDataset now reports the bad line -- update this test and close libcodex tasks/113: %v", err)
+		t.Fatalf("LoadDataset now reports the bad line -- update this test and close libcodex tasks/115: %v", err)
 	}
 	shared, err := rdf.ParseNQuadsShared(raw)
 	if err != nil {

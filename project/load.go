@@ -141,7 +141,7 @@ func isAuthorityGraph(g rdf.Term) bool {
 // not something this loader introduced -- ParseNQuadsShared, which every caller
 // used before, does exactly the same -- but it means a truncated catalog.nq
 // projects a smaller catalog and exits 0, which is the failure class tasks/246
-// exists to refuse. Filed upstream (libcodex tasks/113); the guard belongs in the
+// exists to refuse. Filed upstream (libcodex tasks/115); the guard belongs in the
 // decoder, not in a count heuristic here.
 func eachQuad(path string, fn func(rdf.Quad)) error {
 	f, err := os.Open(path)
