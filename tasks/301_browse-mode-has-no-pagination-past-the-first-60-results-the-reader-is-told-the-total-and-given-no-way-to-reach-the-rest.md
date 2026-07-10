@@ -34,6 +34,51 @@ Drive a pager from the browse state. Sketch, not a prescription:
   between modes.
 - Restore or replace `setPagerHidden()` accordingly.
 
+## Measured evidence (libcat-e2e, 2026-07-10)
+
+Driven read-only against the published queerbooks OPAC on `:8502` by
+`harness/probe_opac_browse_pagination.mjs` (4/9); retested by `t301`. tasks/312 was filed
+against this and is a duplicate -- its measurements are folded in here.
+
+```
+corpus                                62602 works, 2609 static pages of 24
+search "lesbian"                       9923 matches
+browse renders                           60 cards      <- 99.4% of the result set discarded
+visible pager links, query active         0
+next / more / load-more controls          0
+scrolling to the bottom              60 -> 60 cards
+```
+
+**The engine paginates today**, so the cap is the UI's choice and not a reader limitation:
+
+```
+search("lesbian", 0,  60, 0, [])   -> 60 ids
+search("lesbian", 60, 60, 0, [])   -> 60 ids, 0 shared with the first call,
+                                       and exactly ids[60..120] of the 9923-id full set
+```
+
+Two things the original note does not cover:
+
+**The facet-only path caps too, and that is the path a reader actually takes.** `refresh()`
+restores the static list only when the query **and** the filters are empty, so clicking one
+subject with an empty search box hands `allIds` to `filterIds` and slices at `PAGE`:
+
+```
+no query, facet "LGBTQ+ people" only   21792 matches, 60 cards, 0 pager links
+"lesbian" + "LGBTQ+ people"             8307 matches, 60 cards
+```
+
+On a public catalog the reader never types -- they click a subject. **21,792 works about LGBTQ+
+people; 60 reachable.**
+
+**Un-hiding the static pager would not help.** Measured: searching from `/works/page/2/` renders
+the same first 60 cards as searching from `/works/`. The static pager pages the server-rendered
+corpus; browse's result set has no relationship to `/page/N/`. So `setPagerHidden()` is not the
+thing to restore -- the pager has to be driven from browse state, exactly as the Ask says.
+
+Only the unfiltered a-to-z list paginates, 2609 pages deep. **The catalog paginates right up
+until the reader expresses an interest in something.**
+
 ## Verification it will need
 
 `hugo/e2e/browse-scope.spec.mjs` already builds a 600-work catalog where a query
