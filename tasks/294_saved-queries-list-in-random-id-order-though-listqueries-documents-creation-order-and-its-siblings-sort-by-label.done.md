@@ -155,3 +155,43 @@ for n in f e d c b a; do
 done
 curl -s -H "Authorization: Bearer $TOK" localhost:8481/v1/queries | jq -r '.queries[] | "\(.id)  \(.label)  \(.createdAt)"'
 ```
+
+## Outcome
+
+Shipped in **v0.141.0** (`500d994`). Sorted by **label then id**, the choice you called
+the better default for the dropdown -- and the one that makes the whole Batch ops screen
+consistent, since the Macro and item-template selects thirty-five lines down already come
+back alphabetical through `listOwned`. The doc comment now says label order and records
+that `CreatedAt` still carries creation order for a caller who wants the newest last, so
+the other option is written down as you asked.
+
+### Verified end to end on a throwaway :8491
+
+Your exact by-hand repro -- create `f e d c b a`:
+
+```
+created  f e d c b a
+listed   zz-a zz-b zz-c zz-d zz-e zz-f     <- alphabetical
+```
+
+Two consecutive `GET`s return the identical sequence (still stable, now meaningful), and
+the query saved last (`zz-a`) is no longer stranded mid-list.
+
+### Its first test
+
+`TestListQueriesSortsByLabel` creates `gamma, beta, alpha` -- reverse-alphabetical, so
+creation order, label order, and random-id order are all distinct -- and asserts `alpha,
+beta, gamma`. Mutation-checked: stubbing the sort makes it return `[alpha gamma beta]`,
+the store's id order, which is neither creation nor label order (your point that a
+two-query assertion is a coin flip is why it uses three with a control on foreign owners).
+
+### The client side
+
+Left as is, deliberately -- your call was right. `BatchOps.svelte:281` and
+`Exports.svelte:285` trust the API's order, which is correct now that the API has one; a
+second sort in the client would just be a place for the two to disagree.
+
+### Not touched
+
+`CreateQuery`/`DeleteQuery` and the id scheme are unchanged: the ids stay random (they are
+never shown), and only the read path sorts.
