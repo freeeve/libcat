@@ -278,12 +278,8 @@ func validateSource(src Source) error {
 	}
 	// A source with neither a suggest endpoint nor a snapshot URL is still
 	// registrable: it installs by hand-uploaded dump (InstallUpload).
-	if src.SuggestURL != "" {
-		switch src.SuggestFlavor {
-		case FlavorSuggest2, FlavorWikidata, FlavorVIAF:
-		default:
-			return fmt.Errorf("%w: unknown suggest flavor %q", ErrValidation, src.SuggestFlavor)
-		}
+	if src.SuggestURL != "" && !ValidSuggestFlavor(src.SuggestFlavor) {
+		return fmt.Errorf("%w: unknown suggest flavor %q", ErrValidation, src.SuggestFlavor)
 	}
 	for _, u := range []string{src.SuggestURL, src.SnapshotURL, src.Homepage} {
 		if u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {

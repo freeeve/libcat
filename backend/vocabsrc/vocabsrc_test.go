@@ -997,3 +997,33 @@ func TestVocabCacheEvictionAndSweep(t *testing.T) {
 		t.Errorf("RemoveSnapshot left %d sidecar artifacts behind: %v", len(sc), sc)
 	}
 }
+
+// TestEveryBuiltinFlavorValidates pins tasks/336: a suggest flavor that ships on
+// a builtin source must also pass the user validator, or a librarian cannot
+// configure a second source of the same kind while the builtin quietly works.
+// Builtins are seeded directly and bypass validateSource, which is exactly how
+// searchfast became builtin-only.
+func TestEveryBuiltinFlavorValidates(t *testing.T) {
+	for _, src := range Builtins() {
+		if src.SuggestURL == "" {
+			continue
+		}
+		if !ValidSuggestFlavor(src.SuggestFlavor) {
+			t.Errorf("builtin %q ships suggest flavor %q, which the user validator rejects", src.Name, src.SuggestFlavor)
+		}
+	}
+}
+
+// TestPutSourceAcceptsSearchFAST is the user path (tasks/336): a librarian can
+// register a searchfast source the same way suggest2/wikidata/viaf work, while
+// an actually-unknown flavor is still refused.
+func TestPutSourceAcceptsSearchFAST(t *testing.T) {
+	s := newService(t)
+	ctx := t.Context()
+	if err := s.PutSource(ctx, Source{Name: "fast2", Scheme: "fast", SuggestFlavor: FlavorSearchFAST, SuggestURL: "https://fast.oclc.org"}); err != nil {
+		t.Fatalf("register searchfast source: %v", err)
+	}
+	if err := s.PutSource(ctx, Source{Name: "bad", Scheme: "bad", SuggestFlavor: "nope", SuggestURL: "https://example.org"}); !errors.Is(err, ErrValidation) {
+		t.Fatalf("unknown flavor = %v, want ErrValidation", err)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -25,6 +26,17 @@ const (
 	// (the bare query/fl form 400s).
 	FlavorSearchFAST = "searchfast"
 )
+
+// SuggestFlavors is the one allow-list of configurable suggest dialects, so the
+// validator, the dispatcher, and the SPA dropdown derive from a single source
+// rather than each keeping its own copy (a flavor added to the dispatcher but
+// not the validator is exactly how searchfast became builtin-only, tasks/336).
+var SuggestFlavors = []string{FlavorSuggest2, FlavorWikidata, FlavorVIAF, FlavorSearchFAST}
+
+// ValidSuggestFlavor reports whether f is a configurable suggest dialect.
+func ValidSuggestFlavor(f string) bool {
+	return slices.Contains(SuggestFlavors, f)
+}
 
 // Suggestion is one live typeahead hit, source-tagged for the picker badge.
 // ExactMatch carries sibling identifiers when the source exposes them (VIAF

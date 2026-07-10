@@ -334,6 +334,7 @@
             <option value="suggest2">suggest2 (id.loc.gov)</option>
             <option value="wikidata">wikidata (wbsearchentities)</option>
             <option value="viaf">viaf (AutoSuggest)</option>
+            <option value="searchfast">searchfast (OCLC fastsuggest)</option>
           </select>
           {#if newSource.suggestFlavor}
             <input class="wide2" bind:value={newSource.suggestUrl} aria-label="Suggest URL" placeholder="suggest API URL" />
