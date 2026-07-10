@@ -28,3 +28,8 @@ lcatd*.zip
 # Editor / OS
 .DS_Store
 *.swp
+
+# Task ledger moved to the central taskman store (~/.taskman/libcat) on
+# 2026-07-10; the repo-local tasks/ dir is legacy and must not be re-tracked
+# (tasks/338). Use the taskman CLI, which reads/writes the central store.
+/tasks/
