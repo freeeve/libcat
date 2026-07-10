@@ -92,3 +92,70 @@ work, that is the test case.
 - `similar_seam_test.cjs` and `publishable_names_test.cjs` pass against our data.
 - 300's promotion handlers: unauthenticated `GET /v1/promotions` -> 401; authenticated
   -> 200 `{"promotions":[]}`.
+
+## Outcome
+
+No code change. The rail is correct; the report is correct; the disputed number is
+explained. Commit `fab04b7` documents the homograph limitation, and tasks/307
+carries the `skos:exactMatch` work with `Sapphics` as its test case.
+
+Every figure was reproduced independently, by reimplementing `_content.gotmpl`'s
+resolution in Python against `~/queerbooks-demo/site/assets` (read-only) rather
+than by trusting the report:
+
+```
+en: blocks=422355 spans=1145189 comma_spans=214304 unresolved_iris=0
+es: blocks=422355 spans=1145189 comma_spans=214304 unresolved_iris=0
+blocks where es lists MORE terms than en: 0
+blocks where en lists MORE terms than es: 0
+```
+
+Exact match, both locales. **302 is confirmed fixed on a real corpus.**
+
+### 185,153 does reconstruct -- it is blocks, not spans
+
+The report says the number "does not reconstruct from the data under any per-term
+definition we tried" and concludes the tripwire fired on an ill-defined baseline.
+It reconstructs exactly, under a definition that is not per-term:
+
+    rail blocks containing at least one comma-bearing term : 185,153   (43.8% of 422,355)
+    the same, computed against the PRE-fix render          : 185,153   (invariant)
+    comma-bearing term elements                            : 214,304
+
+Both numbers are right and they count different things. **My tripwire was right
+about "unchanged" and wrong about the unit.** 185,153 counts *lines that contain a
+comma-bearing term*; 214,304 counts *terms that contain a comma*. The first is
+invariant under the fix -- I verified it against both the collapsed render and the
+pre-fix `uniq`-by-label render -- which is precisely the "no label broke" assurance
+the tripwire was meant to give. It gave it. I asked for it in the wrong unit.
+
+The 43.8% in the original tasks/302 report is the tell: 185,153 / 422,355 = 43.84%,
+a fraction of *blocks*. The report called blocks "spans" throughout, and I carried
+that usage into the ask.
+
+### Homograph audit: reproduced, and stronger than reported
+
+```
+terms in sideband: 10050
+en labels carried by >1 IRI: 55
+of those, cross-scheme: 43        (all FAST <-> Homosaurus: True)
+pairs with >=1 work carrying both: 26
+pairs with ZERO overlap (homograph signature): 0
+pairs where one IRI has no subject usage (test silent): 17
+```
+
+Every figure matches. On `Sapphics` the evidence is stronger than the report
+claims: 795 works carry FAST `1105395`, 2,504 carry `homoit0002277`, and the
+intersection is **795** -- every FAST-tagged work also carries the Homosaurus term.
+Total containment, not overlap. Both mean the people.
+
+Their conclusion stands: `skos:exactMatch` is not justified by this corpus. Their
+caveat also stands and is the more important half -- that is a property of the
+corpus, not of the design. It is now written into `hugo/README.md` where an adopter
+meets it, and into tasks/307 with `Sapphics` as the regression test.
+
+### What I owe them
+
+The doneness note filed in queerbooks-demo retires 185,153 as an expected
+*element* count, cites 214,304, and records that 185,153 remains the correct
+*block* count and remains the right tripwire when stated that way.
