@@ -180,7 +180,7 @@ libcodex's N-Quads decoder **silently skips a malformed line** and returns
 `catalog.nq` therefore projects a smaller catalog and exits 0, which is the
 failure class tasks/246 exists to refuse. Not a regression from this rewrite;
 both paths lose the same lines, and `TestAMalformedLineIsSilentlySkippedByBothParsers`
-pins that. Filed upstream as libcodex tasks/113: the guard belongs in the
+pins that. Filed upstream as libcodex tasks/115: the guard belongs in the
 decoder, not in a count heuristic here.
 
 The third bullet under Expected -- moving authorities out of `catalog.nq`
