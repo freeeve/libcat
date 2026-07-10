@@ -295,9 +295,22 @@ Each card names what it shares. A recommendation nobody can explain is worse tha
 no recommendation, and "why is this here?" is the only question a librarian asks.
 
 Shared subjects are stored as authority IRIs, because the sidecar is
-language-neutral; the detail page resolves them to labels from its own subject
-list, in its own language. Nothing to configure. `lcat project --similar=0` (or
-`similar = 0` under `[project]`) removes the sidecar and the rail with it.
+language-neutral. The content adapter resolves them to labels in the site's own
+language, against the catalog as a whole -- not against the page's own subjects
+(tasks/296). It has to: the tree walk above reaches a neighbour through a nearby
+concept and then reports the value the *neighbour* holds, so a shared concept is
+often one this page does not carry. Labels come from `catalog.json`'s `terms`
+sideband, which carries the transitive `skos:broader` ancestors, falling back to
+any Work's own subject labels.
+
+Two consequences worth knowing. A concept the catalog cannot label in any
+language is **dropped** from the line rather than shown as a bare URL -- a card
+whose only shared concepts are unlabelable shows no reason, which is the honest
+outcome. And the line is deduplicated by resolved label, so one concept carried
+in two schemes (a FAST and a Homosaurus IRI for "Gay men") reads once.
+
+Nothing to configure. `lcat project --similar=0` (or `similar = 0` under
+`[project]`) removes the sidecar and the rail with it.
 
 ## Display labels for language codes
 

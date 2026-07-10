@@ -35,6 +35,53 @@
     {{- end -}}
     {{- $similar = or $sim.works dict -}}
   {{- end -}}
+  {{- /* Labels for the shared concepts the rail explains itself with (tasks/296).
+         The sidecar names them by authority IRI, deliberately: a label is
+         language-specific and the sidecar is not.
+
+         Resolve them against the catalog's own Terms sideband, NOT against the
+         page's own subjects. `shared` can name a concept the page does not carry:
+         the scorer reaches a neighbour through the concept tree, then reports the
+         value the *neighbour* holds verbatim. Resolving per page printed a bare
+         authority URL for 5.6% of the shared IRIs on a 62.6k-work catalog -- a
+         URL explains nothing, which is the one job the line has.
+
+         Two sources, and between them the coverage is total. The scorer only ever
+         reports a value the *neighbour* holds verbatim, so every shared IRI is
+         some Work's own subject -- that is the definitional source, and it is why
+         the Terms sideband being absent (an older projector, a catalog whose graph
+         describes no term) cannot strand a label. The sideband is the better one
+         where it exists: it carries the transitive broader ancestors too
+         (tasks/178), which is exactly what the tree hop reaches, so it wins ties.
+
+         Built once per language into a scratch map -- `merge` in a loop copies the
+         whole map each time, which is quadratic over ten thousand terms. */ -}}
+  {{- $termLabels := dict -}}
+  {{- if $similar -}}
+    {{- $sc := newScratch -}}
+    {{- range $data.works -}}
+      {{- range .subjects -}}
+        {{- $id := .id -}}
+        {{- with .labels -}}
+          {{- $l := or (index . $lang) (index . "en") -}}
+          {{- /* Neither the site language nor English: take the lexically first tag
+                 rather than none. A template ranges a map in sorted key order, so
+                 this is deterministic. Homosaurus has nl/sv-only concepts. */ -}}
+          {{- if not $l -}}{{- range $k, $v := . -}}{{- if not $l -}}{{- $l = $v -}}{{- end -}}{{- end -}}{{- end -}}
+          {{- if $l -}}{{- $sc.SetInMap "t" $id $l -}}{{- end -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+    {{- range $data.terms -}}
+      {{- $id := .id -}}
+      {{- with .labels -}}
+        {{- $l := or (index . $lang) (index . "en") -}}
+        {{- if not $l -}}{{- range $k, $v := . -}}{{- if not $l -}}{{- $l = $v -}}{{- end -}}{{- end -}}{{- end -}}
+        {{- if $l -}}{{- $sc.SetInMap "t" $id $l -}}{{- end -}}
+      {{- end -}}
+    {{- end -}}
+    {{- $termLabels = $sc.Get "t" | default dict -}}
+  {{- end -}}
   {{- range $data.works -}}
     {{- /* Contributor names are free text and taxonomy-indexed as-is, so an
            oversized label (e.g. a whole artist list in one field) would mint a
@@ -97,6 +144,29 @@
            (e.g. cover, rating, dateRead from Hardcover) surfaces them in templates without
            shadowing this adapter. The fixed set below is merged last, so it always wins --
            `extra` can add keys but never clobber a reserved one. No `extra` = unchanged. */ -}}
+    {{- /* Resolve this Work's rail (tasks/296). A shared value is either an
+           authority IRI or already-human text (a tag, a contributor, a series
+           title), so only the IRIs are looked up; anything else passes through.
+           An IRI the catalog cannot label is dropped rather than printed raw --
+           a card that shares only unlabelable concepts then shows no reason,
+           which is the honest outcome.
+
+           uniq collapses cross-scheme synonyms: one concept expressed as both a
+           FAST and a Homosaurus IRI resolves to one label and used to print
+           twice ("Gay men, Lesbians, Gay men, Lesbians"). Order is significance
+           order from the scorer, so uniq keeps the first occurrence. */ -}}
+    {{- $neighbors := slice -}}
+    {{- range (index $similar .id) -}}
+      {{- $why := slice -}}
+      {{- range .shared -}}
+        {{- if or (hasPrefix . "http://") (hasPrefix . "https://") -}}
+          {{- with index $termLabels . -}}{{- $why = $why | append . -}}{{- end -}}
+        {{- else -}}
+          {{- $why = $why | append . -}}
+        {{- end -}}
+      {{- end -}}
+      {{- $neighbors = $neighbors | append (dict "id" .id "title" .title "shared" (uniq $why)) -}}
+    {{- end -}}
     {{- $params := dict
       "subtitle" .subtitle
       "summary" .summary
@@ -112,7 +182,7 @@
       "subjectList" .subjects
       "instances" .instances
       "relations" .relations
-      "similar" (index $similar .id)
+      "similar" $neighbors
       "workID" .id -}}
     {{- /* Extra facet params sit between: they override the raw extras value
            under the same key (the split slice replaces the joined string) but

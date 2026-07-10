@@ -121,18 +121,10 @@
          data-pagefind-ignore: a neighbour's title on this page must not make this
          page a search hit for that title. */ -}}
   {{ with .Params.similar }}
-  {{- /* The sidecar stores shared subjects as authority IRIs, deliberately: a
-         label is language-specific and the sidecar is not. This page already
-         carries the labels for its own subjects, in its own language, so resolve
-         them here. Tags, contributors and series titles are already human text
-         and pass through untouched. */ -}}
-  {{- $labels := dict -}}
-  {{- $lang := site.Language.Lang -}}
-  {{- range $.Params.subjectList -}}
-    {{- $l := .id -}}
-    {{- with .labels -}}{{- $l = or (index . $lang) (index . "en") $l -}}{{- end -}}
-    {{- $labels = merge $labels (dict .id $l) -}}
-  {{- end -}}
+  {{- /* .shared arrives as display labels: the content adapter resolves the
+         sidecar's authority IRIs against the catalog's Terms sideband, drops any
+         it cannot label, and dedupes cross-scheme synonyms (tasks/296). It cannot
+         be resolved here -- a shared concept need not be one this page carries. */ -}}
   <section class="lcat-similar" aria-labelledby="lcat-sim" data-pagefind-ignore>
     <h2 id="lcat-sim">{{ i18n "moreLikeThis" }}</h2>
     <p class="lcat-similar-note">{{ i18n "moreLikeThisNote" }}</p>
@@ -141,9 +133,7 @@
       <li class="lcat-similar-item">
         <a href="{{ printf "/works/%s/" .id | relLangURL }}">{{ or .title .id }}</a>
         {{- with .shared }}
-        {{- $why := slice }}
-        {{- range . }}{{ $why = $why | append (or (index $labels .) .) }}{{ end }}
-        <span class="lcat-similar-why">{{ i18n "sharesLabel" }}: {{ delimit $why ", " }}</span>
+        <span class="lcat-similar-why">{{ i18n "sharesLabel" }}: {{ delimit . ", " }}</span>
         {{- end }}
       </li>
       {{ end }}
