@@ -63,6 +63,11 @@ type Index struct {
 	feedTTL       time.Duration
 	foldThreshold int
 
+	// allocMu serializes barcode allocation. It is deliberately not mu: an
+	// allocator holds it across a grain read, a barcode choice and a grain
+	// write, and mu is taken and released several times inside that span.
+	allocMu sync.Mutex
+
 	mu          sync.Mutex
 	at          time.Time
 	epoch       uint64    // fold generation; shared by snapshot and feed
@@ -276,6 +281,35 @@ func (ix *Index) GrainPaths(ctx context.Context) (map[string]bool, error) {
 
 // Barcodes returns every barcode in the corpus. The map is a copy the caller
 // may mutate (the bulk-add generator reserves candidates in it).
+// AllocateBarcodes runs fn holding the process-wide barcode allocation lock.
+//
+// Choosing a barcode is a read-modify-write over the whole corpus: read the
+// taken set, pick the unused ones, write them into a grain. Barcodes returns a
+// copy and reserves nothing, so two allocators that overlap anywhere in that
+// span choose the same numbers. The grain write cannot arbitrate it either --
+// two bulk adds against two different works compare-and-swap on two different
+// objects, and both succeed (tasks/269).
+//
+// A barcode names one physical copy, so a duplicate is not a stale read to be
+// retried; it is the wrong label on a book. Serializing the whole span is the
+// only thing that makes the check the caller performs mean anything.
+//
+// This is correct for one process, which is the only deployment libcat supports
+// today -- signingKey() warns at boot when a second replica would break token
+// verification. It is the seam to replace when that changes: the allocation
+// needs a conditional write in the shared store, per barcode, rather than a
+// mutex in one process's memory.
+//
+// Safe on a nil index: fn runs unserialized, as it did before this existed.
+func (ix *Index) AllocateBarcodes(fn func() error) error {
+	if ix == nil {
+		return fn()
+	}
+	ix.allocMu.Lock()
+	defer ix.allocMu.Unlock()
+	return fn()
+}
+
 func (ix *Index) Barcodes(ctx context.Context) (map[string]bool, error) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
