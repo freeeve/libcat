@@ -92,3 +92,31 @@ grep -n 'suggestFlavor' ~/libcat/backend/ui/src/screens/VocabSources.svelte # dr
 Retest: `t336` in harness/retest.mjs mints a searchfast source on a fromHead clone and asserts
 `POST /v1/vocabsources` returns 400 "unknown suggest flavor" (STILL-BROKEN) with a suggest2
 control that returns 200; it flips FIXED when searchfast is accepted.
+
+## Outcome
+
+Shipped in **libcat v0.146.1** (patch -- a valid, shipped flavor was wrongly
+rejected; the adoption note is rebuild-and-restart). Took the first fork (make it
+configurable), since searchfast is a real dispatched flavor the builtin `fast`
+source already uses.
+
+Both allow-lists now derive from one exported set, so the next flavor cannot
+drift:
+
+- `vocabsrc.SuggestFlavors` (a `[]string`) and `ValidSuggestFlavor(f)` are the
+  single source; `validateSource` calls the helper instead of a hand-kept switch.
+- `VocabSources.svelte` offers `searchfast (OCLC fastsuggest)` alongside the other
+  three.
+
+### Verified
+
+- Go `TestEveryBuiltinFlavorValidates` iterates `Builtins()` and asserts each
+  shipped flavor passes the user validator -- the exact drift this bug was (a
+  builtin using a flavor validation rejects). `TestPutSourceAcceptsSearchFAST`
+  registers a searchfast source and still refuses an unknown flavor. A UI test
+  (`vocabsources.flavors.test.ts`) pins the dropdown's option set to the four
+  flavors. Backend `go test ./...` green; UI 325/325.
+- Live on `:8481`: the builtin `fast` reports `suggestFlavor=searchfast`;
+  `POST /v1/vocabsources` with `searchfast` now returns **200** (was 400
+  "unknown"), a `suggest2` control returns 200, and a genuinely unknown flavor
+  still returns 400.
