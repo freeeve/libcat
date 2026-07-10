@@ -158,3 +158,39 @@ echo "after USER_DELETE: $(count)"      # +1 -- the log was open the whole time
 (Remove the snapshot *before* the source, or you hit 255 and leave an orphan row. The
 sidecar artifacts survive either way -- that is 252 -- so sweep
 `~/libcat-playground/site/data/authorities/sidecar/zzaudit.*` afterwards.)
+
+## Outcome
+
+Shipped in **libcat v0.145.0** (minor -- new audit actions to adopt). Audited the
+configuration surface the way the user surface already was; nothing was
+deliberately left unaudited, so `L7`'s coverage claim now holds.
+
+**Emission.** `vocabsources_handlers.go` and `copycat_handlers.go` now take the
+audit queue (`deps.Suggest`) and carry the same `audit` closure as
+`auth_handlers.go` (actor from context, no `WorkID` -- config entries partition by
+month). The seven routes emit:
+
+- `VOCAB_SOURCE_CREATE` (note: `name (scheme)`), `VOCAB_SOURCE_DELETE`,
+- `VOCAB_SNAPSHOT_INSTALL` (note: `name: installed N terms (upload)`),
+- `VOCAB_SNAPSHOT_REMOVE` (note: the **transition**, `name: N terms -> removed`),
+- `VOCAB_DOWNLOAD_START` (note: `name (scheme), job <id>`),
+- `COPYCAT_TARGET_SET` (note: `name -> url (protocol)`; upsert, so it catches a
+  silent repoint), `COPYCAT_TARGET_DELETE`.
+
+For the remove transition, `RemoveSnapshot` now returns the `InstallInfo` it
+already reads (its five test call sites updated), so the handler has the term
+count without a second lookup.
+
+**Synergy with 299.** These entries all carry no `workId`, so they were exactly
+the invisible half -- and the audit-log screen shipped in 299 renders them, so
+"who removed LCSH, and when" is now both recorded *and* readable in the product.
+
+### Verified
+
+- `config_audit_test.go` drives all six measured routes through the mux with a
+  real queue and asserts each action lands, the install note carries the count,
+  and the remove note carries the transition. Backend `go test ./...` green.
+- Live on `:8481`, the probe's own shape: a `USER_CREATE`/`USER_DELETE` bracket
+  (log open before and after) around the six config ops. All six now land; the
+  remove note reads `zzaudit: 1 terms -> removed`. Swept the 252 sidecar
+  artifacts afterward.
