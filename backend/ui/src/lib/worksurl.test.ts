@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseHash } from "./router";
-import { parseWorksQuery, worksHash } from "./worksurl";
+import { exportsHash, parseExportFacets, parseWorksQuery, worksHash } from "./worksurl";
+
+const params = (hash: string) => parseHash(hash).query;
 
 describe("worksHash", () => {
   it("renders a plain hash for the empty state", () => {
@@ -40,5 +42,69 @@ describe("parseWorksQuery", () => {
   it("round-trips through worksHash canonically", () => {
     const state = parseWorksQuery(parseHash("#/works?needs=subjects&q=x&holdings=none").query);
     expect(worksHash(state!.q, state!.filters)).toBe("#/works?q=x&holdings=none&needs=subjects");
+  });
+});
+
+// tasks/254: "Export these results…" carried only the query. With facets applied
+// it degraded to kind=all, so a cataloger who had narrowed 62,602 works to 465
+// was handed the whole catalog, preloaded and previewed as if they had asked.
+describe("exportsHash", () => {
+  it("carries the facet filters, not just the query", () => {
+    const p = params(exportsHash("lesbian", { holdings: ["none"], tag: ["poetry"] }, false));
+
+    expect(p.get("kind")).toBe("search");
+    expect(p.get("q")).toBe("lesbian");
+    expect(p.getAll("f.holdings")).toEqual(["none"]);
+    expect(p.getAll("f.tag")).toEqual(["poetry"]);
+  });
+
+  // A search selection with no query is refused by the server (tasks/205), so
+  // "everything, filtered" has to be kind=all plus facets.
+  it("uses kind=all when there is no query, and still carries the facets", () => {
+    const p = params(exportsHash("   ", { tag: ["poetry"] }, false));
+
+    expect(p.get("kind")).toBe("all");
+    expect(p.get("q")).toBeNull();
+    expect(p.getAll("f.tag")).toEqual(["poetry"]);
+  });
+
+  it("keeps multiple values of one group", () => {
+    expect(params(exportsHash("", { sources: ["mombian", "queer lit"] }, false)).getAll("f.sources")).toEqual([
+      "mombian",
+      "queer lit",
+    ]);
+  });
+
+  // The works screen hides retired records by default (tasks/280); the export
+  // must agree or the preview count will not match the count beside the link.
+  it("mirrors the works screen's tombstoned mode", () => {
+    expect(params(exportsHash("", {}, false)).get("tombstoned")).toBe("exclude");
+    expect(params(exportsHash("", {}, true)).get("tombstoned")).toBeNull();
+  });
+
+  // The prefix keeps a facet group named "kind" or "q" from overwriting the
+  // exports screen's own params.
+  it("namespaces facets so they cannot collide with kind/q/ids/sq", () => {
+    const p = params(exportsHash("real query", { kind: ["ids"], q: ["hijack"] }, true));
+
+    expect(p.get("kind")).toBe("search");
+    expect(p.get("q")).toBe("real query");
+    expect(p.getAll("f.kind")).toEqual(["ids"]);
+    expect(p.getAll("f.q")).toEqual(["hijack"]);
+  });
+});
+
+describe("parseExportFacets", () => {
+  it("round-trips what exportsHash wrote", () => {
+    const filters = { holdings: ["none"], sources: ["mombian", "queer lit"] };
+    expect(parseExportFacets(params(exportsHash("x", filters, false)))).toEqual(filters);
+  });
+
+  it("ignores the exports screen's own params", () => {
+    expect(parseExportFacets(parseHash("#/exports?kind=search&q=poetry&ids=w1&sq=s1&tombstoned=exclude").query)).toEqual({});
+  });
+
+  it("ignores a bare prefix with no group name", () => {
+    expect(parseExportFacets(parseHash("#/exports?f.=x").query)).toEqual({});
   });
 });

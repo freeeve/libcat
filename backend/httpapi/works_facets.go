@@ -9,7 +9,6 @@ package httpapi
 
 import (
 	"net/url"
-	"slices"
 	"sort"
 	"strings"
 
@@ -26,12 +25,11 @@ type facetCount struct {
 }
 
 // facetGroup is one facet dimension of a request: its response key (also the
-// query parameter it filters by), the requested filter values, and how a
-// summary buckets into it.
+// query parameter it filters by) and the requested filter values. How a summary
+// buckets into it is ingest.FacetValues.
 type facetGroup struct {
 	name     string
 	selected []string
-	valuesOf func(ingest.WorkSummary) []string
 	fold     bool // case-insensitive value matching (tags)
 	capped   bool // top-N response cap for open-ended vocabularies
 	// schemeOf, when set, annotates each value with its vocabulary scheme,
@@ -52,81 +50,40 @@ var reservedWorkParams = map[string]bool{
 // then one group per configured extras key (tasks/171) bucketing on the
 // summary's comma-split extras value. schemeOf (nil-safe) resolves a subject
 // IRI to its vocabulary scheme for per-vocabulary grouping (tasks/174).
+// The bucketing rules live in ingest (ingest/facets.go) so a batch/export
+// selection resolves by exactly the rule the rail draws (tasks/254). This file
+// keeps what is a listing concern: which groups a request asks for, the
+// self-excluding counts, and the response cap.
 func workFacetGroups(q url.Values, extras []string, schemeOf func(string) string) []facetGroup {
 	groups := []facetGroup{
-		{name: "visibility", selected: q["visibility"], valuesOf: func(s ingest.WorkSummary) []string { return []string{visibilityOf(s)} }},
-		{name: "holdings", selected: q["holdings"], valuesOf: holdingsOf},
-		{name: "needs", selected: q["needs"], valuesOf: needsOf},
-		{name: "subject", selected: q["subject"], valuesOf: func(s ingest.WorkSummary) []string { return s.Subjects }, capped: true, schemeOf: schemeOf},
-		{name: "tag", selected: q["tag"], valuesOf: func(s ingest.WorkSummary) []string { return s.Tags }, fold: true, capped: true},
+		{name: ingest.FacetVisibility, selected: q[ingest.FacetVisibility]},
+		{name: ingest.FacetHoldings, selected: q[ingest.FacetHoldings]},
+		{name: ingest.FacetNeeds, selected: q[ingest.FacetNeeds]},
+		{name: ingest.FacetSubject, selected: q[ingest.FacetSubject], capped: true, schemeOf: schemeOf},
+		{name: ingest.FacetTag, selected: q[ingest.FacetTag], capped: true},
 	}
 	for _, key := range extras {
-		groups = append(groups, facetGroup{
-			name:     key,
-			selected: q[key],
-			valuesOf: func(s ingest.WorkSummary) []string { return splitExtra(s.Extras[key]) },
-			capped:   true,
-		})
+		groups = append(groups, facetGroup{name: key, selected: q[key], capped: true})
+	}
+	for i := range groups {
+		groups[i].fold = ingest.FoldsCase(groups[i].name)
 	}
 	return groups
 }
 
-// splitExtra splits a comma-joined extras value into trimmed facet values --
-// the lcat convention for multi-valued extras (the hugo module's extraFacets
-// split), a single-valued extra passing through unchanged.
-func splitExtra(v string) []string {
-	var out []string
-	for p := range strings.SplitSeq(v, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
+// valuesOf buckets a summary into this group.
+func (g facetGroup) valuesOf(s ingest.WorkSummary) []string {
+	return ingest.FacetValues(s, g.name)
+}
+
+// selectedFilters renders the request's active filters in the shape
+// ingest.MatchesFacets takes.
+func selectedFilters(groups []facetGroup) map[string][]string {
+	out := map[string][]string{}
+	for _, g := range groups {
+		if len(g.selected) > 0 {
+			out[g.name] = g.selected
 		}
-	}
-	return out
-}
-
-// visibilityOf buckets a summary into exactly one visibility value: what
-// the public projection does with it. A withdrawn-but-kept work is public
-// by the curator's decision (tasks/078).
-func visibilityOf(s ingest.WorkSummary) string {
-	switch {
-	case s.Tombstoned:
-		return "tombstoned"
-	case s.Suppressed:
-		return "suppressed"
-	case s.Withdrawn != "" && !s.Kept:
-		return "withdrawn"
-	default:
-		return "public"
-	}
-}
-
-// holdingsOf lists the holdings signals a summary carries (multi-valued).
-func holdingsOf(s ingest.WorkSummary) []string {
-	var out []string
-	if s.Items > 0 {
-		out = append(out, "physical")
-	}
-	if s.HasAvailability {
-		out = append(out, "digital")
-	}
-	if len(out) == 0 {
-		out = append(out, "none")
-	}
-	return out
-}
-
-// needsOf lists a summary's completeness gaps (multi-valued): the triage
-// slices catalogers work through.
-func needsOf(s ingest.WorkSummary) []string {
-	var out []string
-	if len(s.Subjects) == 0 {
-		out = append(out, "subjects")
-	}
-	if len(s.Contributors) == 0 {
-		out = append(out, "contributors")
-	}
-	if len(s.ISBNs) == 0 {
-		out = append(out, "isbn")
 	}
 	return out
 }
@@ -136,30 +93,9 @@ func needsOf(s ingest.WorkSummary) []string {
 func groupMatches(groups []facetGroup, s ingest.WorkSummary) []bool {
 	m := make([]bool, len(groups))
 	for i, g := range groups {
-		if len(g.selected) == 0 {
-			m[i] = true
-			continue
-		}
-		have, want := g.valuesOf(s), g.selected
-		if g.fold {
-			have, want = lowerAll(have), lowerAll(want)
-		}
-		for _, w := range want {
-			if slices.Contains(have, w) {
-				m[i] = true
-				break
-			}
-		}
+		m[i] = ingest.MatchesGroup(s, g.name, g.selected)
 	}
 	return m
-}
-
-func lowerAll(vs []string) []string {
-	out := make([]string, len(vs))
-	for i, v := range vs {
-		out[i] = strings.ToLower(v)
-	}
-	return out
 }
 
 // facetCounter accumulates self-excluding counts across one scan.

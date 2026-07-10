@@ -48,14 +48,14 @@ func TestFacetBuckets(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := sum(tc.mod)
-			if got := visibilityOf(s); got != tc.vis {
-				t.Fatalf("visibilityOf = %q, want %q", got, tc.vis)
+			if got := ingest.Visibility(s); got != tc.vis {
+				t.Fatalf("Visibility = %q, want %q", got, tc.vis)
 			}
-			if got := holdingsOf(s); !equalStrings(got, tc.hold) {
-				t.Fatalf("holdingsOf = %v, want %v", got, tc.hold)
+			if got := ingest.Holdings(s); !equalStrings(got, tc.hold) {
+				t.Fatalf("Holdings = %v, want %v", got, tc.hold)
 			}
-			if got := needsOf(s); !equalStrings(got, tc.need) {
-				t.Fatalf("needsOf = %v, want %v", got, tc.need)
+			if got := ingest.Needs(s); !equalStrings(got, tc.need) {
+				t.Fatalf("Needs = %v, want %v", got, tc.need)
 			}
 		})
 	}

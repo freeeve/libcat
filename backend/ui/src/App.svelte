@@ -33,6 +33,7 @@
   import Profiles from "./screens/Profiles.svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
   import ReauthDialog from "./components/ReauthDialog.svelte";
+  import { parseExportFacets } from "./lib/worksurl";
 
   const routes = ROUTES;
 
@@ -234,6 +235,8 @@
       initialQuery={route.query.get("q") ?? ""}
       initialIds={route.query.get("ids") ?? ""}
       initialSavedQuery={route.query.get("sq") ?? ""}
+      initialFacets={parseExportFacets(route.query)}
+      initialTombstoned={route.query.get("tombstoned") ?? ""}
     />
   {:else if route.name === "queue"}
     <Queue />

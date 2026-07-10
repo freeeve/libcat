@@ -83,6 +83,33 @@ polls it. `GET /v1/exports/{id}/download` is **public by path but not by
 obscurity**: it takes a signed, expiring token in the query string, so a
 download link can be handed to a browser without a bearer header.
 
+#### Selections can be faceted (tasks/254)
+
+A `batch.Selection` -- used by `POST /v1/batch/resolve`, `POST /v1/batch/ops` and
+`POST /v1/exports` -- takes two extra fields on `kind=search` and `kind=all`:
+
+```json
+{ "kind": "all",
+  "facets": { "tag": ["poetry"], "holdings": ["none"] },
+  "tombstoned": "exclude" }
+```
+
+`facets` uses the same groups and the same rule as `GET /v1/works`: AND across
+groups, OR within one, tags folded for case. Both read `ingest.FacetValues`, so a
+selection resolves by exactly the rule the facet rail drew. Before this, no
+selection could express a facet at all, and "Export these results…" beside a count
+of 465 resolved to the whole 62,602-work catalog.
+
+`tombstoned` is `exclude|include|only`. It **defaults to `include`**, unlike the
+works listing, because "Entire catalog" has always meant the entire catalog and a
+silent change there would drop records from existing exports. The works screen
+sends `exclude` explicitly so its count and the export's agree.
+
+Facets do not rescue `kind=search` from an empty query -- that is still a `400`.
+`kind=all` remains the only way to say "everything" (tasks/205), so "everything,
+filtered" is `kind=all` plus `facets`. A `kind=ids` or `kind=savedQuery`
+selection names its own works and ignores both fields.
+
 #### Everything is gzipped at rest (tasks/282)
 
 An N-Quads dump of the catalog compresses about 20x, so the blob store, the wire

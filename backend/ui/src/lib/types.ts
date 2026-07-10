@@ -369,6 +369,12 @@ export interface Selection {
   ids?: string[];
   query?: string;
   savedQueryId?: string;
+  /** Facet filters, AND across groups and OR within one, on kind=search and
+   *  kind=all (tasks/254). Same groups the works rail offers. */
+  facets?: Record<string, string[]>;
+  /** exclude|include|only over retired records. A selection defaults to
+   *  include, unlike the works listing; the works screen sends exclude. */
+  tombstoned?: string;
 }
 
 /** batch.Target -- one resolved work in a selection preview. */

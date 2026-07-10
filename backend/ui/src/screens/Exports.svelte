@@ -10,13 +10,23 @@
   import { bindKeys, popScope, pushScope } from "../lib/keyboard";
   import type { ExportFormat, ExportJob, SavedQuery, Selection } from "../lib/types";
 
-  // Prefill from a deep link (kind + query/ids/savedQueryId).
+  // Prefill from a deep link (kind + query/ids/savedQueryId, plus the facet
+  // filters and tombstoned mode "Export these results…" carries, tasks/254).
   let {
     initialKind = "",
     initialQuery = "",
     initialIds = "",
     initialSavedQuery = "",
-  }: { initialKind?: string; initialQuery?: string; initialIds?: string; initialSavedQuery?: string } = $props();
+    initialFacets = {},
+    initialTombstoned = "",
+  }: {
+    initialKind?: string;
+    initialQuery?: string;
+    initialIds?: string;
+    initialSavedQuery?: string;
+    initialFacets?: Record<string, string[]>;
+    initialTombstoned?: string;
+  } = $props();
 
   // Labels name the file that actually lands (tasks/282): the machine formats
   // download as gzip artifacts, while CSV is decompressed by the browser and
@@ -131,16 +141,36 @@
     document.getElementById("ex-kind")?.focus();
   }
 
+  // svelte-ignore state_referenced_locally
+  let facets = $state<Record<string, string[]>>(initialFacets);
+  // svelte-ignore state_referenced_locally
+  let tombstoned = $state(initialTombstoned);
+
+  const facetPairs = $derived(Object.entries(facets).flatMap(([g, vs]) => vs.map((v) => [g, v] as const)));
+  const facetsActive = $derived(facetPairs.length > 0 || tombstoned !== "");
+
+  /** Facets narrow a search or the whole catalog; an explicit id list and a
+   *  saved query already name their own set, so carrying them there would
+   *  silently shrink a selection the user spelled out. */
+  const facetsApply = $derived(kind === "all" || kind === "search");
+
+  function dropFacets(): void {
+    facets = {};
+    tombstoned = "";
+    void preview();
+  }
+
   function selection(): Selection {
+    const narrow = facetsApply ? { ...(facetPairs.length ? { facets } : {}), ...(tombstoned ? { tombstoned } : {}) } : {};
     switch (kind) {
       case "ids":
         return { kind, ids: idsText.split(/[\s,]+/).filter(Boolean) };
       case "search":
-        return { kind, query };
+        return { kind, query, ...narrow };
       case "savedQuery":
         return { kind, savedQueryId };
       default:
-        return { kind: "all" };
+        return { kind: "all", ...narrow };
     }
   }
 
@@ -262,6 +292,22 @@
         {#if selectionGap}{selectionGap}{:else if matched !== null}{matched} work{matched === 1 ? "" : "s"}{/if}
       </span>
     </div>
+    <!-- The filters the works screen was showing when "Export these results…"
+         was clicked. They are named on screen because the count depends on them
+         (tasks/254); before, they were silently discarded. -->
+    {#if facetsActive}
+      <p class="facet-note muted">
+        {#if facetsApply}
+          Filtered by
+          {#each facetPairs as [group, value], i (group + "=" + value)}{i > 0 ? ", " : " "}<span class="facet-chip">{group}={value}</span>{/each}
+          {#if tombstoned === "exclude"}{facetPairs.length ? ", " : " "}<span class="facet-chip">retired records excluded</span>{/if}
+          {#if tombstoned === "only"}{facetPairs.length ? ", " : " "}<span class="facet-chip">retired records only</span>{/if}
+          · <button class="link-button" onclick={dropFacets}>Export without filters</button>
+        {:else}
+          <span class="warn">A {kind === "ids" ? "work-id list" : "saved query"} names its own works, so the filters carried from work search do not apply to it.</span>
+        {/if}
+      </p>
+    {/if}
     {#if kind === "ids"}
       <textarea aria-label="Work ids" bind:value={idsText} rows="3" placeholder="wabc123… one per line or comma-separated"
       ></textarea>
@@ -363,6 +409,28 @@
   .note.warn {
     border-left-color: #c77d0a;
     color: inherit;
+  }
+  .facet-note {
+    margin: 0.1rem 0 0.4rem;
+    font-size: var(--fs-meta);
+  }
+  .facet-chip {
+    font-family: var(--mono);
+    background: var(--rule);
+    border-radius: 999px;
+    padding: 0.02em 0.5em;
+  }
+  .facet-note .warn {
+    color: #c77d0a;
+  }
+  .link-button {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    text-decoration: underline;
+    cursor: pointer;
   }
   .actions {
     display: flex;

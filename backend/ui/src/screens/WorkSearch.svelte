@@ -10,7 +10,7 @@
   import { bindKeys, pushScope, popScope } from "../lib/keyboard";
   import { navigate, parseHash } from "../lib/router";
   import { screenState } from "../lib/screenState.svelte";
-  import { parseWorksQuery, worksHash } from "../lib/worksurl";
+  import { exportsHash, parseWorksQuery, worksHash } from "../lib/worksurl";
   import { sequencer } from "../lib/sequence";
   import { bestLabel } from "../lib/vocab";
   import RowList from "../components/RowList.svelte";
@@ -299,7 +299,7 @@
          between the number and the words (tasks/280). -->
     {#if loading && st.works.length === 0}Searching…{:else if error}<span class="error">{error}</span>{:else}{st.works.length} of {st.matched} matched · {st.total} in catalog{st.showTombstoned ? " (incl. tombstoned)" : ""}{/if}
     {#if !error && st.works.length > 0}
-      · <a href={st.q.trim() ? "#/exports?kind=search&q=" + encodeURIComponent(st.q.trim()) : "#/exports?kind=all"}>Export these results…</a>
+      · <a href={exportsHash(st.q, st.filters, st.showTombstoned)}>Export these results…</a>
     {/if}
     {#if filtersActive}
       · <button class="link-button" onclick={clearFilters}>Clear filters</button>

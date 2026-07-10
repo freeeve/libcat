@@ -59,6 +59,40 @@ type Selection struct {
 	IDs          []string `json:"ids,omitempty"`          // kind=ids
 	Query        string   `json:"query,omitempty"`        // kind=search
 	SavedQueryID string   `json:"savedQueryId,omitempty"` // kind=savedQuery
+	// Facets narrows kind=search and kind=all by the same dimensions the works
+	// rail offers -- AND across groups, OR within one (tasks/254). Without them
+	// "Export these results…" resolved to the whole catalog while the screen
+	// beside it said 465.
+	//
+	// They do not rescue kind=search from an empty query: KindAll remains the
+	// only way to say "everything", so a whitespace-only search cannot select
+	// the catalog by accident (tasks/205). "Everything, filtered" is
+	// kind=all + facets.
+	Facets map[string][]string `json:"facets,omitempty"`
+	// Tombstoned is exclude|include|only over retired records. Unlike the works
+	// listing, which defaults to exclude, a selection defaults to **include**:
+	// "Entire catalog" has always meant the entire catalog, and a silent change
+	// there would quietly drop records from everyone's exports. The works screen
+	// sends "exclude" explicitly so its count and the export's agree.
+	Tombstoned string `json:"tombstoned,omitempty"`
+}
+
+// keep returns the predicate a selection's Facets and Tombstoned impose.
+func (sel Selection) keep() (func(ingest.WorkSummary) bool, error) {
+	var tomb func(ingest.WorkSummary) bool
+	switch sel.Tombstoned {
+	case "", "include":
+		tomb = func(ingest.WorkSummary) bool { return true }
+	case "exclude":
+		tomb = func(s ingest.WorkSummary) bool { return !s.Tombstoned }
+	case "only":
+		tomb = func(s ingest.WorkSummary) bool { return s.Tombstoned }
+	default:
+		return nil, fmt.Errorf("%w: tombstoned must be exclude|include|only", ErrValidation)
+	}
+	return func(s ingest.WorkSummary) bool {
+		return tomb(s) && ingest.MatchesFacets(s, sel.Facets)
+	}, nil
 }
 
 // Target is one resolved Work.
@@ -171,7 +205,11 @@ func (s *Service) Resolve(ctx context.Context, sel Selection, owner string) ([]T
 		if q == "" {
 			return nil, fmt.Errorf("%w: search selection needs a query", ErrValidation)
 		}
-		return s.scan(ctx, q)
+		keep, err := sel.keep()
+		if err != nil {
+			return nil, err
+		}
+		return s.scan(ctx, q, keep)
 	case KindSavedQuery:
 		if sel.SavedQueryID == "" {
 			return nil, fmt.Errorf("%w: savedQuery selection needs an id", ErrValidation)
@@ -186,9 +224,17 @@ func (s *Service) Resolve(ctx context.Context, sel Selection, owner string) ([]T
 		if q == "" {
 			return nil, fmt.Errorf("%w: saved query %q has an empty query", ErrValidation, sq.Label)
 		}
-		return s.scan(ctx, q)
+		keep, err := sel.keep()
+		if err != nil {
+			return nil, err
+		}
+		return s.scan(ctx, q, keep)
 	case KindAll:
-		return s.scanAll(ctx)
+		keep, err := sel.keep()
+		if err != nil {
+			return nil, err
+		}
+		return s.scanAll(ctx, keep)
 	case KindImportBatch:
 		return nil, fmt.Errorf("%w: importBatch selections arrive with copy cataloging (tasks/050)", ErrValidation)
 	}
@@ -200,33 +246,33 @@ func (s *Service) Resolve(ctx context.Context, sel Selection, owner string) ([]T
 // selects exactly what the works search shows. An empty normalized query is
 // refused outright -- only scanAll (KindAll's path) selects unfiltered, so
 // "no query" can never silently mean "everything" (tasks/205).
-func (s *Service) scan(ctx context.Context, query string) ([]Target, error) {
+func (s *Service) scan(ctx context.Context, query string, keep func(ingest.WorkSummary) bool) ([]Target, error) {
 	q := normQuery(query)
 	if q == "" {
 		return nil, fmt.Errorf("%w: search selection needs a query", ErrValidation)
 	}
-	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")
-	if err != nil {
-		return nil, err
-	}
-	var targets []Target
-	for _, summary := range summaries {
-		if !summary.Matches(q) {
-			continue
-		}
-		targets = append(targets, Target{WorkID: summary.WorkID, Title: summary.Title, path: paths[summary.WorkID]})
-	}
-	return targets, nil
+	return s.walk(ctx, func(summary ingest.WorkSummary) bool {
+		return summary.Matches(q) && keep(summary)
+	})
 }
 
-// scanAll is the deliberate whole-catalog selection behind KindAll.
-func (s *Service) scanAll(ctx context.Context) ([]Target, error) {
+// scanAll is the deliberate whole-catalog selection behind KindAll. keep still
+// applies: "the whole catalog" is what the facets say it is (tasks/254).
+func (s *Service) scanAll(ctx context.Context, keep func(ingest.WorkSummary) bool) ([]Target, error) {
+	return s.walk(ctx, keep)
+}
+
+// walk resolves every summary the predicate accepts into a Target.
+func (s *Service) walk(ctx context.Context, keep func(ingest.WorkSummary) bool) ([]Target, error) {
 	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")
 	if err != nil {
 		return nil, err
 	}
 	targets := make([]Target, 0, len(summaries))
 	for _, summary := range summaries {
+		if !keep(summary) {
+			continue
+		}
 		targets = append(targets, Target{WorkID: summary.WorkID, Title: summary.Title, path: paths[summary.WorkID]})
 	}
 	return targets, nil
