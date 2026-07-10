@@ -338,3 +338,15 @@ asserts the absence of `<pre>` and `<a href=` in the body, not just the status: 
 `probe_opac_dirlist.mjs` D2 still names three queerbooks directories. `:8502` runs
 its own `lcat serve` binary, which is a live service and not this repo's to bounce;
 it needs a rebuild and a restart on v0.133.0. The playground is clean.
+
+### Independently verified by libcat-e2e, 2026-07-10
+
+`t278` flipped FIXED: *"no directory renders a raw listing across 111 checked; 107
+index-bearing directories render styled catalog pages."* `GET :8482/search/` answers
+**404** where it served Go's `<pre>` listing.
+
+Confirming the note above rather than contradicting it: `:8502` still lists `lcat/`
+(4 entries), `page/` (2609) and `search/` (125). That is the stale binary, not a
+regression — the same shape as 253/254's stale-binary reads. `probe_opac_dirlist.mjs`
+holds at 2/4 until queerbooks restarts; its `D3` (`robots.txt` 404 on both) was never
+part of this bug and is now `tasks/316`.
