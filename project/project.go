@@ -510,6 +510,13 @@ func Redirects(catalogNQ []byte) (RedirectMap, error) {
 	if err != nil {
 		return RedirectMap{}, err
 	}
+	return RedirectsDataset(ds), nil
+}
+
+// RedirectsDataset is Redirects over an already-parsed dataset, so a caller that
+// projects several feeds parses the catalog once rather than once per feed
+// (tasks/279).
+func RedirectsDataset(ds *rdf.Dataset) RedirectMap {
 	ed := bibframe.EditorialGraph()
 	raw := map[string]string{}
 	gone := map[string]bool{}
@@ -555,7 +562,7 @@ func Redirects(catalogNQ []byte) (RedirectMap, error) {
 			rm.Redirects = append(rm.Redirects, Redirect{From: from, To: to})
 		}
 	}
-	return rm, nil
+	return rm
 }
 
 // follow chases the merge chain from start to the final survivor -- the last id
@@ -589,6 +596,14 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ProjectDataset(ds, provider), nil
+}
+
+// ProjectDataset is Project over an already-parsed dataset. A multi-feed
+// projection views one provenance graph at a time, so it used to reparse the
+// whole catalog once per feed -- five full parses of a 1.76M-quad corpus for
+// three feeds plus Feeds and Redirects (tasks/279). Pair it with LoadDataset.
+func ProjectDataset(ds *rdf.Dataset, provider string) *Catalog {
 	overrides := bibframe.ScanOverrides(ds)
 	view := mergedView(ds, bibframe.FeedGraph(provider), bibframe.EditorialGraph(), overrides)
 	p := &projector{
@@ -600,7 +615,7 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 	}
 	cat := &Catalog{Version: SchemaVersion}
 	if p.view == nil {
-		return cat, nil
+		return cat
 	}
 	for _, w := range p.view.SubjectsOfType(classWork) {
 		// Only the catalog's own minted Works project as records. Since
@@ -627,7 +642,7 @@ func Project(catalogNQ []byte, provider string) (*Catalog, error) {
 	sort.Slice(cat.Works, func(i, j int) bool { return cat.Works[i].ID < cat.Works[j].ID })
 	resolveRelations(cat.Works)
 	cat.Terms = p.termSideband(cat.Works)
-	return cat, nil
+	return cat
 }
 
 // termSideband collects the vocabulary sideband (tasks/178): every subject

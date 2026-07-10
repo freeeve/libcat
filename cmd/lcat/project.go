@@ -103,25 +103,22 @@ type projectOptions struct {
 func projectCatalog(opts projectOptions) error {
 	catalogPath, providers, out := opts.CatalogPath, opts.Providers, opts.Out
 	allowEmpty, similarLimit := opts.AllowEmpty, opts.SimilarLimit
-	b, err := os.ReadFile(catalogPath)
+	// One streaming load for every feed, the feed list and the redirects. Each of
+	// those used to reparse the whole catalog -- five full parses of a 1.76M-quad
+	// corpus on a three-feed deployment -- and each parse retained the authority
+	// snapshots the projection reads three predicates of (tasks/279).
+	ds, err := project.LoadDataset(catalogPath)
 	if err != nil {
 		return err
 	}
 	var cats []*project.Catalog
 	for _, p := range providers {
-		c, err := project.Project(b, p)
-		if err != nil {
-			return fmt.Errorf("project feed %q: %w", p, err)
-		}
-		cats = append(cats, c)
+		cats = append(cats, project.ProjectDataset(ds, p))
 	}
 	if len(cats) == 0 {
 		return fmt.Errorf("no feeds to project")
 	}
-	present, err := project.Feeds(b)
-	if err != nil {
-		return err
-	}
+	present := project.FeedsDataset(ds)
 	warnMissingFeeds(providers, present)
 	cat := project.Merge(cats)
 	// Refuse to publish an empty catalog over a populated one. This function is
@@ -157,10 +154,7 @@ func projectCatalog(opts projectOptions) error {
 	if err := writeJSON(filepath.Join(out, "facets.json"), facets); err != nil {
 		return err
 	}
-	redirects, err := project.Redirects(b)
-	if err != nil {
-		return err
-	}
+	redirects := project.RedirectsDataset(ds)
 	if err := writeJSON(filepath.Join(out, "redirects.json"), redirects); err != nil {
 		return err
 	}

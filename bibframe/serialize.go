@@ -13,8 +13,16 @@ import (
 )
 
 // SerializeGrains regenerates the bulk catalog.nq from the committed per-Work
-// grains under dir, without re-ingesting from a provider cache. It walks every
-// grain (*.nq, skipping catalog.nq itself), and re-emits each grain's statements
+// grains under dir, without re-ingesting from a provider cache.
+//
+// It walks **every** *.nq beneath dir, not just data/works: an installed
+// vocabulary snapshot under data/authorities is merged in too, and on a
+// deployment with LCSH that is 96% of the resulting file. That is deliberate --
+// the projection needs those quads to label the catalog's subject headings, and a
+// catalog.nq without them ships subject pages whose headings have no labels. Point
+// this at data/works and the build succeeds, quietly (tasks/279).
+//
+// It skips catalog.nq itself, and re-emits each grain's statements
 // through one shared encoder -- so blank-node labels stay unique across the corpus
 // (ARCHITECTURE §3) rather than colliding as an independently-canonicalized
 // per-grain concatenation would -- in Work-id order. The grains stay the source of

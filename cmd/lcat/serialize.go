@@ -15,7 +15,8 @@ import (
 // unlike a re-ingest it needs no source cache.
 func runSerialize(args []string) error {
 	fs := flag.NewFlagSet("serialize", flag.ExitOnError)
-	dir := fs.String("dir", "", "grain directory (holds data/works/*.nq); catalog.nq is (re)written here")
+	dir := fs.String("dir", "",
+		"grain root; every *.nq beneath it is merged (data/works AND data/authorities), and catalog.nq is (re)written here. Naming data/works alone drops the vocabulary and ships subject pages with unlabeled headings (tasks/279)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

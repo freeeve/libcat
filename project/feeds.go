@@ -20,6 +20,11 @@ func Feeds(catalogNQ []byte) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return FeedsDataset(ds), nil
+}
+
+// FeedsDataset is Feeds over an already-parsed dataset (tasks/279).
+func FeedsDataset(ds *rdf.Dataset) []string {
 	seen := map[string]bool{}
 	for _, q := range ds.Quads {
 		if !q.G.IsIRI() {
@@ -34,5 +39,5 @@ func Feeds(catalogNQ []byte) ([]string, error) {
 		out = append(out, name)
 	}
 	sort.Strings(out)
-	return out, nil
+	return out
 }
