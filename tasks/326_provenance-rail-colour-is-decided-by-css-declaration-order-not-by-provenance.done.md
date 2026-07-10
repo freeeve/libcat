@@ -111,3 +111,55 @@ Both log in read-only, find a work whose `language` value carries both an
 `editorial` and a `feed` badge (surveying the API first so the check is not tied to
 one fixture id), open it in the editor, and read the rendered
 `borderLeftColor` of that `.value` row. Nothing is written.
+
+## Outcome
+
+Shipped in **v0.140.2** (`08e78e3`). The rail now follows a fixed precedence --
+`editorial > enrichment > feed`, the human decision first -- instead of stylesheet
+declaration order. `backend/ui/src/app.css:240-242`:
+
+```css
+.value:has(.badge--editorial) { border-left-color: var(--prov-editorial); }
+.value:has(.badge--enrichment):not(:has(.badge--editorial)) { border-left-color: var(--prov-enrichment); }
+.value:has(.badge--feed):not(:has(.badge--editorial)):not(:has(.badge--enrichment)) { border-left-color: var(--prov-feed); }
+```
+
+I took the first of your three options and hardened it: rather than *rely* on
+editorial sitting last (which is the same incidental-ordering fragility the report
+calls out -- reorder the lines and the meaning changes), the `:not(:has())` guards
+make the three rules **mutually exclusive by rank**. A row with an editorial badge
+matches only the editorial rule; enrichment applies only when there is no editorial;
+feed only when neither editorial nor enrichment. Declaration order can no longer
+change any row's colour. It stays a `:has()` hook off the badge classes, so it still
+needs no extra markup and no component change -- the data-driven-in-the-component
+option was more machinery than a border colour warrants.
+
+### Verified in real chromium
+
+A Playwright harness rendered `.value` rows for all seven badge combinations against
+the **compiled** stylesheet (vite left the `:has()`/`:not()` selectors intact) and
+read each row's computed `borderLeftColor`:
+
+```
+#ed      rgb(30,107,78)   editorial green    ok
+#fe      rgb(139,144,137) feed grey          ok
+#en      rgb(39,86,123)   enrichment blue    ok
+#ed_fe   rgb(30,107,78)   editorial green    ok   <- was feed grey (your P1)
+#ed_en   rgb(30,107,78)   editorial green    ok
+#en_fe   rgb(39,86,123)   enrichment blue    ok   <- enrichment now out-ranks feed
+#all     rgb(30,107,78)   editorial green    ok
+#none    rgb(217,213,203) neutral --rule     ok
+```
+
+Mutation-checked: swapping the three lines back to the old
+`editorial / feed / enrichment` order fails exactly `#ed_fe`, `#ed_en`, `#all` --
+the multi-kind rows where the old cascade let the machine feed erase the editorial
+rail -- and passes the single-kind rows, so the harness distinguishes the fix rather
+than passing vacuously.
+
+### Not touched
+
+`ProvenanceBadge.svelte` is unchanged (the report noted it is fine); `badge--other`
+still falls through to the neutral `--rule` rail as before; `.value.overridden`
+(dotted) and `.value.pending-added` (dashed editorial) are unaffected -- they set
+style/colour on independent axes and sit after these rules.
