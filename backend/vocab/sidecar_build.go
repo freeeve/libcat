@@ -20,7 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"sort"
+	"strings"
 
 	"github.com/RoaringBitmap/roaring/v2"
 	rr "github.com/freeeve/roaringrange"
@@ -236,6 +238,63 @@ func RemoveSidecar(ctx context.Context, st blob.Store, prefix, scheme string) er
 		}
 	}
 	return nil
+}
+
+// Orphan-sidecar reasons, kept distinct because they tell an operator different
+// things: a live snapshot went away under a complete sidecar, versus a manifest
+// that never parsed and so armed nothing to begin with.
+const (
+	orphanSourceMissing      = "the snapshot the manifest names is gone"
+	orphanManifestUnreadable = "the manifest does not parse"
+)
+
+// OrphanSidecar is one scheme's sidecar artifact set that no live snapshot backs,
+// so it serves nothing and RemoveSidecar can collect it (tasks/322).
+type OrphanSidecar struct {
+	Scheme string `json:"scheme"`
+	// Source is the snapshot the manifest named, now missing (empty when the
+	// manifest itself did not parse).
+	Source string `json:"source,omitempty"`
+	Reason string `json:"reason"`
+}
+
+// OrphanSidecars lists the sidecar artifact sets under prefix that no live snapshot
+// backs. RemoveSnapshot deletes a scheme's artifacts as of tasks/252, but a removal
+// before that shipped left them resident, and nothing collects them at boot: the
+// loader detects the same staleness and serves the scheme from maps, but leaves the
+// files where they are. This is the read half of the sweep; the caller deletes.
+//
+// A scheme is an orphan when the snapshot its manifest names is definitively absent
+// -- a not-found on the source blob, never a transient read error, so a blob store
+// hiccup cannot condemn a live index. A manifest that no longer parses is an orphan
+// too: it arms nothing, and its scheme is recovered from the file name (the artifacts
+// are named the same way) so it can still be collected.
+func OrphanSidecars(ctx context.Context, st blob.Store, prefix string) ([]OrphanSidecar, error) {
+	var out []OrphanSidecar
+	for entry, err := range st.List(ctx, prefix+sidecarDirPart) {
+		if err != nil {
+			return nil, fmt.Errorf("vocab: list sidecars: %w", err)
+		}
+		if !strings.HasSuffix(entry.Path, manifestSuffix) {
+			continue
+		}
+		scheme := strings.TrimSuffix(path.Base(entry.Path), manifestSuffix)
+		data, _, err := st.Get(ctx, entry.Path)
+		if err != nil {
+			return nil, fmt.Errorf("vocab: read %s: %w", entry.Path, err)
+		}
+		m := &SidecarManifest{}
+		if err := json.Unmarshal(data, m); err != nil || m.Version != sidecarVersion || m.Scheme == "" {
+			out = append(out, OrphanSidecar{Scheme: scheme, Reason: orphanManifestUnreadable})
+			continue
+		}
+		if _, _, err := st.Get(ctx, m.Source); errors.Is(err, blob.ErrNotFound) {
+			out = append(out, OrphanSidecar{Scheme: m.Scheme, Source: m.Source, Reason: orphanSourceMissing})
+		} else if err != nil {
+			return nil, fmt.Errorf("vocab: stat snapshot %s: %w", m.Source, err)
+		}
+	}
+	return out, nil
 }
 
 // encodeSearch serializes search entries as an RRTI term index (tasks/169):

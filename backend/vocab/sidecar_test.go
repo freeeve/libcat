@@ -1,6 +1,7 @@
 package vocab
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -268,6 +269,106 @@ func TestRemoveSidecarLeavesNothingBuildSidecarWrote(t *testing.T) {
 	if err := RemoveSidecar(t.Context(), st, "data/authorities/", "lcsh"); err != nil {
 		t.Errorf("second removal: %v", err)
 	}
+}
+
+// TestOrphanSidecarsFindsWhatNoSnapshotBacks: the sweep's detection half. A sidecar
+// whose snapshot is present is not an orphan; once the snapshot is gone, it is, and
+// removing it leaves the store clean (tasks/322).
+func TestOrphanSidecarsFindsWhatNoSnapshotBacks(t *testing.T) {
+	_, st := sidecarFixture(t, []string{"homosaurus", "lcsh"})
+	ctx := t.Context()
+
+	// Control: with the snapshot present, a live sidecar is not an orphan. Without
+	// this the whole test could pass by reporting everything.
+	if orphans, err := OrphanSidecars(ctx, st, "data/authorities/"); err != nil || len(orphans) != 0 {
+		t.Fatalf("live sidecars reported as orphans: %+v err=%v", orphans, err)
+	}
+
+	// The snapshot both manifests name is removed -- the pre-v0.137.0 leak.
+	if err := st.Delete(ctx, "data/authorities/vocab/authorities.nq"); err != nil {
+		t.Fatal(err)
+	}
+	orphans, err := OrphanSidecars(ctx, st, "data/authorities/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, o := range orphans {
+		got[o.Scheme] = o.Reason
+	}
+	if len(got) != 2 || got["homosaurus"] != orphanSourceMissing || got["lcsh"] != orphanSourceMissing {
+		t.Fatalf("orphans = %+v, want homosaurus and lcsh both source-missing", orphans)
+	}
+
+	// Sweeping them leaves the store empty and the detection quiet -- the whole point.
+	for _, o := range orphans {
+		if err := RemoveSidecar(ctx, st, "data/authorities/", o.Scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if rest := sidecarFiles(t, st); len(rest) != 0 {
+		t.Errorf("sweep left %d files: %v", len(rest), rest)
+	}
+	if again, err := OrphanSidecars(ctx, st, "data/authorities/"); err != nil || len(again) != 0 {
+		t.Errorf("orphans survive their own sweep: %+v err=%v", again, err)
+	}
+}
+
+// TestOrphanSidecarsCollectsAnUnreadableManifest: a manifest that no longer parses
+// arms nothing, so it is an orphan too. Its scheme comes from the file name, because
+// the artifacts are named the same way and can still be collected (tasks/322).
+func TestOrphanSidecarsCollectsAnUnreadableManifest(t *testing.T) {
+	_, st := sidecarFixture(t, []string{"lcsh"})
+	ctx := t.Context()
+	bad := sidecarPath("data/authorities/", "zzbad", manifestSuffix)
+	if _, err := st.Put(ctx, bad, []byte("{ not json"), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	orphans, err := OrphanSidecars(ctx, st, "data/authorities/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bad1 *OrphanSidecar
+	for i := range orphans {
+		if orphans[i].Scheme == "zzbad" {
+			bad1 = &orphans[i]
+		}
+		// Control: lcsh's snapshot is present, so it must not be swept in with the
+		// bad manifest -- an unreadable neighbour is not a reason to condemn a live one.
+		if orphans[i].Scheme == "lcsh" {
+			t.Errorf("live lcsh reported as an orphan: %+v", orphans[i])
+		}
+	}
+	if bad1 == nil || bad1.Reason != orphanManifestUnreadable {
+		t.Fatalf("unreadable manifest not collected as an orphan: %+v", orphans)
+	}
+}
+
+// TestOrphanSidecarsSpotsAMissingSourceNotATransientError pins the discipline the
+// leak's own analysis demanded: only a definitive not-found on the snapshot condemns
+// a sidecar. A blob store that errors on the read is not evidence the snapshot is
+// gone, so the scan fails rather than reporting a live index as collectable.
+func TestOrphanSidecarsSpotsAMissingSourceNotATransientError(t *testing.T) {
+	_, st := sidecarFixture(t, []string{"lcsh"})
+	ctx := t.Context()
+	failing := &getFailsStore{Store: st, on: "data/authorities/vocab/authorities.nq"}
+	if _, err := OrphanSidecars(ctx, failing, "data/authorities/"); err == nil {
+		t.Fatal("a read error on the snapshot was treated as an orphan, not surfaced")
+	}
+}
+
+// getFailsStore returns a non-not-found error when a specific path is read, so a
+// transient failure can be told apart from a genuine absence.
+type getFailsStore struct {
+	blob.Store
+	on string
+}
+
+func (s *getFailsStore) Get(ctx context.Context, path string) ([]byte, string, error) {
+	if path == s.on {
+		return nil, "", errors.New("blob store unavailable")
+	}
+	return s.Store.Get(ctx, path)
 }
 
 // TestRemoveSidecarDoesNotReachIntoANeighbouringScheme pins why removal enumerates

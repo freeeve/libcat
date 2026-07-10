@@ -76,6 +76,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat vocab-subset:", err)
 			os.Exit(1)
 		}
+	case "vocab-gc":
+		if err := runVocabGC(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat vocab-gc:", err)
+			os.Exit(1)
+		}
 	case "serve":
 		if err := runServe(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "lcat serve:", err)
@@ -115,6 +120,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "                    [--from-catalog]   (no network: snapshot from catalog.json's own labels, e.g. FAST)")
 	fmt.Fprintln(os.Stderr, "  lcat covers --store <blob-root> [--reap] [--json]")
 	fmt.Fprintln(os.Stderr, "              (cover blobs no grain references; they keep serving publicly until reaped)")
+	fmt.Fprintln(os.Stderr, "  lcat vocab-gc --store <blob-root> [--prefix data/authorities/] [--reap] [--json]")
+	fmt.Fprintln(os.Stderr, "              (sidecar artifact sets whose snapshot is gone; a removal before v0.137.0 left them behind)")
 	fmt.Fprintln(os.Stderr, "  lcat merge --dir <grains> --from <workid> --to <workid>")
 	fmt.Fprintln(os.Stderr, "  lcat split --dir <grains> --from <workid> --instances <instid,instid,...>")
 }
