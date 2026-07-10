@@ -18,12 +18,16 @@
   import PublishBar from "../components/PublishBar.svelte";
   import RowList from "../components/RowList.svelte";
   import VocabPicker from "../components/VocabPicker.svelte";
+  import { SUGG_TYPES } from "../lib/types";
   import type { Decision, Suggestion, Term } from "../lib/types";
 
   const SCOPE = "queue";
   const STATUSES = ["PENDING", "APPROVED", "REJECTED", "DISPUTED"];
   const PROVENANCES = ["PATRON", "PIPELINE", "LIBRARIAN"];
-  const TYPES = ["ADD", "REMOVE"];
+  // Derived from the type union's own array so the filter can never again omit a
+  // type the queue renders -- CONCERN was missing here while the union had it
+  // (tasks/333).
+  const TYPES = SUGG_TYPES;
 
   // Staged decisions mirror to sessionStorage so a reload or a drill-in to
   // a work mid-triage loses nothing.

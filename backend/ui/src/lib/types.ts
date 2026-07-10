@@ -299,7 +299,12 @@ export interface ProfileField {
   marcHint?: string;
 }
 
-export type SuggType = "ADD" | "REMOVE" | "CONCERN";
+/** Every suggestion type, as a runtime array so the queue's Type filter derives
+ *  from the same source as the type -- a hand-kept filter list is exactly how
+ *  CONCERN got left out of the dropdown while the type union carried it
+ *  (tasks/333). */
+export const SUGG_TYPES = ["ADD", "REMOVE", "CONCERN"] as const;
+export type SuggType = (typeof SUGG_TYPES)[number];
 export type SuggStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISPUTED";
 export type Provenance = "PATRON" | "PIPELINE" | "LIBRARIAN";
 

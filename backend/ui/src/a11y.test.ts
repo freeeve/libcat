@@ -241,6 +241,10 @@ describe("a11y", () => {
     await new Promise((r) => setTimeout(r, 0)); // let the mocked queue load land
     flushSync();
     expect(host.textContent).toContain("The Sea Around Us");
+    // The Type filter offers CONCERN, so patron problem-reports can be isolated
+    // (tasks/333) -- not just ADD/REMOVE.
+    const typeOpts = [...host.querySelectorAll('select option')].map((o) => (o as HTMLOptionElement).value);
+    expect(typeOpts).toContain("CONCERN");
     // Stage one decision so the publish bar is part of the audited tree.
     const approveBtn = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "Approve");
     approveBtn?.click();
