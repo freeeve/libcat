@@ -297,6 +297,13 @@
     display: flex;
     align-items: baseline;
     gap: 1.25rem;
+    /* Wrap the three header rows so the width floor is the widest single
+       row, not brand + every nav link + the session controls in one line.
+       The nav count grows with screens.ts and the signed-in role, so the
+       old nowrap floor moved silently past common laptop/tablet widths
+       (tasks/318). row-gap keeps wrapped rows legible. */
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
     padding: 0.8rem 1.5rem;
     border-bottom: 1px solid var(--rule);
   }
@@ -316,8 +323,10 @@
   }
   nav {
     display: flex;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
     flex: 1;
+    min-width: 0;
   }
   nav a {
     text-decoration: none;
@@ -335,7 +344,8 @@
   .side {
     display: inline-flex;
     align-items: center;
-    gap: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
   }
   .who {
     color: var(--ink-muted);
