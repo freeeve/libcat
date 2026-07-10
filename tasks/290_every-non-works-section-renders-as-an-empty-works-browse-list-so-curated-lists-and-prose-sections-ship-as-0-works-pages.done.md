@@ -195,3 +195,92 @@ sed -n '/<main/,/<\/main>/p' /tmp/ex/lists/index.html      # <h1>Lists</h1> … 
 grep -c 'href="/lists/staff-picks/"' /tmp/ex/lists/index.html   # 0
 grep -o '<loc>[^<]*lists/</loc>' /tmp/ex/en/sitemap.xml    # it is in the sitemap
 ```
+
+## Outcome
+
+Fixed in **v0.121.0** (root, hugo, backend in lockstep), commit `352743b`.
+Reproduced first, exactly as filed: `/lists/` built as `<h1>Lists</h1>`, `0 works`,
+an empty `<ol id="lcat-results">`, zero links to `staff-picks`, and a `<loc>` in
+the sitemap.
+
+Every bullet under **Expected** shipped.
+
+### The split
+
+Hugo's lookup already supported it, so the fix is a rename plus a partial:
+
+| Page | Layout | Renders |
+|---|---|---|
+| `/` | `layouts/home.html` (new) | Works browse, under the site title |
+| `/works/` | `layouts/works/list.html` (new) | Works browse |
+| any other section | `layouts/list.html` (rewritten) | title, `.Content`, its own pages |
+
+The browse shell moved to `_partials/works-browse.html` so the two browse pages
+cannot drift apart -- they were one template for a reason, just not that one.
+
+The generic index defines **no `sidebar` block**, so `baseof` emits no facet rail
+and `.lcat-layout > .lcat-main:only-child` already gives main the full width. It
+also renders no `id="lcat-results"`, which is the whole hydration story: as the
+report worked out, `lcat-browse.js` binds by that id alone.
+
+`.Pages` is paginated, so an adopter's News section with 200 posts does not ship
+as one page. Each row is a link plus `.Description | default .Summary`.
+
+### Verified
+
+- **Regression, isolated to the layout change.** Built the exampleSite from a
+  HEAD worktree carrying the *new* `lcat.css` (so no fingerprint churn), and again
+  from the working tree. 199 files each side. Only `/lists/` genuinely differs;
+  `index.html`, `works/index.html`, `es/index.html` and `es/works/index.html`
+  differ by **one moved blank line** and are otherwise byte-identical. The browse
+  did not change.
+- **The prose case, which is the one that bites adopters.** Added
+  `content/help/borrowing.md` to a scratch copy and built with roaringrange:
+  `/help/` now renders its own child page with a summary, and carries no
+  `id="lcat-results"`, no `workCount`, no `data-lcat-browse`, no `.lcat-sidebar`.
+- **Under roaringrange**, `/lists/` emits none of the browse hooks, and
+  `/lists/staff-picks/` still emits none either (`curated.html` was never at
+  fault).
+- Gates: `npm run test:js`, `a11y_audit` (124 pages, no WCAG 2.1 A/AA
+  violations), `link_check` (124 pages), root + backend `go test ./...`, `go vet`,
+  `gofmt -s`.
+
+### e2e, and proving it can fail
+
+`hugo/e2e/section-index.spec.mjs` runs against the existing roaringrange pass in
+`run.sh`. Its **first** check is `/works/` hydrating and filtering to "Snow
+Country" -- without that control, every "did not hydrate" assertion below it would
+also pass on a build where the reader never booted. It then asserts `/lists/`
+links its curated pages, carries no `#lcat-results` / facet host / sidebar /
+result count, and stays inert when a query is typed; that `curated.html` renders
+its two works in front-matter order and is likewise inert; and that home is still
+a browse.
+
+Mutation-tested by restoring the pre-fix world (`git checkout HEAD --
+layouts/list.html`, delete `home.html` and `works/list.html`). Six of the spec's
+ten checks go red, and the hot `/lists/` reading is exactly the report's:
+
+    FAIL - /lists/ does not hydrate into a browse surface on a query
+           {"cards":0,"hits":1,"results":1,"facets":13,"pagelist":0}
+
+All four controls stayed green under the mutation, so the spec isolates the
+defect rather than detecting any breakage.
+
+### The last bullet
+
+The report asked me to *consider* whether curated pages should be linked from
+anywhere by default. They now are -- from `/lists/`, which is the page's reason to
+exist. But nothing links `/lists/` itself, and a module cannot mint a menu entry
+into an adopter's config. So both: the exampleSite gains a `Lists` `[[menu.main]]`
+entry (the Spanish menu block overrides wholesale and has no `lists` content, so
+it is untouched), and the README says plainly that an adopter must add one. The
+README also gains a **Section layouts** table, since which layout Hugo picks is
+now something an adopter needs to know before adding content.
+
+### Adoption
+
+A site that overrode `layouts/list.html` to customize the **Works browse** must
+move that override to `layouts/works/list.html` and/or `layouts/home.html`; the
+old path now governs its prose sections instead. An override intended for prose
+sections stays where it is and starts working. New CSS hooks: `.lcat-pagelist`,
+`.lcat-pagelist-title`, `.lcat-pagelist-summary`.
