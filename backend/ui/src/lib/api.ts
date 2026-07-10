@@ -367,9 +367,20 @@ export function fetchItems(workId: string): Promise<{ etag: string; items: Recor
   return call("GET", `/v1/works/${encodeURIComponent(workId)}/items`);
 }
 
-/** Replaces one instance's holdings (librarian). */
-export function putItems(workId: string, instanceId: string, items: WorkItem[]): Promise<{ etag: string }> {
-  return call("PUT", `/v1/works/${encodeURIComponent(workId)}/items`, { instanceId, items });
+/** Replaces one instance's holdings (librarian).
+ *
+ *  This is a read-modify-write: the panel loads a list, a human edits it, and
+ *  the whole list is written back. `ifMatch` is the etag `fetchItems` returned,
+ *  and it is required -- without it the save would delete any copy another
+ *  cataloger added while the panel was open, and report success (tasks/273).
+ *  A concurrent write surfaces as ConflictError carrying the fresh state. */
+export function putItems(
+  workId: string,
+  instanceId: string,
+  items: WorkItem[],
+  ifMatch: string,
+): Promise<{ etag: string }> {
+  return call("PUT", `/v1/works/${encodeURIComponent(workId)}/items`, { instanceId, items }, { "If-Match": ifMatch });
 }
 
 /** The duplicate-detection worklist: same-clustering-key work groups

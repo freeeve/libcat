@@ -30,3 +30,24 @@ func readWorkGrain(w http.ResponseWriter, r *http.Request, bs blob.Store) (grain
 	}
 	return grain, etag, workID, true
 }
+
+// writeGrainConflict is the answer every client-token PUT owes a stale token:
+// 412 carrying the grain as it now stands, so the client can show the edit that
+// beat it and rebase deliberately rather than clobber. Shared so the two callers
+// cannot drift into answering the same condition differently (tasks/273).
+func writeGrainConflict(w http.ResponseWriter, workID, etag string, grain []byte) {
+	w.Header().Set("ETag", etag)
+	writeJSON(w, http.StatusPreconditionFailed, grainView{WorkID: workID, ETag: etag, NQuads: string(grain)})
+}
+
+// requireIfMatch reads the client's precondition, refusing a request that has
+// none. A read-modify-write cycle without a token cannot be checked for a lost
+// update, so the token is not optional -- it is the whole mechanism.
+func requireIfMatch(w http.ResponseWriter, r *http.Request) (string, bool) {
+	ifMatch := r.Header.Get("If-Match")
+	if ifMatch == "" {
+		writeError(w, http.StatusPreconditionRequired, "If-Match required")
+		return "", false
+	}
+	return ifMatch, true
+}

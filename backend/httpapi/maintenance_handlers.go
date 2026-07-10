@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 
@@ -106,11 +107,21 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 		writeJSON(w, http.StatusOK, map[string]any{"workId": workID, "etag": etag, "items": items})
 	})))
 
+	// PUT replaces an instance's holdings wholesale under the client's If-Match
+	// token, exactly as PUT /v1/works/{id} does. It is a client-token PUT: the
+	// panel reads a list, a human edits it, and the list is written back, so the
+	// write must be checked against the read it was computed from.
+	//
+	// mutateWorkGrain is deliberately not used here. Its retry-from-fresh loop
+	// exists to carry server-initiated edits past a concurrent write, and it did
+	// exactly that -- re-reading the grain and re-applying a list computed
+	// against a grain that no longer existed. The second of two catalogers
+	// deleted the first one's copy and was told 200 (tasks/273). A barcode names
+	// one physical copy, so the lost item is a shelf unlinked from the catalog.
 	mux.Handle("PUT /v1/works/{id}/items", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, _ := auth.FromContext(r.Context())
-		workID := r.PathValue("id")
-		if !workIDPattern.MatchString(workID) {
-			writeError(w, http.StatusBadRequest, "bad work id")
+		ifMatch, ok := requireIfMatch(w, r)
+		if !ok {
 			return
 		}
 		var req struct {
@@ -125,21 +136,53 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 			writeError(w, http.StatusBadRequest, "at most 200 items per instance")
 			return
 		}
-		etag, err := mutateWorkGrain(r, bs, ix, workID, func(g []byte) ([]byte, error) {
-			return bibframe.SetItems(g, req.InstanceID, req.Items)
-		})
-		if err != nil {
-			writeMutateError(w, err)
+		grain, etag, workID, ok := readWorkGrain(w, r, bs)
+		if !ok {
 			return
 		}
+		// An early-out: it saves parsing a list that cannot be written, and it
+		// answers from the grain already in hand. It is not what enforces the
+		// precondition -- the Put below is, and it is given the *client's* token,
+		// not the one read a microsecond ago. Passing the fresh read's etag would
+		// make the store's check tautological and leave this comparison as the
+		// only guard.
+		if etag != ifMatch {
+			writeGrainConflict(w, workID, etag, grain)
+			return
+		}
+		updated, err := bibframe.SetItems(grain, req.InstanceID, req.Items)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		path := bibframe.GrainPath(workID)
+		newTag, err := bs.Put(r.Context(), path, updated, blob.PutOptions{
+			IfMatch: ifMatch, ContentType: "application/n-quads",
+		})
+		// A writer that lands between the read above and this Put is caught here
+		// and nowhere else.
+		if errors.Is(err, blob.ErrPreconditionFailed) {
+			fresh, freshTag, _, ok := readWorkGrain(w, r, bs)
+			if !ok {
+				return
+			}
+			writeGrainConflict(w, workID, freshTag, fresh)
+			return
+		}
+		if err != nil {
+			writeGrainWriteError(w, err)
+			return
+		}
+		ix.Apply(path, newTag, updated)
+		_ = ix.AppendFeed(r.Context(), path)
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
-				WorkID: workID, Action: "ITEMS_EDIT", Actor: id.Email, ETag: etag,
+				WorkID: workID, Action: "ITEMS_EDIT", Actor: id.Email, ETag: newTag,
 				Note: req.InstanceID,
 			})
 		}
-		w.Header().Set("ETag", etag)
-		writeJSON(w, http.StatusOK, map[string]string{"workId": workID, "etag": etag})
+		w.Header().Set("ETag", newTag)
+		writeJSON(w, http.StatusOK, map[string]string{"workId": workID, "etag": newTag})
 	})))
 
 	// The withdrawal review queue (tasks/078): feed-only works the last

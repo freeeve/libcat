@@ -140,7 +140,10 @@ func TestItemsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec := request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", "", map[string]any{
+	// The items PUT is a client-token PUT (tasks/273): read the list, edit it,
+	// write it back under the token the read handed out.
+	_, etag := getItems(t, h)
+	rec := request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", etag, map[string]any{
 		"instanceId": "ivis00000001",
 		"items": []map[string]string{
 			{"callNumber": "813.6 MUI", "location": "Main - Adult Fiction", "barcode": "300123", "note": "signed copy"},
@@ -178,8 +181,10 @@ func TestItemsRoundTrip(t *testing.T) {
 		t.Fatalf("projected items = %+v", proj)
 	}
 
-	// Replace shrinks the set (no stale item statements).
-	rec = request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", "", map[string]any{
+	// Replace shrinks the set (no stale item statements). The first save moved
+	// the etag, so rebase on the fresh one.
+	_, etag = getItems(t, h)
+	rec = request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", etag, map[string]any{
 		"instanceId": "ivis00000001",
 		"items":      []map[string]string{{"callNumber": "813.6 MUI", "location": "Main"}},
 	})
@@ -248,8 +253,10 @@ func TestItemWritesRejectPhantomInstance(t *testing.T) {
 	}
 	before, _, _ := bs.Get(t.Context(), bibframe.GrainPath(workID))
 
-	// PUT items with a phantom instance -> 400, grain untouched.
-	rec := request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", "", map[string]any{
+	// PUT items with a phantom instance -> 400, grain untouched. The token is
+	// valid, so the 400 comes from SetItems rather than the precondition.
+	_, etag := getItems(t, h)
+	rec := request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", etag, map[string]any{
 		"instanceId": "izzzzzzphantom",
 		"items":      []map[string]string{{"barcode": "999001"}},
 	})
@@ -272,8 +279,9 @@ func TestItemWritesRejectPhantomInstance(t *testing.T) {
 		t.Fatalf("grain mutated by rejected writes:\n%s", after)
 	}
 
-	// The real instance still accepts writes.
-	rec = request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", "", map[string]any{
+	// The real instance still accepts writes. The refused phantom wrote nothing,
+	// so the token read above is still current.
+	rec = request(t, h, http.MethodPut, "/v1/works/"+workID+"/items", "lib-token", etag, map[string]any{
 		"instanceId": "ivis00000001",
 		"items":      []map[string]string{{"barcode": "300456"}},
 	})

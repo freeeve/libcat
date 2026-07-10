@@ -4,7 +4,15 @@
   // Circulation state never lives here. Item templates pre-fill rows and
   // bulk add generates N copies with sequential barcodes (tasks/069).
   import { onMount } from "svelte";
-  import { ApiError, bulkAddItems, createItemTemplate, fetchItems, fetchItemTemplates, putItems } from "../lib/api";
+  import {
+    ApiError,
+    ConflictError,
+    bulkAddItems,
+    createItemTemplate,
+    fetchItems,
+    fetchItemTemplates,
+    putItems,
+  } from "../lib/api";
   import { isReadOnly } from "../lib/config";
   import type { ItemTemplate, WorkItem } from "../lib/types";
 
@@ -13,6 +21,10 @@
   const readOnly = isReadOnly();
 
   let items = $state<WorkItem[]>([]);
+  // The etag of the grain this list was read from. The save is a whole-list
+  // replacement, so writing without it deletes whatever another cataloger added
+  // while this panel was open (tasks/273).
+  let etag = $state("");
   let dirty = $state(false);
   let busy = $state(false);
   let status = $state("");
@@ -33,13 +45,16 @@
     );
   });
 
+  /** Loads the list and the token the save writes back under (tasks/273). */
   async function load(): Promise<void> {
     try {
       const res = await fetchItems(workId);
       items = res.items?.[instanceId] ?? [];
+      etag = res.etag ?? "";
       dirty = false;
     } catch {
       items = [];
+      etag = "";
     }
   }
 
@@ -141,10 +156,20 @@
       const cleaned = items
         .map(({ callNumber, location, barcode, note }) => ({ callNumber, location, barcode, note }))
         .filter((it) => it.callNumber || it.location || it.barcode || it.note);
-      await putItems(workId, instanceId, cleaned);
+      await putItems(workId, instanceId, cleaned, etag);
       status = `saved ${cleaned.length} item${cleaned.length === 1 ? "" : "s"}`;
       await load();
     } catch (e) {
+      if (e instanceof ConflictError) {
+        // Somebody else edited this record's holdings while the panel was open.
+        // Reload rather than overwrite: their copy is a physical book on a
+        // shelf, and this save would have unlinked it (tasks/273).
+        const mine = items.length;
+        await load();
+        error = `another cataloger changed this record's items while you were editing. Your ${mine} row${mine === 1 ? "" : "s"} were not saved; the list below is theirs. Re-apply your changes and save again.`;
+        dirty = false;
+        return;
+      }
       error = e instanceof ApiError ? e.message : "saving items failed";
     } finally {
       busy = false;

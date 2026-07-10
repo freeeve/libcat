@@ -273,6 +273,25 @@ log; compensated ones changed nothing and are not (tasks/268, compare tasks/249)
 Any `failed` entry makes the response **`207 Multi-Status`**. A `200` means every
 entry either applied or was skipped without touching a record.
 
+### `PUT /v1/works/{id}/items`
+
+A client-token PUT, like `PUT /v1/works/{id}`. It replaces one instance's
+holdings **wholesale** from the list in the body, so it must be checked against
+the read it was computed from:
+
+- No `If-Match` -> **`428`** `{"error":"If-Match required"}`.
+- A stale `If-Match` -> **`412`** carrying the fresh grain and its ETag, so the
+  client can show the edit that beat it and rebase.
+
+Send the `etag` that `GET /v1/works/{id}/items` returned. Until tasks/273 the
+route read no precondition at all: two catalogers with the item panel open on
+one record would each save their own list, the second deleting the first's copy,
+and both were told `200`. A barcode names one physical copy on one shelf, so the
+lost item is a shelf silently unlinked from the catalog.
+
+`POST /v1/works/{id}/items/bulk` needs no token: it re-reads the list inside the
+write and appends, so a concurrent add cannot be lost.
+
 ### `POST /v1/copycat/search`
 
 Fans the query out to the configured targets. A target that cannot be reached at
