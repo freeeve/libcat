@@ -109,11 +109,13 @@ func TestASeriesWithNoStatementIsDropped(t *testing.T) {
 // says which one is a series. A reader that walked bf:relation without checking
 // would project every linking entry as a series statement.
 //
-// Written as an nquads fixture rather than as a MARC record on purpose: libcodex
-// v0.25.0 emits no bf:relation for 765 or 830, so a MARC-driven test *cannot*
-// produce a competing relation and would pass with the check deleted. It did. The
-// guard defends graphs that do carry them -- nquads ingest, editorial writes, and
-// whatever libcodex maps next -- so this drives Project directly.
+// Written as an nquads fixture on purpose: it drives Project directly on a graph
+// carrying an arbitrary non-series relationship IRI, covering the paths libcodex
+// does not emit from MARC -- editorial writes and nquads ingest -- and relations
+// it may map in future. The original reason ("a MARC record cannot produce a
+// competing relation") held only for 765/830; 780/785 do emit one, so
+// TestANonSeriesRelationFromAReal780RecordIsNotProjectedAsASeries below now pins
+// the same guard on a real record too (tasks/314).
 func TestANonSeriesRelationIsNotProjectedAsASeries(t *testing.T) {
 	const bf = "http://id.loc.gov/ontologies/bibframe/"
 	nq := `<#waaWork> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <` + bf + `Work> <feed:marc> .
@@ -143,6 +145,33 @@ _:ot <` + bf + `mainTitle> "Original Title" <feed:marc> .
 	for _, s := range got {
 		if s.Title == "Original Title" {
 			t.Error("a translationOf relation projected as a series")
+		}
+	}
+}
+
+// The real-record companion to the fixture test above (tasks/314, answering
+// libcodex 112): a record carrying a 490 and a 780 produces exactly the competing
+// pair the guard must tell apart. libcodex maps 780 (preceding title) to a
+// bf:relation whose relationship is *not* series (ind2=0 -> `continues`), while
+// the 490 maps to a series relation. The projector must take only the 490's
+// series and never the 780's preceding title. This exercises the real
+// FromRecord -> Project pipeline, so it is immune to the fixture-agrees-with-the-
+// reader failure that let the flat-shape bug ship green (tasks/309); deleting the
+// relationship check would surface the 780's $t "Old Title" as a spurious series,
+// the mis-read libcodex 112 warned about.
+func TestANonSeriesRelationFromAReal780RecordIsNotProjectedAsASeries(t *testing.T) {
+	rec := seriesRecord("c1", "A Book",
+		codex.NewDataField("490", '0', ' ', codex.NewSubfield('a', "Firebrand fiction")))
+	rec.AddField(codex.NewDataField("780", '0', '0', codex.NewSubfield('t', "Old Title")))
+	cat := projectMARC(t, rec)
+
+	got := cat.Works[0].Series
+	if len(got) != 1 || got[0].Title != "Firebrand fiction" {
+		t.Fatalf("series = %+v, want exactly the 490 series", got)
+	}
+	for _, s := range got {
+		if s.Title == "Old Title" {
+			t.Error("the 780 preceding-title relation projected as a series")
 		}
 	}
 }
