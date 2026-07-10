@@ -352,3 +352,73 @@ describe("shortcutKeyError", () => {
     expect(shortcutKeyError(SUGGESTED_SHORTCUT_KEY)).toBeUndefined();
   });
 });
+
+// tasks/319: a plain-key binding must not preventDefault the key the focused
+// element uses to activate itself -- Enter over a link/button, Space over a
+// button/checkbox -- or that control cannot be operated from the keyboard
+// (WCAG 2.1.1). The guard is target-specific: j/k/g still fire over a link.
+describe("native activation keys (tasks/319)", () => {
+  afterEach(() => resetKeyboard());
+
+  function pressCancelable(key: string, target?: HTMLElement, init: KeyboardEventInit = {}): KeyboardEvent {
+    const ev = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+    (target ?? document.body).dispatchEvent(ev);
+    return ev;
+  }
+
+  it("surrenders Enter to a focused link and does not fire the binding", () => {
+    const open = vi.fn();
+    bindKeys("works", { Enter: { description: "open the selected work", handler: open } });
+    pushScope("works");
+    const link = document.createElement("a");
+    link.href = "#/batch";
+    document.body.appendChild(link);
+    const ev = pressCancelable("Enter", link);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("surrenders Space to a focused button and does not fire the binding", () => {
+    const act = vi.fn();
+    bindKeys("works", { " ": { description: "select all", handler: act } });
+    pushScope("works");
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    const ev = pressCancelable(" ", button);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(act).not.toHaveBeenCalled();
+  });
+
+  it("still fires a bound Enter when focus is not on an activatable element", () => {
+    const open = vi.fn();
+    bindKeys("works", { Enter: { description: "open the selected work", handler: open } });
+    pushScope("works");
+    const ev = pressCancelable("Enter", document.body);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(open).toHaveBeenCalledOnce();
+  });
+
+  it("does not surrender a non-activation key over a link -- j/k still fire", () => {
+    const next = vi.fn();
+    bindKeys("works", { j: { description: "next row", handler: next } });
+    pushScope("works");
+    const link = document.createElement("a");
+    link.href = "#/batch";
+    document.body.appendChild(link);
+    const ev = pressCancelable("j", link);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("keeps mod+Enter firing even over a link (mod chords are exempt)", () => {
+    const run = vi.fn();
+    bindKeys("works", { "mod+Enter": { description: "run", handler: run } });
+    pushScope("works");
+    const link = document.createElement("a");
+    link.href = "#/batch";
+    document.body.appendChild(link);
+    const ev = pressCancelable("Enter", link, { metaKey: true });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(run).toHaveBeenCalledOnce();
+  });
+});

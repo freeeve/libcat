@@ -365,6 +365,28 @@ function lookup(key: string): Binding | undefined {
   return scopeMap(topScope()).get(key) ?? scopeMap(GLOBAL_SCOPE).get(key);
 }
 
+/** The keys the platform reserves to *activate* the focused element, and the
+    elements each key activates. A plain-key binding must never preventDefault
+    one of these while that element holds focus, or the element cannot be
+    operated from the keyboard: Enter follows a link and presses a button,
+    Space presses a button and toggles a checkbox (WCAG 2.1.1, tasks/319).
+    This is narrower than the form-control guard on purpose -- only the
+    element's activation key is surrendered, and only to the element that
+    consumes it, so j/k/g and the rest still work with a link focused. NumpadEnter
+    also reports ev.key "Enter", so it is covered. mod+ chords are exempt: they
+    fire everywhere by design. */
+const ACTIVATES: Record<string, string> = {
+  Enter: "a[href], button, summary, [role=button], [role=link], [role=menuitem]",
+  " ": "button, summary, [role=button], input[type=checkbox], input[type=radio]",
+};
+
+/** True when the focused element natively consumes this keydown to activate
+    itself, so the dispatcher must let the browser handle it. */
+function surrendersToTarget(ev: KeyboardEvent, chord: string, target: HTMLElement | null): boolean {
+  const native = ACTIVATES[ev.key];
+  return !!native && !chord.startsWith("mod+") && !!target?.closest?.(native);
+}
+
 /** True when some active binding is a sequence starting with this chord. */
 function armsSequence(chord: string): boolean {
   const prefix = chord + " ";
@@ -406,6 +428,7 @@ function onKeydown(ev: KeyboardEvent): void {
     presentHelp(activeBindings().filter((b) => !b.hidden));
     return;
   }
+  if (surrendersToTarget(ev, chord, target)) return;
   const b = lookup(chord);
   if (b) {
     ev.preventDefault();
