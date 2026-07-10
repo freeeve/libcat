@@ -118,3 +118,56 @@ By hand: sign in to :8481, open `#/works/w1dh6vtir43o8i`, click **Add subject…
 select the `lcsh` tab, type `cats`, click `Kittens` in the panel's NARROWER list, then
 press Escape. The dialog stays open. Press Tab and inspect `document.activeElement`:
 it is outside `[role=dialog]`.
+
+## Outcome
+
+Shipped in **v0.140.6** (`e5c5c60`). Fixed as a `Modal` defect first -- you were
+right that the shell should not be this fragile -- with a source-level focus move in
+`NeighborhoodPanel` as the polite second half.
+
+### The shell (`Modal.svelte`)
+
+The trap was a `onkeydown` bound to the panel, so it went deaf the instant focus left
+for `<body>`. Moved it to a **window-level capture listener** installed while the
+dialog is open:
+
+- **Escape closes from anywhere.** The listener is on `window`, so a keydown reaches
+  it no matter where focus sits -- the reliable defect (3 of 3 in your table) is gone.
+- **Tab recaptures focus that has escaped.** When `!panel.contains(document.activeElement)`,
+  Tab now `preventDefault`s and pulls focus to the first (or, with Shift, last)
+  focusable in the panel, so the cycle can never wander onto a control behind the
+  scrim.
+
+The panel's `onkeydown` is removed (the window listener supersedes it), and the
+capture phase + `stopPropagation` on Escape keep a page-level listener from seeing it,
+as before.
+
+### The source (`NeighborhoodPanel.svelte`)
+
+`walk()` and `back()` now move focus deliberately after the trail changes -- to the
+new `.here` breadcrumb (given `tabindex="-1"`), or the `.hood` panel when the trail
+returns to the root -- via `tick()` so the target exists. Focus never rests on
+`<body>` between the click and the next key, and a screen reader announces the term
+just walked to rather than silently dropping it. Both `.here` and `.hood` are
+`tabindex="-1"`, so they are programmatic targets only and never become Tab stops.
+
+### Tests
+
+Two regressions in `modal.test.ts`, exactly the shape you asked for: mount a Modal,
+remove the focused child (the unmount), then assert **Escape still calls `onclose`**
+and **Tab recaptures focus into the dialog**. Mutation-checked -- rebinding the
+listener to the panel (the old behaviour) fails both and leaves the four original
+Modal tests green. Full UI suite 320/320, `svelte-check` 0 errors.
+
+### Verified end to end on live :8481
+
+Drove the real flow -- open the work editor, **Add subject…**, `lcsh` tab, search
+`cats`, walk to a narrower term (`Vashti (Cat)`):
+
+```
+after the walk : focus is INSIDE [role=dialog]   (was <body>)
+Escape         : closes the dialog                (was: stayed open)
+```
+
+Your control holds: clicking a scheme tab (which re-renders but keeps its button) was
+never affected, and still is not.
