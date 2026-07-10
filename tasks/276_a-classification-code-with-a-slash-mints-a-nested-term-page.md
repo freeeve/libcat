@@ -100,6 +100,28 @@ URL path.
 classification value reaches the filesystem with neither the slug nor the cap. *Read,
 not measured* -- I have not built the module against a pathological value.
 
+**The guard that advertises this catch does not make it.** `hugo/link_check.cjs:1-4`:
+
+> *"Walks a built Hugo site and asserts every root-relative link resolves to a
+> generated file -- catching facet/term links whose slug does not match the page Hugo
+> minted (e.g. a `+`/`/` in a subject/tag label that a CDN would 404)."*
+
+Run against the playground's build, it passes:
+
+```
+$ node hugo/link_check.cjs ~/libcat-playground/opac/public
+===== 384 pages checked =====
+All internal facet/term/work links resolve; no CDN-unsafe '+' paths.
+```
+
+Two reasons, both worth fixing. The link **does** resolve: Hugo really did generate
+`813/.6/index.html`, so a resolve-check cannot see a URL that is well-formed on disk
+and hostile on a host. And the CDN-safety check is `clean.includes("+")` (`:58`) --
+`+` only, despite the comment naming `/`. A `/` cannot be found this way in any case,
+because by the time the path is a path the separator is indistinguishable from the
+ones that belong there. The check has to run on the **term key**, before it becomes a
+path.
+
 **The directory listing is `lcat serve`'s.** `cmd/lcat/serve.go:38-43` is
 `http.FileServer(http.Dir(dir))` with `Cache-Control: no-store`, and Go's FileServer
 auto-lists a directory that has no `index.html`. Its doc comment scopes it honestly to
@@ -181,6 +203,15 @@ will sit there until somebody publishes to a real host.
   build loudly on a `catalogSchemaVersion` mismatch (tasks/009 contract). A term key
   with a path separator in it is the same class of contract violation and is currently
   silent. This is the check that would have caught 023, 128, 134 and this one.
+
+- **And teach `link_check.cjs` the character its own comment claims.** It passes on this
+  build. Its CDN-safety test is `clean.includes("+")` (`:58`); the comment says `+`/`/`.
+  A `/` can only be caught **before** the key becomes a path -- once it is a path, the
+  separator that does not belong is indistinguishable from the ones that do. So the
+  check belongs on the adapter's term keys, not on the rendered hrefs. Note also that
+  the resolve half of that checker can never catch this: Hugo genuinely generated
+  `813/.6/index.html`, so the link resolves. A URL can be well-formed on disk and
+  hostile on a host, and only the first of those is what `link_check` measures.
 
 - **Secondary, correctly scoped:** consider whether `lcat serve` should refuse to list
   index-less directories. It is a preview server by its own doc comment, so a raw
