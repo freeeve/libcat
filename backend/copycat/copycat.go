@@ -408,13 +408,15 @@ func (s *Service) Commit(ctx context.Context, id, actor string) (Batch, error) {
 		return Batch{}, err
 	}
 	changed := []string{}
+	committedWorks := []string{}
 	if len(commit) > 0 {
 		prov := staticProvider{name: s.feed(), recs: marc.FromCodexRecords(commit)}
-		_, paths, err := ingest.RunStore(ctx, prov, s.Blob, s.Prefix)
+		res, paths, err := ingest.RunStore(ctx, prov, s.Blob, s.Prefix)
 		if err != nil {
 			return Batch{}, err
 		}
 		changed = paths
+		committedWorks = res.WorkIDs
 		// Push the landed grains into the shared index so the editor's
 		// duplicate and barcode checks see them without waiting out the TTL.
 		if ix := s.sharedIndex(); ix != nil {
@@ -436,11 +438,22 @@ func (s *Service) Commit(ctx context.Context, id, actor string) (Batch, error) {
 	if err := s.putBatch(ctx, b, store.CondNone); err != nil {
 		return Batch{}, err
 	}
+	// The run summary carries the totals; RunID ties it to the per-work entries.
 	s.audit(ctx, suggest.AuditEntry{
-		Action: "COPYCAT_COMMIT", Actor: actor,
+		Action: "COPYCAT_COMMIT", Actor: actor, RunID: b.ID,
 		Note: fmt.Sprintf("batch %s: %d committed, %d skipped (%s), %d grains touched",
 			b.ID, b.Committed, b.Skipped, b.Policy, len(changed)),
 	})
+	// A per-work entry so an imported record's History tab shows where it came
+	// from (tasks/334) -- WORK_CLONE is the precedent for a per-work provenance
+	// row. The summary above is the run's aggregate; these carry the WorkID a
+	// work's history filters on.
+	for _, wid := range committedWorks {
+		s.audit(ctx, suggest.AuditEntry{
+			Action: "COPYCAT_COMMIT", Actor: actor, WorkID: wid, RunID: b.ID,
+			Note: fmt.Sprintf("imported from %s (batch %s)", b.Source, b.ID),
+		})
+	}
 	if s.Trigger != nil && len(changed) > 0 {
 		_ = s.Trigger.Notify(ctx, trigger.Event{Kind: "grains-changed", Paths: changed, At: time.Now().UTC()})
 	}

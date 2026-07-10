@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	codex "github.com/freeeve/libcodex"
 	"github.com/freeeve/libcodex/rdf"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/freeeve/libcat/backend/copycat"
 	"github.com/freeeve/libcat/backend/store"
+	"github.com/freeeve/libcat/backend/suggest"
 	"github.com/freeeve/libcat/backend/trigger"
 	"github.com/freeeve/libcat/backend/workindex"
 )
@@ -286,6 +288,67 @@ func TestStageCommitLifecycle(t *testing.T) {
 	}
 	if len(notifier.events) != 0 {
 		t.Fatalf("byte-stable recommit still notified: %+v", notifier.events)
+	}
+}
+
+// TestCommitAuditsPerWorkProvenance proves a committed batch writes not just
+// the run-summary audit entry but one COPYCAT_COMMIT entry per committed work,
+// carrying that work's ID -- so an imported record's History tab shows where it
+// came from. Before tasks/334 the commit audit named the batch totals only, so
+// a work's history (which filters on WorkID) showed nothing about its import.
+func TestCommitAuditsPerWorkProvenance(t *testing.T) {
+	notifier := &fakeNotifier{}
+	queue := suggest.New(store.NewMem(), nil, suggest.Caps{})
+	svc := &copycat.Service{
+		Blob: blob.NewMem(), DB: store.NewMem(), Trigger: notifier, Queue: queue,
+	}
+	svc.Index = workindex.New(svc.Blob, "data/works/")
+	ctx := t.Context()
+
+	batch, records, err := svc.StageMARC(ctx, "prov load", sampleMRC(t), "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, err := svc.Commit(ctx, batch.ID, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed.Committed != len(records) || len(records) == 0 {
+		t.Fatalf("committed = %+v (%d records)", committed, len(records))
+	}
+
+	entries, err := queue.Audit(ctx, time.Now().UTC().Format("2006-01"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var summary, perWork []suggest.AuditEntry
+	for _, e := range entries {
+		if e.Action != "COPYCAT_COMMIT" {
+			continue
+		}
+		if e.WorkID == "" {
+			summary = append(summary, e)
+		} else {
+			perWork = append(perWork, e)
+		}
+	}
+	if len(summary) != 1 {
+		t.Fatalf("want one run-summary COPYCAT_COMMIT entry, got %d", len(summary))
+	}
+	if len(perWork) != committed.Committed {
+		t.Fatalf("want %d per-work entries, got %d", committed.Committed, len(perWork))
+	}
+	for _, e := range perWork {
+		if !strings.HasPrefix(e.WorkID, "w") {
+			t.Errorf("per-work entry WorkID = %q, want a work id", e.WorkID)
+		}
+		if e.RunID != batch.ID || summary[0].RunID != batch.ID {
+			t.Errorf("RunID mismatch: per-work %q, summary %q, batch %q", e.RunID, summary[0].RunID, batch.ID)
+		}
+		if e.Actor != "lib@example.org" {
+			t.Errorf("per-work entry actor = %q", e.Actor)
+		}
 	}
 }
 
