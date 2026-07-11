@@ -201,16 +201,18 @@ func BuildWorkGrain(wg WorkGroup, provider string) ([]byte, error) {
 	return grainWithEditorial(wg.graph(), FeedGraph(provider), wg.Editorial)
 }
 
-// grainWithEditorial canonicalizes a feed graph together with preserved editorial
-// N-Quads into one grain. The feed statements land in graph; the editorial lines
-// carry their own 4th column and are merged in as-is, then the whole dataset is
-// canonicalized jointly so feed and editorial re-serialize deterministically
-// (ARCHITECTURE §5). Editorial statements are IRI-based, so they introduce no
-// blank labels that could collide with the feed graph's.
+// grainWithEditorial canonicalizes a feed graph together with preserved
+// N-Quads into one grain. The feed statements land in graph; the preserved
+// lines carry their own 4th column, then the whole dataset is canonicalized
+// jointly so everything re-serializes deterministically (ARCHITECTURE §5).
+// The preserved side is NOT blank-free: since multi-feed grains, it carries
+// other feeds' graphs, whose blank labels would fuse with the fresh graph's
+// freshly-numbered ones on parse (tasks/397) -- so its labels are pushed into
+// a namespace the fresh serialization never emits before the buffers meet.
 func grainWithEditorial(g *rdf.Graph, graph rdf.Term, editorial []byte) ([]byte, error) {
 	nq := g.NQuads(graph)
 	if len(editorial) > 0 {
-		nq = append(nq, editorial...)
+		nq = append(nq, RelabelGrainBlanks(editorial, "prior_")...)
 	}
 	ds, err := rdf.ParseNQuads(nq)
 	if err != nil {

@@ -71,6 +71,13 @@ func (p *Prior) accumulateGrain(grain []byte, feed rdf.Term) error {
 	gi := identity.ScanDataset(ds)
 	p.Grains = append(p.Grains, gi)
 	ed := preservedQuads(ds, feed)
+	if len(ed) > 0 {
+		// Namespace this grain's preserved blanks: after a merge, two grains'
+		// preserved statements share one Editorial buffer, and each grain's
+		// labels count from the same seed (tasks/397). The prefix survives
+		// only until the next joint canonicalization.
+		ed = RelabelGrainBlanks(ed, fmt.Sprintf("g%d_", len(p.Grains)-1))
+	}
 	for _, wk := range gi.Works {
 		if len(ed) > 0 {
 			p.Editorial[wk.WorkID] = append(p.Editorial[wk.WorkID], ed...)
@@ -85,12 +92,17 @@ func (p *Prior) accumulateGrain(grain []byte, feed rdf.Term) error {
 // other than feed -- the editorial (and any future non-feed) statements to carry
 // across re-ingest (ARCHITECTURE §5).
 func preservedQuads(ds *rdf.Dataset, feed rdf.Term) []byte {
+	// One Encoder across every preserved graph: a fresh encoder per graph
+	// would renumber each graph's blanks from _:b1 and fuse unrelated nodes
+	// when the outputs concatenate (tasks/397 -- the Encoder's own doc warns
+	// exactly this). Statement order interleaves by input order, which the
+	// eventual joint canonicalization erases.
+	var e rdf.Encoder
 	var out []byte
-	for _, gt := range ds.Graphs() {
-		if gt == feed {
-			continue
+	for _, q := range ds.Quads {
+		if q.G != feed {
+			out = e.AppendQuad(out, q)
 		}
-		out = append(out, ds.Graph(gt).NQuads(gt)...)
 	}
 	return out
 }

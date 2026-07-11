@@ -91,6 +91,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat covers:", err)
 			os.Exit(1)
 		}
+	case "grain-repair":
+		if err := runGrainRepair(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "lcat grain-repair:", err)
+			os.Exit(1)
+		}
 	// "audit" is the pre-rename alias (v0.172.0-v0.175.x adopters); the
 	// documented name says what kind of audit it is.
 	case "diversity-audit", "audit":
@@ -133,6 +138,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "              --catalog = the public projection)")
 	fmt.Fprintln(os.Stderr, "  lcat vocab-gc --store <blob-root> [--prefix data/authorities/] [--reap] [--json]")
 	fmt.Fprintln(os.Stderr, "              (sidecar artifact sets whose snapshot is gone; a removal before v0.137.0 left them behind)")
+	fmt.Fprintln(os.Stderr, "  lcat grain-repair --dir <grains> [--dry-run]")
+	fmt.Fprintln(os.Stderr, "              (split blank nodes fused across graphs by pre-v0.184 multi-feed writes)")
 	fmt.Fprintln(os.Stderr, "  lcat merge --dir <grains> --from <workid> --to <workid>")
 	fmt.Fprintln(os.Stderr, "  lcat split --dir <grains> --from <workid> --instances <instid,instid,...>")
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/freeeve/libcat/ingest"
 	"github.com/freeeve/libcat/ingest/overdrive"
 	codexbf "github.com/freeeve/libcodex/bibframe"
+	"github.com/freeeve/libcodex/rdf"
 )
 
 // stubRecord is a minimal ingest.Record: enough identity keys to resolve and enough
@@ -549,4 +551,98 @@ func readNQuads(t *testing.T, dir string) string {
 		t.Fatalf("read grains: %v", err)
 	}
 	return b.String()
+}
+
+// TestTwoFeedGrainBlanksStayDisjoint is the tasks/397 regression: a second
+// feed's re-ingest preserves the first feed's graph, and the preserved blanks
+// must never fuse with the fresh feed's. The corruption this guards against:
+// one blank label serialized into two graphs makes the parser merge unrelated
+// nodes, so a subject absorbs a summary or classification (seen live: the
+// playground's American Hippo grain).
+func TestTwoFeedGrainBlanksStayDisjoint(t *testing.T) {
+	out := t.TempDir()
+	recA := []ingest.Record{stubRecord{id: "a:1", author: "Gailey, Sarah", title: "American Hippo", lang: "eng", isbn: "9781250176431", localID: true}}
+	recB := []ingest.Record{stubRecord{id: "b:1", author: "Gailey, Sarah", title: "American Hippo", lang: "eng", isbn: "9781250176431", localID: true}}
+	if _, err := ingest.Run(stubProvider{feed: "feeda", role: ingest.RoleIngest, recs: recA}, out); err != nil {
+		t.Fatalf("feed A: %v", err)
+	}
+	if _, err := ingest.Run(stubProvider{feed: "feedb", role: ingest.RoleIngest, recs: recB}, out); err != nil {
+		t.Fatalf("feed B: %v", err)
+	}
+
+	// One work, one grain, two feed graphs. No blank node may be typed in
+	// more than one graph -- that is the fusion signature.
+	grains := findGrains(t, out)
+	if len(grains) != 1 {
+		t.Fatalf("grains = %d, want 1 (same work clustered)", len(grains))
+	}
+	data, err := os.ReadFile(grains[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBlanksSingleGraph(t, data)
+
+	// Third pass (feed A again) exercises preservation of a multi-graph
+	// prior; the invariant must hold transitively.
+	if _, err := ingest.Run(stubProvider{feed: "feeda", role: ingest.RoleIngest, recs: recA}, out); err != nil {
+		t.Fatalf("feed A re-run: %v", err)
+	}
+	data, err = os.ReadFile(grains[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBlanksSingleGraph(t, data)
+}
+
+// findGrains lists the .nq grain files under out.
+func findGrains(t *testing.T, out string) []string {
+	t.Helper()
+	var paths []string
+	err := filepath.WalkDir(filepath.Join(out, "data", "works"), func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".nq") {
+			paths = append(paths, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paths
+}
+
+// assertBlanksSingleGraph fails if any blank node appears in more than one
+// named graph of the grain.
+func assertBlanksSingleGraph(t *testing.T, grain []byte) {
+	t.Helper()
+	ds, err := rdf.ParseNQuads(grain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graphsOf := map[string]map[string]bool{}
+	for _, q := range ds.Quads {
+		for _, term := range []rdf.Term{q.S, q.O} {
+			if !term.IsBlank() {
+				continue
+			}
+			set := graphsOf[term.Value]
+			if set == nil {
+				set = map[string]bool{}
+				graphsOf[term.Value] = set
+			}
+			set[q.G.Value] = true
+		}
+	}
+	for label, graphs := range graphsOf {
+		if len(graphs) > 1 {
+			names := make([]string, 0, len(graphs))
+			for g := range graphs {
+				names = append(names, g)
+			}
+			sort.Strings(names)
+			t.Errorf("blank _:%s appears in %d graphs (%s) -- fused nodes", label, len(graphs), strings.Join(names, ", "))
+		}
+	}
 }
