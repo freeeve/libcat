@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/freeeve/libcodex/rdf"
+
 	"github.com/freeeve/libcat/bibframe"
 	"github.com/freeeve/libcat/project"
 	"github.com/freeeve/libcat/storage/blob"
@@ -122,6 +124,53 @@ func TestVisibilityFlow(t *testing.T) {
 	cat, _ = project.Project(grain, "overdrive")
 	if len(cat.Works) != 1 {
 		t.Fatal("untombstone did not restore")
+	}
+}
+
+// seedBarcodeWork writes a work grain carrying one instance with one item that
+// holds the given barcode -- the minimal shape the duplicate-barcode report scans.
+func seedBarcodeWork(t *testing.T, bs blob.Store, workID, barcode string) {
+	t.Helper()
+	const bfNS = "http://id.loc.gov/ontologies/bibframe/"
+	ds := &rdf.Dataset{}
+	feed := bibframe.FeedGraph("overdrive")
+	ed := bibframe.EditorialGraph()
+	work := rdf.NewIRI(bibframe.WorkIRI(workID))
+	inst := rdf.NewIRI(bibframe.InstanceIRI(workID + "i"))
+	ds.Add(work, rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), rdf.NewIRI(bfNS+"Work"), feed)
+	ds.Add(inst, rdf.NewIRI(bfNS+"instanceOf"), work, feed)
+	item := rdf.NewBlank("it0")
+	ds.Add(inst, rdf.NewIRI(bfNS+"hasItem"), item, ed)
+	ds.Add(item, rdf.NewIRI(bibframe.PredBarcode), rdf.NewLiteral(barcode, "", ""), ed)
+	nq, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), bibframe.GrainPath(workID), nq, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestDuplicateBarcodesReport is the tasks/270 report route: a barcode held by
+// more than one item across the corpus is surfaced with the works holding it.
+func TestDuplicateBarcodesReport(t *testing.T) {
+	bs := blob.NewMem()
+	seedBarcodeWork(t, bs, "wdup00000001", "SHARED-BC")
+	seedBarcodeWork(t, bs, "wdup00000002", "SHARED-BC") // same barcode
+	seedBarcodeWork(t, bs, "wuniq0000003", "SOLO-BC")
+	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Verifier: verifier})
+
+	rec := request(t, h, http.MethodGet, "/v1/items/duplicate-barcodes", "lib-token", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report = %d %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "SHARED-BC") || strings.Contains(body, "SOLO-BC") {
+		t.Fatalf("report should list SHARED-BC only, got %s", body)
+	}
+	if !strings.Contains(body, "wdup00000001") || !strings.Contains(body, "wdup00000002") {
+		t.Fatalf("report should name both holders, got %s", body)
 	}
 }
 

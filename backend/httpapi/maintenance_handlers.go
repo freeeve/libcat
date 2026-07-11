@@ -263,6 +263,23 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 	// The duplicate-detection worklist: Works sharing a clustering key
 	// (author+title+language) that nonetheless hold separate ids -- the
 	// candidates the merge tool resolves (tasks/051).
+	// The barcode-duplicate report (tasks/270): a barcode names one physical
+	// copy, so any held by more than one item is a data-quality defect. This is
+	// the report an operator needs before uniqueness can be enforced on writes --
+	// a constraint added over existing duplicates would fail writes to records
+	// that were fine yesterday.
+	mux.Handle("GET /v1/items/duplicate-barcodes", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dups, err := ix.DuplicateBarcodes(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "scan failed")
+			return
+		}
+		if dups == nil {
+			dups = []workindex.DuplicateBarcode{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"duplicates": dups})
+	})))
+
 	mux.Handle("GET /v1/duplicates", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		type dupWork struct {
 			WorkID string `json:"workId"`

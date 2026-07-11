@@ -84,8 +84,13 @@ type Index struct {
 	byProvider map[string][]Ref
 	byCluster  map[string][]Ref
 	barcodes   map[string]bool
-	summaries  []ingest.WorkSummary
-	paths      map[string]string
+	// barcodeWorks maps a barcode to the work id of every item holding it, one
+	// entry per item occurrence (so a barcode on two items of one work appears
+	// twice). The read-only report of corpus-wide duplicates derives from it
+	// (tasks/270); the write-time constraint is a separate follow-on.
+	barcodeWorks map[string][]string
+	summaries    []ingest.WorkSummary
+	paths        map[string]string
 	// generation counts derived-view rebuilds. A consumer that caches something
 	// expensive keyed on the corpus (the similarity index, tasks/284) reads it
 	// together with the summaries and rebuilds only when it moves.
@@ -362,6 +367,47 @@ func (ix *Index) Barcodes(ctx context.Context) (map[string]bool, error) {
 	return taken, nil
 }
 
+// DuplicateBarcode is one barcode held by more than one item in the corpus, with
+// the works that hold it. A barcode names one physical copy, so a duplicate is a
+// data-quality defect a librarian needs to find before uniqueness can be enforced
+// on writes (tasks/270).
+type DuplicateBarcode struct {
+	Barcode string   `json:"barcode"`
+	Count   int      `json:"count"`   // number of items holding it
+	WorkIDs []string `json:"workIds"` // the works that hold it, sorted and unique
+}
+
+// DuplicateBarcodes reports every barcode held by more than one item across the
+// corpus, sorted by barcode. Count is the number of item occurrences (so a
+// barcode on two items of one work counts twice and is reported); WorkIDs is the
+// sorted, de-duplicated set of works holding it. This is the read-only report
+// half of tasks/270; the write-time uniqueness constraint is a follow-on.
+func (ix *Index) DuplicateBarcodes(ctx context.Context) ([]DuplicateBarcode, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	if err := ix.freshenLocked(ctx); err != nil {
+		return nil, err
+	}
+	var out []DuplicateBarcode
+	for bc, works := range ix.barcodeWorks {
+		if len(works) < 2 {
+			continue
+		}
+		seen := map[string]bool{}
+		uniq := make([]string, 0, len(works))
+		for _, w := range works {
+			if !seen[w] {
+				seen[w] = true
+				uniq = append(uniq, w)
+			}
+		}
+		sort.Strings(uniq)
+		out = append(out, DuplicateBarcode{Barcode: bc, Count: len(works), WorkIDs: uniq})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Barcode < out[j].Barcode })
+	return out, nil
+}
+
 // freshenLocked refreshes on TTL lapse and rebuilds the derived views if any
 // grain changed.
 func (ix *Index) freshenLocked(ctx context.Context) error {
@@ -449,10 +495,12 @@ func (ix *Index) rebuildLocked() {
 	byProvider := map[string][]Ref{}
 	byCluster := map[string][]Ref{}
 	barcodes := map[string]bool{}
+	barcodeWorks := map[string][]string{}
 	summaries := make([]ingest.WorkSummary, 0, len(paths))
 	workPaths := make(map[string]string, len(paths))
 	for _, p := range paths {
 		entry := ix.grains[p]
+		workID := strings.TrimSuffix(p[strings.LastIndex(p, "/")+1:], ".nq")
 		for _, inst := range entry.identity.Instances {
 			if inst.WorkID == "" {
 				continue
@@ -469,6 +517,9 @@ func (ix *Index) rebuildLocked() {
 		}
 		for _, bc := range entry.barcodes {
 			barcodes[bc] = true
+			if bc != "" {
+				barcodeWorks[bc] = append(barcodeWorks[bc], workID)
+			}
 		}
 		for _, s := range entry.summaries {
 			workPaths[s.WorkID] = p
@@ -477,6 +528,7 @@ func (ix *Index) rebuildLocked() {
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].WorkID < summaries[j].WorkID })
 	ix.byProvider, ix.byCluster, ix.barcodes, ix.summaries, ix.paths = byProvider, byCluster, barcodes, summaries, workPaths
+	ix.barcodeWorks = barcodeWorks
 	ix.dirty = false
 	ix.generation++
 }

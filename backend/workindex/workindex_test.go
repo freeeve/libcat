@@ -148,6 +148,30 @@ func TestApplyKeepsIndexExactWithoutRescan(t *testing.T) {
 	}
 }
 
+// TestDuplicateBarcodes is the tasks/270 report: a barcode held by more than one
+// item across the corpus is surfaced with the works holding it; a barcode on one
+// item is not.
+func TestDuplicateBarcodes(t *testing.T) {
+	ctx := t.Context()
+	cs := &countingStore{Store: blob.NewMem()}
+	seed(t, cs, "w1", grain("w1", "A", "X", "111", "DUP-1"))
+	seed(t, cs, "w2", grain("w2", "B", "Y", "222", "DUP-1")) // same barcode as w1
+	seed(t, cs, "w3", grain("w3", "C", "Z", "333", "UNIQ-1"))
+	ix := New(cs, "data/works/")
+
+	dups, err := ix.DuplicateBarcodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dups) != 1 {
+		t.Fatalf("duplicates = %+v, want exactly the shared barcode", dups)
+	}
+	d := dups[0]
+	if d.Barcode != "DUP-1" || d.Count != 2 || len(d.WorkIDs) != 2 || d.WorkIDs[0] != "w1" || d.WorkIDs[1] != "w2" {
+		t.Fatalf("duplicate = %+v, want DUP-1 held by w1 and w2", d)
+	}
+}
+
 func TestRefreshDiffsByETag(t *testing.T) {
 	ctx := t.Context()
 	cs := &countingStore{Store: blob.NewMem()}
