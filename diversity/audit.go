@@ -3,11 +3,13 @@ package diversity
 import "strings"
 
 // SubjectRef is one of a work's subjects as the audit sees it: an authority URI
-// (may be empty for a bare-string ILS heading) and its heading labels (may be
-// empty for a URI-only reference). Either dimension feeds the crosswalk.
+// (may be empty for a bare-string ILS heading), its heading labels (may be empty
+// for a URI-only reference), and the vocabulary scheme code ("homosaurus",
+// "fast", "lcsh"; may be empty). Every dimension feeds the crosswalk.
 type SubjectRef struct {
 	URI    string
 	Labels []string
+	Scheme string
 }
 
 // Report is a coverage-first content-diversity audit of a corpus. It reports what
@@ -68,7 +70,7 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 	for _, s := range subjects {
 		if s.URI != "" {
 			covered = true
-			for _, id := range a.cw.Categorize(s.URI, "") {
+			for _, id := range a.cw.Categorize(s.URI, "", s.Scheme) {
 				cats[id] = true
 			}
 		}
@@ -77,7 +79,7 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 				continue
 			}
 			covered = true
-			for _, id := range a.cw.Categorize("", l) {
+			for _, id := range a.cw.Categorize("", l, "") {
 				cats[id] = true
 			}
 		}

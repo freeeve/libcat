@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/freeeve/libcat/diversity"
@@ -28,6 +29,11 @@ func runAudit(args []string) error {
 		"comma-separated operator override crosswalk TOML file(s), merged over the built-in seed (tasks/365)")
 	format := fs.String("format", "text", "output format: text or json")
 	out := fs.String("out", "", "write the report to this file instead of stdout")
+	var filters filterFlags
+	fs.Var(&filters, "filter",
+		"audit only works whose extra.<key> equals <value> (key=value; repeatable, ANDed; a comma-joined extra matches on any element; tasks/373)")
+	source := fs.String("source", "",
+		"audit only works whose extra.sources lists this name -- shorthand for --filter sources=<name> (tasks/373)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -36,6 +42,9 @@ func runAudit(args []string) error {
 	}
 	if *format != "text" && *format != "json" {
 		return fmt.Errorf("--format must be text or json, got %q", *format)
+	}
+	if *source != "" {
+		filters = append(filters, filterPair{key: "sources", value: *source})
 	}
 
 	data, err := os.ReadFile(*catalogJSON)
@@ -54,6 +63,9 @@ func runAudit(args []string) error {
 
 	a := diversity.NewAuditor(cw)
 	for _, w := range cat.Works {
+		if !filters.match(w.Extra) {
+			continue
+		}
 		a.Add(subjectRefs(w))
 	}
 	report := a.Report()
@@ -70,9 +82,67 @@ func runAudit(args []string) error {
 	if *format == "json" {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(report)
+		return enc.Encode(auditOutput{Scope: filters.String(), Report: report})
 	}
-	return writeAuditText(w, report)
+	return writeAuditText(w, report, filters.String())
+}
+
+// auditOutput wraps the report with the scope it was computed over, so a saved
+// JSON report says whether it covers the whole catalog or a --filter subset.
+type auditOutput struct {
+	Scope string `json:"scope,omitempty"`
+	diversity.Report
+}
+
+// filterPair is one --filter key=value term.
+type filterPair struct{ key, value string }
+
+// filterFlags collects repeated --filter flags, ANDed at match time.
+type filterFlags []filterPair
+
+// String renders the active filters for display ("" when unfiltered).
+func (f *filterFlags) String() string {
+	parts := make([]string, 0, len(*f))
+	for _, p := range *f {
+		parts = append(parts, p.key+"="+p.value)
+	}
+	return strings.Join(parts, " AND ")
+}
+
+// Set parses one key=value term (the flag.Value contract).
+func (f *filterFlags) Set(s string) error {
+	k, v, ok := strings.Cut(s, "=")
+	if !ok || k == "" || v == "" {
+		return fmt.Errorf("--filter wants key=value, got %q", s)
+	}
+	*f = append(*f, filterPair{key: k, value: v})
+	return nil
+}
+
+// match reports whether a work's extras satisfy every filter. A filter matches
+// when the extra equals the value exactly or, for comma-joined extras (the
+// `sources` convention, tasks/171), when any comma-separated element equals it.
+func (f filterFlags) match(extra map[string]string) bool {
+	for _, p := range f {
+		got, ok := extra[p.key]
+		if !ok {
+			return false
+		}
+		if got == p.value {
+			continue
+		}
+		found := false
+		for _, part := range strings.Split(got, ",") {
+			if strings.TrimSpace(part) == p.value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // subjectRefs turns a projected Work's subjects into audit SubjectRefs: the
@@ -85,15 +155,18 @@ func subjectRefs(w project.Work) []diversity.SubjectRef {
 		for _, l := range s.Labels {
 			labels = append(labels, l)
 		}
-		refs = append(refs, diversity.SubjectRef{URI: s.ID, Labels: labels})
+		refs = append(refs, diversity.SubjectRef{URI: s.ID, Labels: labels, Scheme: s.Scheme})
 	}
 	return refs
 }
 
 // writeAuditText renders the report as a human-readable, coverage-first summary.
-func writeAuditText(f *os.File, r diversity.Report) error {
+func writeAuditText(f *os.File, r diversity.Report, scope string) error {
 	fmt.Fprintln(f, "Content diversity audit")
 	fmt.Fprintln(f, "=======================")
+	if scope != "" {
+		fmt.Fprintf(f, "Scope:           %s\n", scope)
+	}
 	fmt.Fprintf(f, "Works audited:   %d\n", r.TotalWorks)
 	fmt.Fprintf(f, "With subjects:   %d (%.1f%% coverage)\n", r.CoveredWorks, r.Coverage*100)
 	fmt.Fprintln(f)

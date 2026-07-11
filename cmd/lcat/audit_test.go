@@ -100,3 +100,60 @@ func TestRunAuditRequiresCatalog(t *testing.T) {
 		t.Fatal("audit without --catalog should error")
 	}
 }
+
+// TestRunAuditFilter is the tasks/373 scoping ask: --filter key=value audits only
+// the matching sub-collection (comma-joined extras match per element), --source is
+// sugar for the sources extra, and the JSON report names its scope.
+func TestRunAuditFilter(t *testing.T) {
+	cat := project.Catalog{Works: []project.Work{
+		{ID: "w1", Subjects: []project.Subject{subj("Lesbians")},
+			Extra: map[string]string{"inQll": "true", "sources": "coll, qll"}},
+		{ID: "w2", Subjects: []project.Subject{subj("Gay men")},
+			Extra: map[string]string{"sources": "coll"}},
+		{ID: "w3"}, // no extras at all: excluded by any filter
+	}}
+	catPath := writeCatalog(t, cat)
+
+	run := func(args ...string) map[string]any {
+		t.Helper()
+		outPath := filepath.Join(t.TempDir(), "report.json")
+		args = append([]string{"--catalog", catPath, "--format", "json", "--out", outPath}, args...)
+		if err := runAudit(args); err != nil {
+			t.Fatalf("runAudit(%v): %v", args, err)
+		}
+		data, err := os.ReadFile(outPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var r map[string]any
+		if err := json.Unmarshal(data, &r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	if r := run("--filter", "inQll=true"); r["totalWorks"].(float64) != 1 {
+		t.Errorf("--filter inQll=true audited %v works, want 1", r["totalWorks"])
+	} else if r["scope"] != "inQll=true" {
+		t.Errorf("scope = %v, want inQll=true", r["scope"])
+	}
+	// --source matches an element of the comma-joined sources extra.
+	if r := run("--source", "qll"); r["totalWorks"].(float64) != 1 {
+		t.Errorf("--source qll audited %v works, want 1 (w1 only)", r["totalWorks"])
+	}
+	if r := run("--source", "coll"); r["totalWorks"].(float64) != 2 {
+		t.Errorf("--source coll audited %v works, want 2", r["totalWorks"])
+	}
+	// Unfiltered still sees everything and reports no scope.
+	if r := run(); r["totalWorks"].(float64) != 3 {
+		t.Errorf("unfiltered audited %v works, want 3", r["totalWorks"])
+	} else if _, has := r["scope"]; has {
+		t.Error("unfiltered report should omit scope")
+	}
+	// A malformed filter term errors at parse time (the flag set exits the
+	// process on error, so assert on the Value directly).
+	var ff filterFlags
+	if err := ff.Set("novalue"); err == nil {
+		t.Error("--filter without key=value should error")
+	}
+}

@@ -47,7 +47,7 @@ func TestCategorizeByKeyword(t *testing.T) {
 		{"Autism in children", []string{"disability-neurodiversity"}},
 	}
 	for _, tc := range cases {
-		got := cw.Categorize("", tc.label)
+		got := cw.Categorize("", tc.label, "")
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("Categorize(%q) = %v, want %v", tc.label, got, tc.want)
 		}
@@ -58,13 +58,13 @@ func TestCategorizeByKeyword(t *testing.T) {
 // match as a whole word or phrase, not as a fragment of a longer word.
 func TestKeywordWordBoundary(t *testing.T) {
 	cw := Default()
-	if got := cw.Categorize("", "Gaya (India)"); got != nil {
+	if got := cw.Categorize("", "Gaya (India)", ""); got != nil {
 		t.Errorf("'gay' must not match inside 'Gaya': got %v", got)
 	}
-	if got := cw.Categorize("", "Poore, Benjamin Perley"); got != nil {
+	if got := cw.Categorize("", "Poore, Benjamin Perley", ""); got != nil {
 		t.Errorf("'poor' must not match inside 'Poore': got %v", got)
 	}
-	if got := cw.Categorize("", "Gay pride parades"); !reflect.DeepEqual(got, []string{"lgbtqia"}) {
+	if got := cw.Categorize("", "Gay pride parades", ""); !reflect.DeepEqual(got, []string{"lgbtqia"}) {
 		t.Errorf("'gay' should match the whole word: got %v", got)
 	}
 }
@@ -84,12 +84,12 @@ uris = ["http://id.loc.gov/authorities/subjects/sh2007003123"]
 		t.Fatalf("Load: %v", err)
 	}
 	// Exact URI hits even when the label carries no keyword.
-	got := cw.Categorize("http://id.loc.gov/authorities/subjects/sh2007003123", "Some neutral heading")
+	got := cw.Categorize("http://id.loc.gov/authorities/subjects/sh2007003123", "Some neutral heading", "")
 	if !reflect.DeepEqual(got, []string{"lgbtqia"}) {
 		t.Errorf("URI match = %v, want [lgbtqia]", got)
 	}
 	// A different URI with no keyword hit maps nowhere.
-	if got := cw.Categorize("http://id.loc.gov/authorities/subjects/sh0000000000", "Neutral"); got != nil {
+	if got := cw.Categorize("http://id.loc.gov/authorities/subjects/sh0000000000", "Neutral", ""); got != nil {
 		t.Errorf("unmapped URI = %v, want nil", got)
 	}
 }
@@ -116,10 +116,10 @@ keywords = ["veterans", "military families"]
 		t.Fatalf("Load: %v", err)
 	}
 	// Union: the seed keyword still matches and the added one now matches too.
-	if got := cw.Categorize("", "Lesbian poets"); !reflect.DeepEqual(got, []string{"lgbtqia"}) {
+	if got := cw.Categorize("", "Lesbian poets", ""); !reflect.DeepEqual(got, []string{"lgbtqia"}) {
 		t.Errorf("seed keyword lost after override: got %v", got)
 	}
-	if got := cw.Categorize("", "Achillean love"); !reflect.DeepEqual(got, []string{"lgbtqia"}) {
+	if got := cw.Categorize("", "Achillean love", ""); !reflect.DeepEqual(got, []string{"lgbtqia"}) {
 		t.Errorf("override keyword not added: got %v", got)
 	}
 	// Label replaced.
@@ -131,7 +131,7 @@ keywords = ["veterans", "military families"]
 	if last := cats[len(cats)-1]; last.ID != "veterans" {
 		t.Errorf("added category should sort last: got %q", last.ID)
 	}
-	if got := cw.Categorize("", "Military families"); !reflect.DeepEqual(got, []string{"veterans"}) {
+	if got := cw.Categorize("", "Military families", ""); !reflect.DeepEqual(got, []string{"veterans"}) {
 		t.Errorf("new category not matched: got %v", got)
 	}
 }
@@ -140,16 +140,76 @@ keywords = ["veterans", "military families"]
 // dedupe to a stable, seed-ordered set of category ids.
 func TestCategorizeSubjectsRollup(t *testing.T) {
 	cw := Default()
-	subs := []struct{ URI, Label string }{
-		{"", "LGBTQIA+ (Fiction)"},
-		{"", "Immigrants"},
-		{"", "Gay men"}, // same category as the first -> deduped
-		{"", "Cooking"}, // no match
+	subs := []SubjectRef{
+		{Labels: []string{"LGBTQIA+ (Fiction)"}},
+		{Labels: []string{"Immigrants"}},
+		{Labels: []string{"Gay men"}}, // same category as the first -> deduped
+		{Labels: []string{"Cooking"}}, // no match
 	}
 	got := cw.CategorizeSubjects(subs)
 	want := []string{"lgbtqia", "immigrant-diaspora"} // seed order: lgbtqia before immigrant
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("CategorizeSubjects = %v, want %v", got, want)
+	}
+}
+
+// TestPluralTolerantKeywords is the tasks/373 inflection fix: a heading's plural
+// matches a singular seed keyword, one-directionally and shallowly, and the old
+// substring false-positive guards still hold.
+func TestPluralTolerantKeywords(t *testing.T) {
+	cw := Default()
+	cases := []struct {
+		label string
+		want  []string
+	}{
+		{"Lesbians", []string{"lgbtqia"}},             // 7,287 uses in the QLL review, missed before
+		{"Drag queens", []string{"lgbtqia"}},          // plural on the phrase's last word
+		{"Transsexual people", []string{"lgbtqia"}},   // new seed vocabulary
+		{"Genderfluid people", []string{"lgbtqia"}},   // new seed vocabulary
+		{"Homophobia in sports", []string{"lgbtqia"}}, // -phobia terms
+		{"Sapphics", []string{"lgbtqia"}},             // plural of a new keyword
+		{"Gaya (India)", nil},                         // still no substring match
+		{"Poore, Benjamin Perley", nil},               // "poors"/"poores" != "poore"
+		{"Transactions of the Royal Society", nil},    // "trans" must not match "transactions"
+	}
+	for _, tc := range cases {
+		if got := cw.Categorize("", tc.label, ""); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Categorize(%q) = %v, want %v", tc.label, got, tc.want)
+		}
+	}
+}
+
+// TestSchemeMatching is the tasks/373 Homosaurus ask: a subject in a
+// category-relevant vocabulary counts by scheme code alone, whatever its label,
+// and overrides can add schemes to a category.
+func TestSchemeMatching(t *testing.T) {
+	cw := Default()
+	// A Homosaurus term whose label carries no seed keyword still counts.
+	got := cw.Categorize("https://homosaurus.org/v3/homoit0000674", "Chosen family", "homosaurus")
+	if !reflect.DeepEqual(got, []string{"lgbtqia"}) {
+		t.Errorf("homosaurus scheme = %v, want [lgbtqia]", got)
+	}
+	// Scheme codes compare case-insensitively; unrelated schemes map nowhere.
+	if got := cw.Categorize("", "Neutral", "Homosaurus"); !reflect.DeepEqual(got, []string{"lgbtqia"}) {
+		t.Errorf("scheme match should be case-insensitive: %v", got)
+	}
+	if got := cw.Categorize("http://id.worldcat.org/fast/1", "Neutral", "fast"); got != nil {
+		t.Errorf("fast scheme maps nowhere by default: %v", got)
+	}
+
+	// An override can attach a scheme to its own category.
+	over := filepath.Join(t.TempDir(), "over.toml")
+	writeFile(t, over, `
+[[category]]
+id = "indigenous"
+schemes = ["nautil"]
+`)
+	cw2, err := Load(over)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cw2.Categorize("", "Anything", "nautil"); !reflect.DeepEqual(got, []string{"indigenous"}) {
+		t.Errorf("override scheme = %v, want [indigenous]", got)
 	}
 }
 

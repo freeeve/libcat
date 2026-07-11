@@ -1,11 +1,15 @@
 # Diversity-audit subject crosswalk (libcat tasks/365).
 #
 # Each [[category]] maps controlled subjects to one diversity category. A work is
-# counted in a category when any of its subjects matches, by either:
-#   - uris     : an exact subject-authority URI (LCSH sh..., FAST, etc.), or
+# counted in a category when any of its subjects matches, by any of:
+#   - uris     : an exact subject-authority URI (LCSH sh..., FAST, etc.),
+#   - schemes  : the subject's vocabulary scheme code ("homosaurus", "fast"...),
+#                for vocabularies that are category-relevant wholesale, or
 #   - keywords : a case-insensitive, whole-word/phrase match against the subject's
 #                heading label (the common case for ILS records that carry bare
-#                topic strings with no authority URI).
+#                topic strings with no authority URI). A heading word also matches
+#                a keyword's plural (-s/-es): "Lesbians" matches "lesbian". The
+#                tolerance is one-directional; write keywords in the singular.
 #
 # This seed is intentionally conservative and US-collection-oriented; the taxonomy
 # is an editorial choice, not a universal truth. Operators override it with their
@@ -49,10 +53,20 @@ uris = []
 [[category]]
 id = "lgbtqia"
 label = "LGBTQIA+"
+# schemes: a subject in one of these vocabularies counts regardless of its label
+# -- essentially every Homosaurus term is queer-relevant (tasks/373, from the
+# queerbooks/QLL review).
+schemes = ["homosaurus"]
 keywords = [
-  "lgbt", "lgbtq", "lgbtqia", "gay", "lesbian", "bisexual", "transgender",
-  "trans", "queer", "nonbinary", "non-binary", "genderqueer", "intersex",
-  "asexual", "same-sex", "homosexual", "two-spirit", "drag queen", "pansexual",
+  "lgbt", "lgbtq", "lgbtqia", "2slgbtq", "gay", "lesbian", "sapphic", "wlw",
+  "mlm", "bisexual", "transgender", "trans", "transsexual", "transmasculine",
+  "transfeminine", "queer", "nonbinary", "non-binary", "genderqueer",
+  "genderfluid", "agender", "bigender", "demigender", "trigender", "pangender",
+  "androgynous", "neutrois", "gender-nonconforming", "gender non-conforming",
+  "gender expression", "sexual orientation", "coming out", "questioning",
+  "intersex", "asexual", "aromantic", "same-sex", "homosexual", "two-spirit",
+  "drag queen", "drag king", "pansexual", "polyamorous", "homophobia",
+  "transphobia", "biphobia", "lesbophobia", "queerphobia", "intersexphobia",
 ]
 uris = []
 

@@ -25,13 +25,16 @@ import (
 var seedTOML []byte
 
 // Category is one diversity-audit category and the controlled subjects that map to
-// it: an exact authority-URI match or a whole-word/phrase match on a subject's
-// heading label. The taxonomy is an editorial choice; this is just its data shape.
+// it: an exact authority-URI match, a whole-word/phrase match on a subject's
+// heading label (tolerating plural inflections of each keyword, tasks/373), or a
+// whole-vocabulary match by scheme code (e.g. every homosaurus-scheme subject is
+// LGBTQIA+-relevant). The taxonomy is an editorial choice; this is its data shape.
 type Category struct {
 	ID       string   `toml:"id"`
 	Label    string   `toml:"label"`
 	Keywords []string `toml:"keywords"`
 	URIs     []string `toml:"uris"`
+	Schemes  []string `toml:"schemes"`
 }
 
 // crosswalkFile is the on-disk/embedded TOML shape: an array of categories.
@@ -42,10 +45,11 @@ type crosswalkFile struct {
 // Crosswalk categorizes subjects. It is built once (from the seed plus any operator
 // overrides) and is read-only thereafter, so it is safe for concurrent use.
 type Crosswalk struct {
-	categories []Category          // seed order, then appended new override ids -- stable for reporting
-	index      map[string]int      // category id -> position in categories
-	byURI      map[string][]string // exact subject URI -> category ids (seed order)
-	keywords   map[string][]string // category id -> lowercased keywords
+	categories []Category            // seed order, then appended new override ids -- stable for reporting
+	index      map[string]int        // category id -> position in categories
+	byURI      map[string][]string   // exact subject URI -> category ids (seed order)
+	byScheme   map[string][]string   // vocabulary scheme code -> category ids (seed order)
+	keywords   map[string][][]string // category id -> keyword token sequences
 }
 
 // Default returns the crosswalk built from the embedded seed alone. A malformed
@@ -102,6 +106,7 @@ func build(seed []byte, overrides [][]byte) (*Crosswalk, error) {
 			if i, ok := pos[oc.ID]; ok {
 				merged.Category[i].Keywords = unionFold(merged.Category[i].Keywords, oc.Keywords)
 				merged.Category[i].URIs = unionExact(merged.Category[i].URIs, oc.URIs)
+				merged.Category[i].Schemes = unionFold(merged.Category[i].Schemes, oc.Schemes)
 				if oc.Label != "" {
 					merged.Category[i].Label = oc.Label
 				}
@@ -115,21 +120,27 @@ func build(seed []byte, overrides [][]byte) (*Crosswalk, error) {
 	cw := &Crosswalk{
 		index:    map[string]int{},
 		byURI:    map[string][]string{},
-		keywords: map[string][]string{},
+		byScheme: map[string][]string{},
+		keywords: map[string][][]string{},
 	}
 	for i, c := range merged.Category {
 		cw.categories = append(cw.categories, Category{ID: c.ID, Label: c.Label})
 		cw.index[c.ID] = i
-		lows := make([]string, 0, len(c.Keywords))
+		seqs := make([][]string, 0, len(c.Keywords))
 		for _, k := range c.Keywords {
-			if k = strings.ToLower(strings.TrimSpace(k)); k != "" {
-				lows = append(lows, k)
+			if toks := tokens(k); len(toks) > 0 {
+				seqs = append(seqs, toks)
 			}
 		}
-		cw.keywords[c.ID] = lows
+		cw.keywords[c.ID] = seqs
 		for _, u := range c.URIs {
 			if u = strings.TrimSpace(u); u != "" {
 				cw.byURI[u] = append(cw.byURI[u], c.ID)
+			}
+		}
+		for _, s := range c.Schemes {
+			if s = strings.ToLower(strings.TrimSpace(s)); s != "" {
+				cw.byScheme[s] = append(cw.byScheme[s], c.ID)
 			}
 		}
 	}
@@ -154,24 +165,31 @@ func (c *Crosswalk) Label(id string) string {
 }
 
 // Categorize returns the ids of every category a single subject maps to, in stable
-// reporting order. A subject matches a category by exact authority URI (when uri is
-// non-empty) or by a whole-word/phrase match of any of the category's keywords
-// against the heading label. Passing "" for either argument skips that dimension.
-func (c *Crosswalk) Categorize(uri, label string) []string {
+// reporting order. A subject matches a category by exact authority URI, by its
+// vocabulary scheme code (tasks/373 -- e.g. every homosaurus-scheme subject), or by
+// a whole-word/phrase match of any of the category's keywords against the heading
+// label, tolerating plural inflections. Passing "" for an argument skips that
+// dimension.
+func (c *Crosswalk) Categorize(uri, label, scheme string) []string {
 	hit := map[string]bool{}
 	if uri != "" {
 		for _, id := range c.byURI[uri] {
 			hit[id] = true
 		}
 	}
+	if scheme != "" {
+		for _, id := range c.byScheme[strings.ToLower(scheme)] {
+			hit[id] = true
+		}
+	}
 	if label != "" {
-		low := strings.ToLower(label)
-		for id, kws := range c.keywords {
+		toks := tokens(label)
+		for id, seqs := range c.keywords {
 			if hit[id] {
 				continue
 			}
-			for _, kw := range kws {
-				if containsWord(low, kw) {
+			for _, seq := range seqs {
+				if containsSeq(toks, seq) {
 					hit[id] = true
 					break
 				}
@@ -183,13 +201,17 @@ func (c *Crosswalk) Categorize(uri, label string) []string {
 
 // CategorizeSubjects returns the ids of every category any of the given subjects
 // maps to, deduplicated and in stable reporting order -- the work-level roll-up a
-// caller (tasks/366) uses to count a work once per matched category. Each subject is
-// a (uri, label) pair; either may be empty.
-func (c *Crosswalk) CategorizeSubjects(subjects []struct{ URI, Label string }) []string {
+// caller (tasks/366) uses to count a work once per matched category.
+func (c *Crosswalk) CategorizeSubjects(subjects []SubjectRef) []string {
 	hit := map[string]bool{}
 	for _, s := range subjects {
-		for _, id := range c.Categorize(s.URI, s.Label) {
+		for _, id := range c.Categorize(s.URI, "", s.Scheme) {
 			hit[id] = true
+		}
+		for _, l := range s.Labels {
+			for _, id := range c.Categorize("", l, "") {
+				hit[id] = true
+			}
 		}
 	}
 	return c.order(hit)
@@ -208,46 +230,65 @@ func (c *Crosswalk) order(hit map[string]bool) []string {
 	return out
 }
 
-// containsWord reports whether needle occurs in haystack (both already lowercased)
-// bounded by non-letter characters or string edges, so "gay" matches "gay pride"
-// but not "gaya" and "poor" does not match "poore". Multi-word needles are matched
-// as a contiguous phrase; only the phrase's outer edges are boundary-checked.
-func containsWord(haystack, needle string) bool {
-	if needle == "" {
+// tokens lowercases s and splits it into alphanumeric word tokens ("Drag queens
+// (Fiction)" -> ["drag","queens","fiction"]; "2SLGBTQ" stays one token). Keywords
+// and heading labels tokenize the same way, so matching is punctuation-blind.
+func tokens(s string) []string {
+	s = strings.ToLower(s)
+	var out []string
+	start := -1
+	for i := 0; i < len(s); i++ {
+		if isAlnum(s[i]) {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 {
+			out = append(out, s[start:i])
+			start = -1
+		}
+	}
+	if start >= 0 {
+		out = append(out, s[start:])
+	}
+	return out
+}
+
+// containsSeq reports whether the keyword token sequence seq occurs contiguously in
+// the heading tokens, where each heading token may also be the plural inflection of
+// its keyword token (tasks/373): "Lesbians" matches keyword "lesbian", "Drag
+// queens" matches "drag queen". The tolerance is one-directional -- a plural
+// keyword does not match a singular heading -- and deliberately shallow (-s/-es
+// only), so "Gaya" still never matches "gay" and "Poore" never matches "poor".
+func containsSeq(heading, seq []string) bool {
+	if len(seq) == 0 || len(seq) > len(heading) {
 		return false
 	}
-	from := 0
-	for {
-		i := strings.Index(haystack[from:], needle)
-		if i < 0 {
-			return false
+	for i := 0; i+len(seq) <= len(heading); i++ {
+		ok := true
+		for j, kw := range seq {
+			if !tokenMatches(heading[i+j], kw) {
+				ok = false
+				break
+			}
 		}
-		start := from + i
-		end := start + len(needle)
-		if !letterBefore(haystack, start) && !letterAfter(haystack, end) {
+		if ok {
 			return true
 		}
-		from = start + 1
-		if from >= len(haystack) {
-			return false
-		}
 	}
+	return false
 }
 
-// letterBefore reports whether the byte just before pos is an ASCII letter.
-func letterBefore(s string, pos int) bool {
-	return pos > 0 && isLetter(s[pos-1])
+// tokenMatches reports whether a heading token equals a keyword token or its
+// plural inflection (keyword+"s" or keyword+"es").
+func tokenMatches(heading, kw string) bool {
+	return heading == kw || heading == kw+"s" || heading == kw+"es"
 }
 
-// letterAfter reports whether the byte at pos is an ASCII letter.
-func letterAfter(s string, pos int) bool {
-	return pos < len(s) && isLetter(s[pos])
-}
-
-// isLetter reports whether b is an ASCII letter (headings are matched lowercased,
-// but guard both cases so the boundary test is independent of prior normalization).
-func isLetter(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+// isAlnum reports whether b is an ASCII letter or digit.
+func isAlnum(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
 // unionFold appends to base every value of add whose lowercased form is not already
