@@ -85,6 +85,11 @@ func ItemsOf(grainNQ []byte, instanceID string) ([]Item, error) {
 // does not describe (tasks/211); handlers map it to a 400.
 var ErrNoSuchInstance = errors.New("no such instance on this work")
 
+// ErrDuplicateBarcode refuses an item list in which two items carry the same
+// barcode: a barcode names one physical copy, so two copies sharing it cannot be
+// told apart (tasks/343). Handlers map it to a 400.
+var ErrDuplicateBarcode = errors.New("duplicate barcode")
+
 // SetItems replaces an Instance's holdings wholesale: every editorial item
 // statement under the Instance's item namespace is dropped and the given
 // items re-asserted on freshly numbered skolem nodes. Returns the
@@ -109,6 +114,19 @@ func SetItems(grainNQ []byte, instanceID string, items []Item) ([]byte, error) {
 	}
 	if !described {
 		return nil, fmt.Errorf("bibframe: %w: no instance %s in this grain", ErrNoSuchInstance, instanceID)
+	}
+	// A barcode names one physical copy, so two items in the same list may not
+	// share one -- the invariant the auto-assign path (workindex.AllocateBarcodes)
+	// already holds, which this wholesale-PUT path used to skip (tasks/343).
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if item.Barcode == "" {
+			continue
+		}
+		if _, dup := seen[item.Barcode]; dup {
+			return nil, fmt.Errorf("bibframe: %w: %q is used by more than one item", ErrDuplicateBarcode, item.Barcode)
+		}
+		seen[item.Barcode] = struct{}{}
 	}
 	ed := EditorialGraph()
 	prefix := itemPrefix(instanceID)

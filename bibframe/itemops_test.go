@@ -59,6 +59,29 @@ func locations(t *testing.T, grain []byte) []string {
 	return out
 }
 
+// TestSetItemsRefusesDuplicateBarcodesInOneList pins the tasks/343 guard: two
+// items in one wholesale PUT may not share a barcode (a barcode names one
+// physical copy), the invariant the auto-assign path already holds. Empty
+// barcodes are exempt -- several items may legitimately carry none.
+func TestSetItemsRefusesDuplicateBarcodesInOneList(t *testing.T) {
+	grain := itemEditGrain(t)
+
+	if _, err := SetItems(grain, "i1", []Item{
+		{CallNumber: "A", Barcode: "DUP-1"},
+		{CallNumber: "B", Barcode: "DUP-1"},
+	}); !errors.Is(err, ErrDuplicateBarcode) {
+		t.Fatalf("duplicate barcode = %v, want ErrDuplicateBarcode", err)
+	}
+
+	// Control: distinct barcodes are fine, and several empty barcodes are not
+	// treated as duplicates of each other.
+	if _, err := SetItems(grain, "i1", []Item{
+		{Barcode: "UNIQ-1"}, {Barcode: "UNIQ-2"}, {Barcode: ""}, {Barcode: ""},
+	}); err != nil {
+		t.Fatalf("distinct barcodes with empties rejected: %v", err)
+	}
+}
+
 func TestItemEditRelocatesOnlyTheGuardedItems(t *testing.T) {
 	grain := itemEditGrain(t)
 	stacks := "Stacks"
