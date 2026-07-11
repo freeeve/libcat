@@ -373,8 +373,13 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	// cataloged ISBN against the public Query Service (rate-limited inside
 	// the enricher); claims land in enrichment:wikidata with provenance.
 	if cfg.EnrichWikidata != "" {
+		var opts []wikidata.Option
+		if cfg.EnrichWikidataEndpoint != "" {
+			opts = append(opts, wikidata.WithEndpoint(cfg.EnrichWikidataEndpoint))
+			logger.Info("wikidata enrichment endpoint overridden", "endpoint", cfg.EnrichWikidataEndpoint)
+		}
 		enrichSources[wikidata.Name] = enrich.Source{
-			Enricher: wikidata.New(), Mode: enrich.Mode(cfg.EnrichWikidata),
+			Enricher: wikidata.New(opts...), Mode: enrich.Mode(cfg.EnrichWikidata),
 		}
 	}
 	// Every registered suggest-capable authority source doubles as a
