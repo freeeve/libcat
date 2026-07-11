@@ -1,0 +1,114 @@
+package vocab
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/freeeve/libcat/storage/blob"
+)
+
+// equivFixture loads a three-scheme bridge: a Homosaurus term H exact-links an
+// LCSH term L (loaded), a FAST term F close-links the same L, and L
+// exact-links an external URI X that no vocabulary loads.
+func equivFixture(t *testing.T) *Index {
+	t.Helper()
+	const (
+		H = "https://homosaurus.org/v5/homoit0009999"
+		L = "http://id.loc.gov/authorities/subjects/sh99009999"
+		F = "http://id.worldcat.org/fast/9999999"
+		X = "https://www.wikidata.org/entity/Q9999999"
+	)
+	nq := strings.NewReplacer("{H}", H, "{L}", L, "{F}", F, "{X}", X).Replace(`
+<{H}> <http://www.w3.org/2004/02/skos/core#prefLabel> "Sapphic poets"@en <authority:homosaurus> .
+<{H}> <http://www.w3.org/2004/02/skos/core#exactMatch> <{L}> <authority:homosaurus> .
+<{F}> <http://www.w3.org/2004/02/skos/core#prefLabel> "Lesbian poets"@en <authority:fast> .
+<{F}> <http://www.w3.org/2004/02/skos/core#closeMatch> <{L}> <authority:fast> .
+<{L}> <http://www.w3.org/2004/02/skos/core#prefLabel> "Lesbian poets (LCSH)"@en <authority:lcsh> .
+<{L}> <http://www.w3.org/2004/02/skos/core#exactMatch> <{X}> <authority:lcsh> .
+`)
+	st := blob.NewMem()
+	if _, err := st.Put(t.Context(), "data/authorities/eq/vocab.nq", []byte(nq), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Load(t.Context(), st, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ix
+}
+
+// eq finds an equivalent by URI in a result set.
+func eq(list []Equivalent, id string) *Equivalent {
+	for i := range list {
+		if list[i].ID == id {
+			return &list[i]
+		}
+	}
+	return nil
+}
+
+// TestEquivalentsBridges is the seam: outbound, inbound, and all
+// three pivot shapes, each labeled with the weakest hop's strength.
+func TestEquivalentsBridges(t *testing.T) {
+	ix := equivFixture(t)
+	const (
+		H = "https://homosaurus.org/v5/homoit0009999"
+		L = "http://id.loc.gov/authorities/subjects/sh99009999"
+		F = "http://id.worldcat.org/fast/9999999"
+		X = "https://www.wikidata.org/entity/Q9999999"
+	)
+
+	// From the Homosaurus term: L direct (outbound exact), F via the shared-L
+	// pivot (exact+close -> pivot-close), X via L's onward link (exact+exact
+	// -> pivot-exact).
+	got, ok := ix.Equivalents(H)
+	if !ok {
+		t.Fatal("H should resolve")
+	}
+	if l := eq(got, L); l == nil || l.Strength != "exact" || !l.Known || l.Scheme != "lcsh" {
+		t.Errorf("L = %+v, want direct exact, known, lcsh", l)
+	}
+	if f := eq(got, F); f == nil || f.Strength != "pivot-close" || f.Via != L {
+		t.Errorf("F = %+v, want pivot-close via L", f)
+	}
+	if x := eq(got, X); x == nil || x.Strength != "pivot-exact" || x.Via != L || x.Known {
+		t.Errorf("X = %+v, want pivot-exact via L, not Known", x)
+	}
+	if s := eq(got, H); s != nil {
+		t.Errorf("the source term must be excluded, got %+v", s)
+	}
+
+	// From the LCSH term: H and F are INBOUND directs (the load-bearing
+	// direction: community vocabularies link TO LCSH), X outbound.
+	got, ok = ix.Equivalents(L)
+	if !ok {
+		t.Fatal("L should resolve")
+	}
+	if h := eq(got, H); h == nil || h.Strength != "exact" || h.Scheme != "homosaurus" {
+		t.Errorf("H = %+v, want inbound exact", h)
+	}
+	if f := eq(got, F); f == nil || f.Strength != "close" {
+		t.Errorf("F = %+v, want inbound close", f)
+	}
+
+	// From the FAST term: L direct close; H via shared-L pivot; sorted with
+	// the strongest first.
+	got, ok = ix.Equivalents(F)
+	if !ok {
+		t.Fatal("F should resolve")
+	}
+	if l := eq(got, L); l == nil || l.Strength != "close" {
+		t.Errorf("L = %+v, want direct close", l)
+	}
+	if h := eq(got, H); h == nil || h.Strength != "pivot-close" || h.Via != L {
+		t.Errorf("H = %+v, want pivot-close via L", h)
+	}
+	if len(got) > 1 && strengthRank(got[0].Strength) < strengthRank(got[len(got)-1].Strength) {
+		t.Errorf("results not strength-sorted: %+v", got)
+	}
+
+	// An unknown URI is not a term: no equivalents, not an empty success.
+	if _, ok := ix.Equivalents("https://example.org/nope"); ok {
+		t.Error("unknown URI should not resolve")
+	}
+}

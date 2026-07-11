@@ -109,3 +109,54 @@ func TestTermsSearchPath(t *testing.T) {
 		t.Fatalf("root term carries path: %s", raw.Terms[0]["path"])
 	}
 }
+
+// TestTermsEquivalents drives the cross-scheme equivalents endpoint over the
+// shared fixture: the homosaurus term's gnd exactMatch surfaces as a direct
+// (unloaded) equivalent, an unknown URI is a 404, a missing id a 400.
+func TestTermsEquivalents(t *testing.T) {
+	data, err := os.ReadFile("../vocab/testdata/authorities.nq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs := blob.NewMem()
+	_, _ = bs.Put(t.Context(), "a/x.nq", data, blob.PutOptions{})
+	ix, err := vocab.Load(t.Context(), bs, "a/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(Deps{Vocab: ix})
+
+	rec := request(t, h, http.MethodGet,
+		"/v1/terms/equivalents?id="+url.QueryEscape("https://homosaurus.org/v4/homoit0001235"), "", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("equivalents = %d %s", rec.Code, rec.Body)
+	}
+	var res struct {
+		Equivalents []vocab.Equivalent `json:"equivalents"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Equivalents) == 0 {
+		t.Fatal("expected at least the gnd exactMatch")
+	}
+	found := false
+	for _, e := range res.Equivalents {
+		if e.ID == "https://d-nb.info/gnd/4121991-6" {
+			found = true
+			if e.Strength != "exact" || e.Known {
+				t.Errorf("gnd equivalent = %+v, want direct exact, not Known", e)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("gnd link missing from %+v", res.Equivalents)
+	}
+
+	if rec := request(t, h, http.MethodGet, "/v1/terms/equivalents?id=https%3A%2F%2Fexample.org%2Fnope", "", "", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown term = %d, want 404", rec.Code)
+	}
+	if rec := request(t, h, http.MethodGet, "/v1/terms/equivalents", "", "", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("missing id = %d, want 400", rec.Code)
+	}
+}

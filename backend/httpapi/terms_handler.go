@@ -32,6 +32,23 @@ func registerTerms(mux *http.ServeMux, ix *vocab.Index, folk *suggest.Service) {
 		writeJSON(w, http.StatusOK, map[string]any{"terms": terms})
 	})
 
+	// Cross-scheme equivalents of one term: skos exact/close matches in both
+	// directions plus one-hop pivots, strength-labeled -- the vocabulary side
+	// of the editor's "add the Homosaurus synonym for this FAST topic" flow.
+	mux.HandleFunc("GET /v1/terms/equivalents", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			writeError(w, http.StatusBadRequest, "id (a term URI) is required")
+			return
+		}
+		eqs, ok := ix.Equivalents(id)
+		if !ok {
+			writeError(w, http.StatusNotFound, "unknown term")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"equivalents": eqs})
+	})
+
 	// Single-term lookup: the picker's neighborhood panel resolves
 	// broader/narrower/related URIs to full terms through this.
 	mux.HandleFunc("GET /v1/term", func(w http.ResponseWriter, r *http.Request) {

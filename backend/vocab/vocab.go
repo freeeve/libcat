@@ -111,6 +111,10 @@ type snapshot struct {
 	matchTiers [identifierTiers]map[string]*Term
 	// sidecar holds the artifact-backed schemes.
 	sidecar map[string]*sidecarScheme
+	// revExact/revClose index every live map-backed term under each of its
+	// match-target URIs, multi-valued -- the equivalents traversal's inbound
+	// direction (equivalents.go).
+	revExact, revClose map[string][]*Term
 }
 
 type searchEntry struct {
@@ -414,6 +418,7 @@ func (s *snapshot) finish() {
 	s.buildMatch(0, func(t *Term) []string { return []string{t.ID} })
 	s.buildMatch(1, func(t *Term) []string { return t.ExactMatch })
 	s.buildMatch(2, func(t *Term) []string { return t.CloseMatch })
+	s.buildReverse()
 	for scheme, byURI := range s.schemes {
 		var entries []searchEntry
 		for uri, t := range byURI {

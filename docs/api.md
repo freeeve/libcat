@@ -631,6 +631,7 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `GET` | `/v1/term` | public | `terms_handler.go` |
 | `GET` | `/v1/terms` | public | `terms_handler.go` |
 | `POST` | `/v1/terms` | librarian | `review_handlers.go` |
+| `GET` | `/v1/terms/equivalents` | public | `terms_handler.go` |
 | `GET` | `/v1/terms/resolve` | public | `terms_handler.go` |
 | `GET` | `/v1/users` | admin | `auth_handlers.go` |
 | `POST` | `/v1/users` | admin | `auth_handlers.go` |
