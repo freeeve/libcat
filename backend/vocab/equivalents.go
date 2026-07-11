@@ -52,8 +52,9 @@ func pivotStrength(h1, h2 string) string {
 // targets, multi-valued -- unlike matchTiers, which keeps one winner per key
 // for reconciliation, equivalents needs every term that links a given URI
 // (two schemes bridging the same LCSH heading is the point, not a collision).
-// Sidecar schemes are not enumerable and so contribute no inbound entries;
-// their terms still surface through outbound and pivot lookups.
+// Sidecar-backed schemes contribute inbound through their reverse-match
+// artifact instead (sidecar.go revMatch); artifact sets built before it
+// existed degrade to outbound and pivot lookups for that scheme.
 func (s *snapshot) buildReverse() {
 	s.revExact = map[string][]*Term{}
 	s.revClose = map[string][]*Term{}
@@ -130,6 +131,18 @@ func (ix *Index) Equivalents(uri string) ([]Equivalent, bool) {
 	for _, t := range snap.revClose[srcKey] {
 		inbound = append(inbound, inHop{t, "close"})
 	}
+	// Sidecar-backed schemes contribute inbound through their reverse-match
+	// artifact (absent on pre-artifact builds: they degrade to outbound and
+	// pivots only).
+	for _, strength := range []string{"exact", "close"} {
+		for _, sc := range snap.sidecarSorted() {
+			for _, uri := range sc.revMatch(strength, srcKey) {
+				if t, ok := sc.lookup(uri); ok && t.MergedInto == "" {
+					inbound = append(inbound, inHop{t, strength})
+				}
+			}
+		}
+	}
 
 	// Direct, both directions.
 	for _, h := range srcLinks {
@@ -146,6 +159,13 @@ func (ix *Index) Equivalents(uri string) ([]Equivalent, bool) {
 		}
 		for _, sib := range snap.revClose[key] {
 			add(sib.ID, pivotStrength(h.strength, "close"), h.uri)
+		}
+		for _, strength := range []string{"exact", "close"} {
+			for _, sc := range snap.sidecarSorted() {
+				for _, uri := range sc.revMatch(strength, key) {
+					add(uri, pivotStrength(h.strength, strength), h.uri)
+				}
+			}
 		}
 	}
 	// Pivot shape 2 -- a linking term's other links: sibling <- I -> src,

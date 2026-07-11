@@ -9,8 +9,10 @@ package vocab
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -36,6 +38,11 @@ type sidecarScheme struct {
 	// searchIdx is the RRTI over normalized labels (posting IDs doc<<1|alt);
 	// only its router FST is resident, postings range-read per query.
 	searchIdx *rr.TermIndex
+
+	// rev is the eager-loaded reverse-match artifact; nil on artifact sets
+	// built before it existed (equivalents then has no inbound from this
+	// scheme).
+	rev *sidecarReverse
 
 	mu    sync.Mutex
 	cache map[uint32]*Term
@@ -69,6 +76,25 @@ func openSidecar(ctx context.Context, st blob.Store, prefix string, m *vocabside
 			return nil, fmt.Errorf("vocab: sidecar %s id tier %d: %w", m.Scheme, k+1, err)
 		}
 	}
+	// Reverse matches are optional (older artifact sets lack them): absent
+	// degrades to no inbound equivalents, but a present-and-broken artifact
+	// fails the arm -- silent partial data is worse than the map fallback.
+	if revData, err := resident(".rev.json.gz"); err != nil {
+		if !errors.Is(err, blob.ErrNotFound) {
+			return nil, err
+		}
+	} else {
+		zr, err := gzip.NewReader(bytes.NewReader(revData))
+		if err != nil {
+			return nil, fmt.Errorf("vocab: sidecar %s reverse matches: %w", m.Scheme, err)
+		}
+		var rev sidecarReverse
+		if err := json.NewDecoder(zr).Decode(&rev); err != nil {
+			return nil, fmt.Errorf("vocab: sidecar %s reverse matches: %w", m.Scheme, err)
+		}
+		s.rev = &rev
+	}
+
 	searchRA, _, _, err := blob.ReaderAt(ctx, st, vocabsidecar.Path(prefix, m.Scheme, ".search.rrt"))
 	if err != nil {
 		return nil, fmt.Errorf("vocab: sidecar %s search: %w", m.Scheme, err)
@@ -297,4 +323,24 @@ func (s *sidecarScheme) all() []*Term {
 		}
 	}
 	return out
+}
+
+// sidecarReverse is the reverse-match artifact payload (.rev.json.gz): canon
+// match-target key -> live term URIs linking it, per strength.
+type sidecarReverse struct {
+	Exact map[string][]string `json:"exact"`
+	Close map[string][]string `json:"close"`
+}
+
+// revMatch returns the sidecar terms linking key at the given strength
+// ("exact"/"close"); empty on artifact sets built before the reverse-match
+// artifact existed.
+func (s *sidecarScheme) revMatch(strength, key string) []string {
+	if s.rev == nil {
+		return nil
+	}
+	if strength == "exact" {
+		return s.rev.Exact[key]
+	}
+	return s.rev.Close[key]
 }

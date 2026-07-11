@@ -10,6 +10,7 @@ package vocab
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -132,12 +133,50 @@ func buildSidecarTerms(ctx context.Context, st blob.Store, prefix, scheme, sourc
 		return nil, err
 	}
 
+	// Reverse-match artifact: canon match-target key -> the live term URIs
+	// linking it, per strength -- the equivalents traversal's inbound
+	// direction (equivalents.go). Eager-loaded at open: size is O(match
+	// statements), which stays small even for schemes whose term count
+	// justifies the sidecar. Optional for readers: a pre-existing artifact
+	// set without it still arms, minus inbound.
+	rev := sidecarReverse{Exact: map[string][]string{}, Close: map[string][]string{}}
+	for _, uri := range uris {
+		t := byURI[uri]
+		if t.MergedInto != "" {
+			continue
+		}
+		for _, u := range t.ExactMatch {
+			if key := canonIdentifier(u); key != "" {
+				rev.Exact[key] = append(rev.Exact[key], t.ID)
+			}
+		}
+		for _, u := range t.CloseMatch {
+			if key := canonIdentifier(u); key != "" {
+				rev.Close[key] = append(rev.Close[key], t.ID)
+			}
+		}
+	}
+	for _, m := range []map[string][]string{rev.Exact, rev.Close} {
+		for k := range m {
+			sort.Strings(m[k])
+		}
+	}
+	revBuf := &bytes.Buffer{}
+	zw := gzip.NewWriter(revBuf)
+	if err := json.NewEncoder(zw).Encode(rev); err != nil {
+		return nil, fmt.Errorf("vocab: encode reverse matches: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("vocab: gzip reverse matches: %w", err)
+	}
+
 	puts := []struct {
 		suffix string
 		data   []byte
 	}{
 		{".rrsr.bin", bin.Bytes()},
 		{".rrsr.idx", idx.Bytes()},
+		{".rev.json.gz", revBuf.Bytes()},
 		{".uri.rril", uriBuf.Bytes()},
 		{".id1.rril", tierBufs[0].Bytes()},
 		{".id2.rril", tierBufs[1].Bytes()},

@@ -112,3 +112,71 @@ func TestEquivalentsBridges(t *testing.T) {
 		t.Error("unknown URI should not resolve")
 	}
 }
+
+// TestEquivalentsSidecarInbound: a sidecar-backed scheme contributes inbound
+// equivalents through its reverse-match artifact, and an artifact set without
+// one (pre-artifact builds) still arms -- minus inbound.
+func TestEquivalentsSidecarInbound(t *testing.T) {
+	const (
+		H = "https://homosaurus.org/v5/homoit0008888"
+		L = "http://id.loc.gov/authorities/subjects/sh88008888"
+	)
+	hs := strings.NewReplacer("{H}", H, "{L}", L).Replace(`
+<{H}> <http://www.w3.org/2004/02/skos/core#prefLabel> "Queer zines"@en <authority:homosaurus> .
+<{H}> <http://www.w3.org/2004/02/skos/core#exactMatch> <{L}> <authority:homosaurus> .
+`)
+	lc := strings.NewReplacer("{L}", L).Replace(`
+<{L}> <http://www.w3.org/2004/02/skos/core#prefLabel> "Zines"@en <authority:lcsh> .
+`)
+	st := blob.NewMem()
+	hsSource := "data/authorities/vocab/hs.nq"
+	if _, err := st.Put(t.Context(), hsSource, []byte(hs), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Put(t.Context(), "data/authorities/vocab/lcsh.nq", []byte(lc), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildSidecar(t.Context(), st, "data/authorities/", "homosaurus", hsSource); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Load(t.Context(), st, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Sanity: homosaurus must actually be sidecar-served (its own armed source).
+	if _, ok := ix.load().sidecar["homosaurus"]; !ok {
+		t.Fatal("homosaurus is not sidecar-armed; the test would prove nothing")
+	}
+
+	// Inbound: the map-backed LCSH term surfaces its sidecar-backed linker.
+	got, ok := ix.Equivalents(L)
+	if !ok {
+		t.Fatal("L should resolve")
+	}
+	h := eq(got, H)
+	if h == nil || h.Strength != "exact" || h.Scheme != "homosaurus" || !h.Known {
+		t.Fatalf("sidecar inbound = %+v, want exact/homosaurus/known", h)
+	}
+
+	// Pre-artifact set: drop the reverse artifact, reload -- the scheme still
+	// arms, equivalents just lose the sidecar inbound.
+	if err := st.Delete(t.Context(), "data/authorities/sidecar/homosaurus.rev.json.gz"); err != nil {
+		t.Fatal(err)
+	}
+	ix2, err := Load(t.Context(), st, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ix2.load().sidecar["homosaurus"]; !ok {
+		t.Fatal("scheme must still arm without the reverse artifact")
+	}
+	got2, _ := ix2.Equivalents(L)
+	if eq(got2, H) != nil {
+		t.Errorf("without the artifact, sidecar inbound should be absent: %+v", got2)
+	}
+	// Outbound from the sidecar term is unaffected either way.
+	out2, ok := ix2.Equivalents(H)
+	if !ok || eq(out2, L) == nil || eq(out2, L).Strength != "exact" {
+		t.Errorf("sidecar outbound degraded: %+v", out2)
+	}
+}

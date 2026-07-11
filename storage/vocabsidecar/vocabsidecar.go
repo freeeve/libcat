@@ -12,6 +12,7 @@
 // Layout under <prefix>sidecar/:
 //
 //	<scheme>.rrsr.bin/.idx  full Term JSON per doc (RRSR record store)
+//	<scheme>.rev.json.gz    reverse matches: canon match key -> linking term URIs
 //	<scheme>.uri.rril       term URI -> doc, retired terms included
 //	<scheme>.id1/2/3.rril   canon identifier tiers (own/exactMatch/closeMatch)
 //	<scheme>.search.rrt     RRTI over normalized labels
@@ -71,6 +72,7 @@ func Path(prefix, scheme, suffix string) string {
 var Suffixes = []string{
 	ManifestSuffix,
 	".rrsr.bin", ".rrsr.idx",
+	".rev.json.gz",
 	".uri.rril", ".id1.rril", ".id2.rril", ".id3.rril",
 	".search.rrt",
 	".search.bin", // pre-v2 LCVS search blob; a rebuild orphans it
