@@ -641,6 +641,21 @@ summary:focus-visible {
 .lcat-tags li a:hover {
   text-decoration: underline;
 }
+/* Homosaurus subjects grouped under their broader term (tasks/354): the parent label
+   is a small-caps subheading, echoing the facet-drawer register, over its narrower
+   chips. */
+.lcat-subject-group {
+  margin-top: 0.9rem;
+}
+.lcat-subject-group-head {
+  font-family: var(--lcat-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--lcat-muted);
+  margin: 0 0 0.35rem;
+}
 .lcat-terms {
   list-style: none;
   padding: 0;

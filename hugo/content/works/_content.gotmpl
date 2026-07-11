@@ -86,43 +86,48 @@
     {{- range $data.works -}}{{- $byID.SetInMap "w" .id . -}}{{- end -}}
   {{- end -}}
   {{- $works := $byID.Get "w" | default dict -}}
+  {{- /* $termLabels (IRI -> display label in the site language) is built
+         unconditionally, not just for the similar rail: the work-detail page groups
+         its Homosaurus subjects under their skos:broader parent (tasks/354), and a
+         parent is frequently a concept the Work does not itself carry, so its label
+         has to come from the Terms sideband here rather than the page's own
+         subjects. $termKeys / $termNative remain the rail's cross-scheme collapse
+         inputs and are simply unused when no rail renders. */ -}}
   {{- $termLabels := dict -}}
   {{- $termKeys := dict -}}
   {{- $termNative := dict -}}
-  {{- if $similar -}}
-    {{- $raw := newScratch -}}
-    {{- range $data.works -}}
-      {{- range .subjects -}}
-        {{- $id := .id -}}
-        {{- with .labels -}}{{- $raw.SetInMap "l" $id . -}}{{- end -}}
-      {{- end -}}
-    {{- end -}}
-    {{- range $data.terms -}}
+  {{- $raw := newScratch -}}
+  {{- range $data.works -}}
+    {{- range .subjects -}}
       {{- $id := .id -}}
       {{- with .labels -}}{{- $raw.SetInMap "l" $id . -}}{{- end -}}
     {{- end -}}
-    {{- $sc := newScratch -}}
-    {{- range $id, $labels := ($raw.Get "l" | default dict) -}}
-      {{- $loc := index $labels $lang -}}
-      {{- $en := index $labels "en" -}}
-      {{- /* Neither the site language nor English: take the lexically first tag
-             rather than none. A template ranges a map in sorted key order, so
-             this is deterministic. Homosaurus has nl/sv-only concepts. */ -}}
-      {{- $any := "" -}}
-      {{- if not (or $loc $en) -}}
-        {{- range $k, $v := $labels -}}{{- if not $any -}}{{- $any = $v -}}{{- end -}}{{- end -}}
-      {{- end -}}
-      {{- $show := or $loc $en $any -}}
-      {{- if $show -}}
-        {{- $sc.SetInMap "t" $id $show -}}
-        {{- $sc.SetInMap "k" $id (or $en $loc $any) -}}
-        {{- if $loc -}}{{- $sc.SetInMap "n" $id true -}}{{- end -}}
-      {{- end -}}
-    {{- end -}}
-    {{- $termLabels = $sc.Get "t" | default dict -}}
-    {{- $termKeys = $sc.Get "k" | default dict -}}
-    {{- $termNative = $sc.Get "n" | default dict -}}
   {{- end -}}
+  {{- range $data.terms -}}
+    {{- $id := .id -}}
+    {{- with .labels -}}{{- $raw.SetInMap "l" $id . -}}{{- end -}}
+  {{- end -}}
+  {{- $sc := newScratch -}}
+  {{- range $id, $labels := ($raw.Get "l" | default dict) -}}
+    {{- $loc := index $labels $lang -}}
+    {{- $en := index $labels "en" -}}
+    {{- /* Neither the site language nor English: take the lexically first tag
+           rather than none. A template ranges a map in sorted key order, so
+           this is deterministic. Homosaurus has nl/sv-only concepts. */ -}}
+    {{- $any := "" -}}
+    {{- if not (or $loc $en) -}}
+      {{- range $k, $v := $labels -}}{{- if not $any -}}{{- $any = $v -}}{{- end -}}{{- end -}}
+    {{- end -}}
+    {{- $show := or $loc $en $any -}}
+    {{- if $show -}}
+      {{- $sc.SetInMap "t" $id $show -}}
+      {{- $sc.SetInMap "k" $id (or $en $loc $any) -}}
+      {{- if $loc -}}{{- $sc.SetInMap "n" $id true -}}{{- end -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $termLabels = $sc.Get "t" | default dict -}}
+  {{- $termKeys = $sc.Get "k" | default dict -}}
+  {{- $termNative = $sc.Get "n" | default dict -}}
   {{- range $data.works -}}
     {{- /* Contributor names are free text and taxonomy-indexed as-is, so an
            oversized label (e.g. a whole artist list in one field) would mint a
@@ -146,6 +151,24 @@
              vocabularies mint distinct term pages. */ -}}
       {{- $subjectSlugs = $subjectSlugs | append (partial "lcat-subject-key.html" (dict "label" $label "scheme" .scheme)) -}}
     {{- end -}}
+    {{- /* Broader-term labels for THIS Work's Homosaurus subjects (tasks/354): the
+           detail page groups those subjects under their skos:broader parent, and the
+           parent's display label is resolved once here against $termLabels (which
+           draws on the Terms sideband, so a parent the Work does not itself carry
+           still gets a name). Only the parents this Work references are emitted, so
+           the param stays small -- not the whole vocabulary on every page. A parent
+           with no resolvable label is omitted, and the page falls those subjects back
+           to the ungrouped chip row. */ -}}
+    {{- $broaderScratch := newScratch -}}
+    {{- range .subjects -}}
+      {{- if eq .scheme "homosaurus" -}}
+        {{- range .broader -}}
+          {{- $bid := . -}}
+          {{- with index $termLabels $bid -}}{{- $broaderScratch.SetInMap "b" $bid . -}}{{- end -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+    {{- $broaderLabels := $broaderScratch.Get "b" | default dict -}}
     {{- /* Classifications are {value, label} since schema v9 (tasks/142): the
            taxonomy indexes the code, classificationList keeps the label for
            the detail page (mirrors subjects/subjectList).
@@ -313,6 +336,7 @@
       "classificationList" .classifications
       "contributorList" .contributors
       "subjectList" .subjects
+      "broaderLabels" $broaderLabels
       "instances" .instances
       "relations" .relations
       "seriesList" .series

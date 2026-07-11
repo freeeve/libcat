@@ -20,7 +20,8 @@
         {
           "id": "https://homosaurus.org/v3/homoit0000282",
           "labels": {
-            "en": "Gender identity"
+            "en": "Gender identity",
+            "es": "Identidad de género"
           },
           "scheme": "homosaurus"
         },

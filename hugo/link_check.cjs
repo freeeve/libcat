@@ -43,10 +43,23 @@ function decode(s) {
     .replace(/&amp;/g, "&");
 }
 
+// Percent-decode a path the way a browser/server does before hitting the
+// filesystem: Hugo keeps Unicode letters in a taxonomy slug (lcat-slug) and
+// percent-encodes them in hrefs, so a term page minted at ".../género/" is linked
+// as ".../g%C3%A9nero/". Matching the raw href against the literal-Unicode filename
+// would spuriously 404. Malformed sequences fall back to the raw string.
+function pctDecode(s) {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 function resolves(href) {
   const clean = decode(href).split("#")[0].split("?")[0];
   if (!clean.startsWith("/") || clean.startsWith("//")) return true; // external/protocol-relative: skip
-  const rel = clean.slice(1);
+  const rel = pctDecode(clean.slice(1));
   const target = /\.[a-z0-9]+$/i.test(clean)
     ? path.join(root, rel) // links to a file (e.g. .xml)
     : path.join(root, rel, "index.html"); // pretty dir URL
