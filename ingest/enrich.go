@@ -20,7 +20,12 @@ type WorkSummary struct {
 	WorkID       string
 	Title        string
 	Contributors []string
-	ISBNs        []string
+	// ContributorIDs are the contributors' authority IRIs, where agents
+	// arrive as IRI nodes (MARC $0/$1 via the crosswalk, or editor
+	// hydration) -- the identifier-based creator-resolution keys
+	// (VIAF/LCNAF/ISNI/ORCID -> Wikidata). Unordered, deduped.
+	ContributorIDs []string `json:",omitempty"`
+	ISBNs          []string
 	// Tags are the Work's uncontrolled subject labels (feed genres,
 	// approved folksonomy) -- the raw material tag-to-controlled-term
 	// reconciliation enrichers match against.
@@ -579,6 +584,7 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 		bfNS          = "http://id.loc.gov/ontologies/bibframe/"
 		rdfsLabel     = "http://www.w3.org/2000/01/rdf-schema#label"
 		skosPrefLabel = "http://www.w3.org/2004/02/skos/core#prefLabel"
+		owlSameAs     = "http://www.w3.org/2002/07/owl#sameAs"
 	)
 	// One merged view over all graphs; enrichers see feed + editorial data.
 	// Built in one exactly-sized pass straight off the quads, in the same
@@ -620,10 +626,23 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 				s.Title = main
 			}
 		}
+		seenAgentID := map[string]bool{}
 		for _, contrib := range merged.Objects(work, bfNS+"contribution") {
 			if agent, ok := merged.Object(contrib, bfNS+"agent"); ok {
 				if name, ok := merged.Literal(agent, rdfsLabel); ok {
 					s.Contributors = append(s.Contributors, name)
+				}
+				// An IRI agent node (or its owl:sameAs) is an authority
+				// identifier -- the creator-resolution key.
+				if agent.IsIRI() && !bibframe.GrainLocalIRI(agent.Value) && !seenAgentID[agent.Value] {
+					seenAgentID[agent.Value] = true
+					s.ContributorIDs = append(s.ContributorIDs, agent.Value)
+				}
+				for _, same := range merged.Objects(agent, owlSameAs) {
+					if same.IsIRI() && !seenAgentID[same.Value] {
+						seenAgentID[same.Value] = true
+						s.ContributorIDs = append(s.ContributorIDs, same.Value)
+					}
 				}
 			}
 		}

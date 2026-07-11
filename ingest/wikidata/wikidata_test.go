@@ -20,7 +20,7 @@ import (
 // binding builds one SPARQL JSON binding row.
 func binding(isbn, qid, label, prop, valueQID, valueLabel string) map[string]any {
 	b := map[string]any{
-		"isbn":        map[string]any{"value": isbn},
+		"key":         map[string]any{"value": isbn},
 		"author":      map[string]any{"value": "http://www.wikidata.org/entity/" + qid},
 		"authorLabel": map[string]any{"value": label},
 	}
@@ -393,5 +393,67 @@ func TestEnrichProgressLoggingAndStats(t *testing.T) {
 	}
 	if st.ResolvedCreators != 1 || st.Claims != 1 {
 		t.Errorf("stats resolved/claims = %+v, want 1/1", st)
+	}
+}
+
+// TestClassifyAuthorID: the identifier namespaces the resolver speaks, with
+// Wikidata's value formatting (ISNI space-grouped, ORCID hyphens kept).
+func TestClassifyAuthorID(t *testing.T) {
+	cases := []struct{ iri, scheme, value string }{
+		{"http://viaf.org/viaf/113230702", "viaf", "113230702"},
+		{"https://id.loc.gov/authorities/names/n80076765", "lcnaf", "n80076765"},
+		{"https://isni.org/isni/0000000121034996", "isni", "0000 0001 2103 4996"},
+		{"https://orcid.org/0000-0002-1825-0097", "orcid", "0000-0002-1825-0097"},
+	}
+	for _, tc := range cases {
+		scheme, value, ok := classifyAuthorID(tc.iri)
+		if !ok || scheme != tc.scheme || value != tc.value {
+			t.Errorf("classifyAuthorID(%s) = %s %q %v, want %s %q", tc.iri, scheme, value, ok, tc.scheme, tc.value)
+		}
+	}
+	if _, _, ok := classifyAuthorID("https://example.org/person/1"); ok {
+		t.Error("unknown namespace must not classify")
+	}
+}
+
+// TestEnrichAuthorIDPassFirst: a work with a contributor authority id
+// resolves through the direct hop (provenance names the id), and its ISBNs
+// are NOT re-queried; a work with only an ISBN still resolves via pass 2.
+func TestEnrichAuthorIDPassFirst(t *testing.T) {
+	stub := &stubSPARQL{bindings: []map[string]any{
+		binding("113230702", "Q42", "Douglas Adams", "P21", "Q6581097", "male"),
+		binding("9780062278241", "Q231663", "N.D. Stevenson", "P21", "Q48270", "non-binary"),
+	}}
+	e := New(WithClient(stub), WithDelay(0))
+	res, err := e.Enrich(context.Background(), []ingest.WorkSummary{
+		{WorkID: "wid", ISBNs: []string{"9780330267380"}, ContributorIDs: []string{"http://viaf.org/viaf/113230702"}},
+		{WorkID: "wisbn", ISBNs: []string{"9780062278241"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 2 {
+		t.Fatalf("results = %+v, want both works", res)
+	}
+	byID := map[string]ingest.Enrichment{}
+	for _, r := range res {
+		byID[r.WorkID] = r
+	}
+	if c := byID["wid"].Creators[0]; c.QID != "Q42" || c.MatchedVia != "viaf:113230702" {
+		t.Errorf("author-id creator = %+v, want Q42 via viaf:113230702", c)
+	}
+	if c := byID["wisbn"].Creators[0]; c.QID != "Q231663" || c.MatchedVia != "isbn:9780062278241" {
+		t.Errorf("isbn creator = %+v", c)
+	}
+	// Two queries ran: one viaf pass, one isbn pass -- and the id-resolved
+	// work's ISBN never went to the fallback.
+	if len(stub.queries) != 2 {
+		t.Fatalf("queries = %d, want 2 (viaf pass + isbn fallback)", len(stub.queries))
+	}
+	if !strings.Contains(stub.queries[0], "wdt:P214") || strings.Contains(stub.queries[0], "9780330267380") {
+		t.Errorf("pass 1 must be the direct viaf hop without ISBNs:\n%s", stub.queries[0])
+	}
+	if strings.Contains(stub.queries[1], "9780330267380") {
+		t.Errorf("the id-resolved work's ISBN leaked into the fallback:\n%s", stub.queries[1])
 	}
 }

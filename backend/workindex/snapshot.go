@@ -34,8 +34,10 @@ const DefaultSnapshotPath = "data/workindex.snapshot"
 // Headings -- a v2 snapshot would serve heading-less summaries and silently
 // undercount the diversity audit's keyword dimension. v4: summaries carry
 // Creators (cached wikidata claims) -- a v3 snapshot would report the creator
-// audit as empty for every unchanged grain.
-const snapshotVersion = 4
+// audit as empty for every unchanged grain. v5: summaries carry
+// ContributorIDs (agent authority IRIs) -- a v4 snapshot would starve the
+// enricher's authority-id resolution for unchanged grains.
+const snapshotVersion = 5
 
 // snapshotEntry is one grain's projected state, the JSON-portable mirror of the
 // unexported grainEntry. Shared shape with the change feed.

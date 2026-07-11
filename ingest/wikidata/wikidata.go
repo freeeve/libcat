@@ -57,6 +57,52 @@ const entityPrefix = "http://www.wikidata.org/entity/"
 // demographic claims the audit aggregates. Order is the emission order.
 var claimProps = []string{"P21", "P27", "P91", "P172"}
 
+// isbnMatcher resolves a key that is a hyphenless ISBN: edition -> work ->
+// author. Wikidata stores P212 hyphenated and computing the canonical
+// hyphenation needs the ISBN range table, so match on the stripped form; the
+// property-path scan costs seconds per query regardless of batch size.
+const isbnMatcher = `?edition wdt:P212|wdt:P957 ?i .
+  FILTER(REPLACE(STR(?i), "-", "") = ?key)
+  { ?edition wdt:P629 ?bwork . ?bwork wdt:P50 ?author . } UNION { ?edition wdt:P50 ?author . }`
+
+// authorIDProps maps an author authority-identifier scheme to its Wikidata
+// property: the direct, indexed resolution hops. Order fixes pass order.
+var authorIDProps = []struct{ scheme, prop string }{
+	{"viaf", "P214"},
+	{"lcnaf", "P244"},
+	{"isni", "P213"},
+	{"orcid", "P496"},
+}
+
+// classifyAuthorID extracts (scheme, wikidata-formatted value) from an agent
+// authority IRI, or ok=false for namespaces the resolver does not speak.
+// ISNI is stored space-grouped on Wikidata; ORCID keeps its hyphens.
+func classifyAuthorID(iri string) (scheme, value string, ok bool) {
+	u := strings.TrimPrefix(strings.TrimPrefix(iri, "https://"), "http://")
+	u = strings.TrimSuffix(u, "/")
+	switch {
+	case strings.HasPrefix(u, "viaf.org/viaf/"):
+		return "viaf", strings.TrimPrefix(u, "viaf.org/viaf/"), true
+	case strings.HasPrefix(u, "id.loc.gov/authorities/names/"):
+		return "lcnaf", strings.TrimPrefix(u, "id.loc.gov/authorities/names/"), true
+	case strings.HasPrefix(u, "isni.org/isni/"):
+		raw := strings.ReplaceAll(strings.TrimPrefix(u, "isni.org/isni/"), " ", "")
+		if len(raw) != 16 {
+			return "", "", false
+		}
+		return "isni", raw[0:4] + " " + raw[4:8] + " " + raw[8:12] + " " + raw[12:16], true
+	case strings.HasPrefix(u, "orcid.org/"):
+		return "orcid", strings.TrimPrefix(u, "orcid.org/"), true
+	}
+	return "", "", false
+}
+
+// authorIDMatcher resolves a key that is an identifier value under one
+// authority property: a direct indexed lookup, no edition hop.
+func authorIDMatcher(prop string) string {
+	return "?author wdt:" + prop + " ?key ."
+}
+
 // Doer is the HTTP seam, injectable for tests.
 type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -132,109 +178,174 @@ func New(opts ...Option) *Enricher {
 // Name implements ingest.Enricher.
 func (e *Enricher) Name() string { return Name }
 
-// Enrich resolves each Work's ISBNs and returns creator-claim enrichments for
-// the Works that matched. Works with no ISBN, or whose ISBNs Wikidata does not
-// know, are absent from the result -- RunEnrich leaves them untouched, and the
-// audit reports them as unmatched rather than guessing.
+// Enrich resolves each Work's creators by cataloged identifiers, in two
+// passes: author authority IDs first (VIAF/LCNAF/ISNI/ORCID -> the direct
+// wdt:P214/P244/P213/P496 lookups -- indexed exact matches, the high-recall
+// path), then ISBN -> edition -> author for works the first pass left
+// unmatched. Works with no resolvable identifier, or whose identifiers
+// Wikidata does not know, are absent from the result -- RunEnrich leaves
+// them untouched, and the audit reports them as unmatched rather than
+// guessing. Never a name, in either pass.
 func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]ingest.Enrichment, error) {
-	isbnToWorks := map[string][]string{}
-	var order []string
+	// Pass-1 keys: scheme -> wikidata-formatted value -> work ids.
+	idKeys := map[string]map[string][]string{}
+	for _, w := range works {
+		for _, iri := range w.ContributorIDs {
+			scheme, value, ok := classifyAuthorID(iri)
+			if !ok {
+				continue
+			}
+			byValue := idKeys[scheme]
+			if byValue == nil {
+				byValue = map[string][]string{}
+				idKeys[scheme] = byValue
+			}
+			byValue[value] = append(byValue[value], w.WorkID)
+		}
+	}
+	// Pass-2 keys: hyphenless ISBN -> work ids.
+	isbnKeys := map[string][]string{}
+	var isbnOrder []string
 	for _, w := range works {
 		for _, raw := range w.ISBNs {
 			isbn := normalizeISBN(raw)
 			if isbn == "" {
 				continue
 			}
-			if _, seen := isbnToWorks[isbn]; !seen {
-				order = append(order, isbn)
+			if _, seen := isbnKeys[isbn]; !seen {
+				isbnOrder = append(isbnOrder, isbn)
 			}
-			isbnToWorks[isbn] = append(isbnToWorks[isbn], w.WorkID)
+			isbnKeys[isbn] = append(isbnKeys[isbn], w.WorkID)
 		}
-	}
-	if len(order) == 0 {
-		return nil, nil
 	}
 
 	retrieved := e.now().UTC().Format("2006-01-02")
 	e.stats = ingest.EnrichStats{}
 	started := e.now()
-	total := (len(order) + e.batch - 1) / e.batch
 	succeeded := 0
+	firstBatch := true
 	var lastErr error
 	byWork := map[string]map[string]*ingest.CreatorClaim{} // workID -> QID -> claim
 	creators := map[string]bool{}
 	claimCount := 0
-	for start := 0; start < len(order); start += e.batch {
-		if start > 0 && e.delay > 0 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(e.delay):
+
+	// runPass batches one matcher over its keys, attributing rows to works.
+	runPass := func(pass, matcher, keyScheme string, order []string, keyToWorks map[string][]string) error {
+		total := (len(order) + e.batch - 1) / e.batch
+		for start := 0; start < len(order); start += e.batch {
+			if !firstBatch && e.delay > 0 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(e.delay):
+				}
+			}
+			firstBatch = false
+			end := min(start+e.batch, len(order))
+			batchStart := e.now()
+			rows, err := e.queryRetry(ctx, matcher, order[start:end])
+			e.stats.Batches++
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				e.stats.SkippedBatches++
+				lastErr = err
+				if e.log != nil {
+					e.log.Warn("wikidata batch skipped after retries",
+						"pass", pass, "batch", e.stats.Batches, "of", total, "keys", end-start, "err", err)
+				}
+				continue
+			}
+			succeeded++
+			if e.log != nil {
+				e.log.Info("wikidata batch resolved",
+					"pass", pass, "batch", e.stats.Batches, "of", total, "keys", end-start,
+					"rows", len(rows), "creators", len(creators), "claims", claimCount,
+					"batchElapsed", e.now().Sub(batchStart).Round(time.Millisecond),
+					"elapsed", e.now().Sub(started).Round(time.Second))
+			}
+			for _, row := range rows {
+				qid := strings.TrimPrefix(row.author, entityPrefix)
+				if qid == row.author || qid == "" {
+					continue // not an entity IRI: never synthesize an identity
+				}
+				for _, workID := range keyToWorks[row.key] {
+					claims := byWork[workID]
+					if claims == nil {
+						claims = map[string]*ingest.CreatorClaim{}
+						byWork[workID] = claims
+					}
+					c := claims[qid]
+					if c == nil {
+						c = &ingest.CreatorClaim{
+							QID:        qid,
+							MatchedVia: keyScheme + ":" + row.key,
+							Retrieved:  retrieved,
+						}
+						claims[qid] = c
+						creators[qid] = true
+					}
+					// OPTIONAL bindings arrive on some rows and not others;
+					// take the label from whichever row carries it.
+					if c.Label == "" && row.authorLabel != "" {
+						c.Label = row.authorLabel
+					}
+					if row.prop != "" && row.value != "" {
+						before := len(c.Claims)
+						c.AddClaim(ingest.DemographicClaim{
+							Property:   row.prop,
+							ValueQID:   strings.TrimPrefix(row.value, entityPrefix),
+							ValueLabel: row.valueLabel,
+						})
+						if len(c.Claims) > before {
+							claimCount++
+						}
+					}
+				}
 			}
 		}
-		end := min(start+e.batch, len(order))
-		batchStart := e.now()
-		rows, err := e.queryRetry(ctx, order[start:end])
-		e.stats.Batches++
-		if err != nil {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			e.stats.SkippedBatches++
-			lastErr = err
-			if e.log != nil {
-				e.log.Warn("wikidata batch skipped after retries",
-					"batch", e.stats.Batches, "of", total, "isbns", end-start, "err", err)
-			}
+		return nil
+	}
+
+	// Pass 1: author authority ids, per scheme.
+	for _, sp := range authorIDProps {
+		byValue := idKeys[sp.scheme]
+		if len(byValue) == 0 {
 			continue
 		}
-		succeeded++
-		if e.log != nil {
-			e.log.Info("wikidata batch resolved",
-				"batch", e.stats.Batches, "of", total, "isbns", end-start,
-				"rows", len(rows), "creators", len(creators), "claims", claimCount,
-				"batchElapsed", e.now().Sub(batchStart).Round(time.Millisecond),
-				"elapsed", e.now().Sub(started).Round(time.Second))
+		order := make([]string, 0, len(byValue))
+		for v := range byValue {
+			order = append(order, v)
 		}
-		for _, row := range rows {
-			qid := strings.TrimPrefix(row.author, entityPrefix)
-			if qid == row.author || qid == "" {
-				continue // not an entity IRI: never synthesize an identity
-			}
-			for _, workID := range isbnToWorks[row.isbn] {
-				claims := byWork[workID]
-				if claims == nil {
-					claims = map[string]*ingest.CreatorClaim{}
-					byWork[workID] = claims
-				}
-				c := claims[qid]
-				if c == nil {
-					c = &ingest.CreatorClaim{
-						QID:        qid,
-						MatchedVia: "isbn:" + row.isbn,
-						Retrieved:  retrieved,
-					}
-					claims[qid] = c
-				}
-				// OPTIONAL bindings arrive on some rows and not others;
-				// take the label from whichever row carries it.
-				if c.Label == "" && row.authorLabel != "" {
-					c.Label = row.authorLabel
-				}
-				creators[qid] = true
-				if row.prop != "" && row.value != "" {
-					before := len(c.Claims)
-					c.AddClaim(ingest.DemographicClaim{
-						Property:   row.prop,
-						ValueQID:   strings.TrimPrefix(row.value, entityPrefix),
-						ValueLabel: row.valueLabel,
-					})
-					if len(c.Claims) > before {
-						claimCount++
-					}
-				}
+		sort.Strings(order)
+		if err := runPass(sp.scheme, authorIDMatcher(sp.prop), sp.scheme, order, byValue); err != nil {
+			return nil, err
+		}
+	}
+	// Pass 2: ISBN fallback, only for works pass 1 resolved nothing on --
+	// recall without re-querying what the direct hops already answered.
+	pendingISBN := map[string][]string{}
+	var pendingOrder []string
+	for _, isbn := range isbnOrder {
+		var pending []string
+		for _, id := range isbnKeys[isbn] {
+			if len(byWork[id]) == 0 {
+				pending = append(pending, id)
 			}
 		}
+		if len(pending) > 0 {
+			pendingOrder = append(pendingOrder, isbn)
+			pendingISBN[isbn] = pending
+		}
+	}
+	if len(pendingOrder) > 0 {
+		if err := runPass("isbn", isbnMatcher, "isbn", pendingOrder, pendingISBN); err != nil {
+			return nil, err
+		}
+	}
+	if len(idKeys) == 0 && len(isbnOrder) == 0 {
+		return nil, nil
 	}
 
 	e.stats.ResolvedCreators = len(creators)
@@ -276,18 +387,18 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 
 // row is one SPARQL result binding set, flattened.
 type row struct {
-	isbn, author, authorLabel, prop, value, valueLabel string
+	key, author, authorLabel, prop, value, valueLabel string
 }
 
 // queryRetry wraps query with backoff on transient failures: network errors,
 // 429s, and 5xx statuses retry up to maxRetries with doubling pauses; other
 // statuses (a 400 means the query itself is malformed) fail immediately.
-func (e *Enricher) queryRetry(ctx context.Context, isbns []string) ([]row, error) {
+func (e *Enricher) queryRetry(ctx context.Context, matcher string, keys []string) ([]row, error) {
 	backoff := e.retryBase
 	var err error
 	for attempt := 0; ; attempt++ {
 		var rows []row
-		rows, err = e.query(ctx, isbns)
+		rows, err = e.query(ctx, matcher, keys)
 		if err == nil {
 			return rows, nil
 		}
@@ -331,10 +442,10 @@ func transient(err error) bool {
 // query runs one batched resolution: ISBN -> edition -> work -> author,
 // with the demographic claims OPTIONAL so a resolved author with no stated
 // claims still comes back (the audit counts them as matched-but-unknown).
-func (e *Enricher) query(ctx context.Context, isbns []string) ([]row, error) {
+func (e *Enricher) query(ctx context.Context, matcher string, keys []string) ([]row, error) {
 	var values strings.Builder
-	for _, i := range isbns {
-		fmt.Fprintf(&values, "%q ", i)
+	for _, k := range keys {
+		fmt.Fprintf(&values, "%q ", k)
 	}
 	var props strings.Builder
 	for _, p := range claimProps {
@@ -354,11 +465,9 @@ func (e *Enricher) query(ctx context.Context, isbns []string) ([]row, error) {
 	// The label service was already avoided for the same portability reason.
 	sparql := fmt.Sprintf(`PREFIX wdt: <http://www.wikidata.org/prop/direct/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?isbn ?author ?authorLabel ?prop ?value ?valueLabel WHERE {
-  VALUES ?isbn { %s}
-  ?edition wdt:P212|wdt:P957 ?i .
-  FILTER(REPLACE(STR(?i), "-", "") = ?isbn)
-  { ?edition wdt:P629 ?bwork . ?bwork wdt:P50 ?author . } UNION { ?edition wdt:P50 ?author . }
+SELECT ?key ?author ?authorLabel ?prop ?value ?valueLabel WHERE {
+  VALUES ?key { %s}
+  %s
   OPTIONAL { ?author rdfs:label ?aEn . FILTER(LANG(?aEn) = "en") }
   OPTIONAL { ?author rdfs:label ?aMul . FILTER(LANG(?aMul) = "mul") }
   BIND(COALESCE(?aEn, ?aMul) AS ?authorLabel)
@@ -369,7 +478,7 @@ SELECT ?isbn ?author ?authorLabel ?prop ?value ?valueLabel WHERE {
     OPTIONAL { ?value rdfs:label ?vMul . FILTER(LANG(?vMul) = "mul") }
   }
   BIND(COALESCE(?vEn, ?vMul) AS ?valueLabel)
-}`, values.String(), props.String())
+}`, values.String(), matcher, props.String())
 
 	form := url.Values{"query": {sparql}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.endpoint,
@@ -405,7 +514,7 @@ SELECT ?isbn ?author ?authorLabel ?prop ?value ?valueLabel WHERE {
 	for _, b := range parsed.Results.Bindings {
 		get := func(k string) string { return b[k].Value }
 		rows = append(rows, row{
-			isbn:        get("isbn"),
+			key:         get("key"),
 			author:      get("author"),
 			authorLabel: get("authorLabel"),
 			prop:        propLocal(get("prop")),
