@@ -281,6 +281,28 @@ func (ix *Index) SeedResolver(ctx context.Context, r *identity.Resolver) error {
 	return nil
 }
 
+// MergedInto reports whether workID already records an outgoing merge -- i.e. it
+// is a retired loser -- and, if so, the survivor it was merged into. The merge
+// marker lives in the survivor's grain (bibframe.AddMergeMarker), not the loser's,
+// so a merge endpoint cannot see it by reading the loser's own grain; it consults
+// the indexed markers instead. Lets a second, contradictory merge of the same
+// loser be refused before it writes a second marker (tasks/339).
+func (ix *Index) MergedInto(ctx context.Context, workID string) (string, bool, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	if err := ix.refreshLocked(ctx); err != nil {
+		return "", false, err
+	}
+	for _, e := range ix.grains {
+		for _, m := range e.merges {
+			if m.From == workID {
+				return m.To, true, nil
+			}
+		}
+	}
+	return "", false, nil
+}
+
 // GrainPaths returns the set of grain paths the index currently covers. The
 // map is a copy the caller may keep.
 func (ix *Index) GrainPaths(ctx context.Context) (map[string]bool, error) {

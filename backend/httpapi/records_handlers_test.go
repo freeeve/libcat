@@ -258,6 +258,52 @@ func TestMergeSplitBatch(t *testing.T) {
 	}
 }
 
+// TestSecondContradictoryMergeIsRefused is the tasks/339 gate: a loser already
+// merged into one survivor cannot be merged into a different one -- that would
+// leave two mergedInto markers and let the resolver pick a survivor by grain scan
+// order. Re-merging into the same survivor stays idempotent.
+func TestSecondContradictoryMergeIsRefused(t *testing.T) {
+	h, bs := newRecordsAPI(t)
+	feed := bibframe.FeedGraph("overdrive")
+	// Three works: loser A, survivors B and C, each a real grain (merge refuses
+	// phantom ids, and the survivor's grain is read by mutateWorkGrain).
+	const loserA, survivorB, survivorC = "waaa111aaa111", "wbbb222bbb222", "wccc333ccc333"
+	for _, id := range []string{loserA, survivorB, survivorC} {
+		ds := &rdf.Dataset{}
+		ds.Add(rdf.NewIRI(bibframe.WorkIRI(id)), rdf.NewIRI("http://id.loc.gov/ontologies/bibframe/title"), rdf.NewLiteral("W "+id, "", ""), feed)
+		grain, err := ds.Canonical()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := bs.Put(t.Context(), bibframe.GrainPath(id), grain, blob.PutOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// First merge A->B is accepted.
+	if rec := request(t, h, http.MethodPost, "/v1/works/merge", "lib-token", "",
+		map[string]string{"from": loserA, "to": survivorB}); rec.Code != http.StatusOK {
+		t.Fatalf("first merge A->B = %d %s", rec.Code, rec.Body)
+	}
+
+	// A second, contradictory merge A->C is refused (409), naming the survivor.
+	rec := request(t, h, http.MethodPost, "/v1/works/merge", "lib-token", "",
+		map[string]string{"from": loserA, "to": survivorC})
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), survivorB) {
+		t.Fatalf("contradictory merge A->C = %d %s, want 409 naming %s", rec.Code, rec.Body, survivorB)
+	}
+	// C's grain must not have gained a marker for the refused merge.
+	if c, _, _ := bs.Get(t.Context(), bibframe.GrainPath(survivorC)); strings.Contains(string(c), "mergedInto") {
+		t.Fatalf("refused merge still wrote a marker into C:\n%s", c)
+	}
+
+	// Re-merging A into the SAME survivor B stays idempotent (200, not a conflict).
+	if rec := request(t, h, http.MethodPost, "/v1/works/merge", "lib-token", "",
+		map[string]string{"from": loserA, "to": survivorB}); rec.Code != http.StatusOK {
+		t.Fatalf("idempotent re-merge A->B = %d %s, want 200", rec.Code, rec.Body)
+	}
+}
+
 // TestSplitIsIdempotent is the tasks/323 gate: splitting the same instance twice --
 // a retry, a double-click, a lost response -- must reuse the first split's Work rather
 // than mint a second, so the source grain never carries two contradictory

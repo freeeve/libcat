@@ -304,6 +304,19 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 			writeError(w, http.StatusNotFound, "no such work: "+req.From)
 			return
 		}
+		// A loser may not be merged twice into different survivors: the marker is
+		// a permanent resolver instruction with no removal route, so a second,
+		// contradictory merge would leave two mergedInto statements and let the
+		// resolver pick a survivor by grain scan order, silently (tasks/339). Re-
+		// merging into the same survivor stays idempotent (AddMergeMarker is a
+		// no-op there); only a conflicting target is refused, 409.
+		if existingTo, merged, err := ix.MergedInto(r.Context(), req.From); err != nil {
+			writeError(w, http.StatusInternalServerError, "merge check failed")
+			return
+		} else if merged && existingTo != req.To {
+			writeError(w, http.StatusConflict, "work "+req.From+" is already merged into "+existingTo+"; merge into its survivor instead")
+			return
+		}
 		// The marker lives in the survivor's grain (tasks/001 semantics).
 		etag, err := mutateWorkGrain(r, bs, ix, req.To, func(grain []byte) ([]byte, error) {
 			return bibframe.AddMergeMarker(grain, req.From, req.To)
