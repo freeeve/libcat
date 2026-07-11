@@ -33,6 +33,7 @@
   import Profiles from "./screens/Profiles.svelte";
   import Suggestions from "./screens/Suggestions.svelte";
   import Audit from "./screens/Audit.svelte";
+  import Diversity from "./screens/Diversity.svelte";
   import CommandPalette from "./components/CommandPalette.svelte";
   import ReauthDialog from "./components/ReauthDialog.svelte";
   import { parseExportFacets } from "./lib/worksurl";
@@ -43,7 +44,7 @@
   let theme = $state<Theme>(initTheme());
   let ready = $state(false);
   let paletteOpen = $state(false);
-  // Session-expiry re-auth (tasks/223): when the live session dies, the
+  // Session-expiry re-auth: when the live session dies, the
   // screen stays mounted (staged edits survive) under a sign-in overlay;
   // the header identity clears immediately. expiredEmail prefills the form.
   let reauth = $state(false);
@@ -112,7 +113,7 @@
     }
     sessionStore.set(session());
     ready = true;
-    // A screen holding unsaved work registers a leave guard (tasks/199):
+    // A screen holding unsaved work registers a leave guard:
     // a denied navigation restores the previous hash; the restore fires a
     // second hashchange that no-ops on the equality check, so the mounted
     // screen keeps its state.
@@ -132,9 +133,9 @@
   // Auth gate: signed-out users go to the login screen, signed-in users
   // never see it. Callback stays untouched while the exchange completes,
   // and an expired session mid-screen re-auths in place instead of routing
-  // away (tasks/223). The hash the gate bounced is stashed so signing in
+  // away. The hash the gate bounced is stashed so signing in
   // returns there -- a reload mid-record must not strand the cataloger on
-  // the dashboard (tasks/225).
+  // the dashboard.
   $effect(() => {
     if (!ready || route.name === "callback" || reauth) return;
     if (!$sessionStore && route.name !== "login") {
@@ -155,7 +156,7 @@
     reauth = false;
     resetScreenStates();
     // Shared terminals: an explicit sign-out must not leak one cataloger's
-    // staged work into the next session (tasks/225).
+    // staged work into the next session.
     clearAllLocalDrafts();
     navigate("/login");
   }
@@ -163,7 +164,7 @@
   // Move focus to the current screen's <main> without letting the href drive
   // the hash router: "#main" is not a route, so a real navigation would fall
   // back to the dashboard and unmount the very <main> we mean to focus
-  // (tasks/327). preventDefault keeps the route put; this is the standard
+  //. preventDefault keeps the route put; this is the standard
   // SPA skip-link pattern, and it serves both mouse click and keyboard Enter
   // (Enter on an <a> dispatches a click).
   function skipToMain(ev: MouseEvent): void {
@@ -194,7 +195,7 @@
         <span class="who">{$sessionStore.email}</span>
       {:else}
         <!-- Deliberately NOT .who: nothing may read as a signed-in identity
-             once the session died (tasks/223). -->
+             once the session died. -->
         <span class="expired">session expired</span>
       {/if}
       <button
@@ -268,6 +269,8 @@
       initialActor={route.query.get("actor") ?? ""}
       initialAction={route.query.get("action") ?? ""}
     />
+  {:else if route.name === "diversity"}
+    <Diversity />
   {:else if $sessionStore}
     <Dashboard session={$sessionStore} />
   {/if}
@@ -289,7 +292,7 @@
 <style>
   /* WCAG 2.4.1 bypass-block: a keyboard user lands on this first-in-DOM link
      and jumps past the fifteen-control header to the screen's <main id="main">
-     (tasks/321). Off-screen until focused, mirroring the OPAC's .lcat-skip. */
+. Off-screen until focused, mirroring the OPAC's .lcat-skip. */
   .skip {
     position: absolute;
     left: -999px;
@@ -311,7 +314,7 @@
        row, not brand + every nav link + the session controls in one line.
        The nav count grows with screens.ts and the signed-in role, so the
        old nowrap floor moved silently past common laptop/tablet widths
-       (tasks/318). row-gap keeps wrapped rows legible. */
+. row-gap keeps wrapped rows legible. */
     flex-wrap: wrap;
     row-gap: 0.5rem;
     padding: 0.8rem 1.5rem;

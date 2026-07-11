@@ -15,7 +15,7 @@ export interface RouteDef {
 
 /** Every route the SPA resolves, in match order. Lives here rather than in
  *  App.svelte so the navigable ones can be pinned against lib/screens.ts: three
- *  hand-maintained navigation lists had drifted apart (tasks/244). */
+ * hand-maintained navigation lists had drifted apart. */
 export const ROUTES: RouteDef[] = [
   { name: "dashboard", pattern: "/" },
   { name: "login", pattern: "/login" },
@@ -37,6 +37,7 @@ export const ROUTES: RouteDef[] = [
   { name: "profiles", pattern: "/profiles" },
   { name: "suggestions", pattern: "/suggestions" },
   { name: "audit", pattern: "/audit" },
+  { name: "diversity", pattern: "/diversity" },
 ];
 
 /** Routes nothing navigates to by name: auth callbacks and detail pages a user
@@ -82,7 +83,7 @@ export function navigate(path: string): void {
   location.hash = path.startsWith("#") ? path : "#" + path;
 }
 
-// The active leave guard (tasks/199): a screen holding unsaved work
+// The active leave guard: a screen holding unsaved work
 // registers one; the shell consults it before applying an in-app hash
 // navigation. One guard at a time -- only one screen is mounted.
 let leaveGuard: (() => boolean) | null = null;

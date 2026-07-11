@@ -36,7 +36,7 @@ type Deps struct {
 	// read and publish through it.
 	Blob blob.Store
 	// WorkIndex is the shared identity/summary index over the work grains
-	// (tasks/106). Optional: New builds one over Blob when nil. A deployment
+	//. Optional: New builds one over Blob when nil. A deployment
 	// passes its own to share the index with services that write grains
 	// outside httpapi (copycat, workers) or to warm it at boot.
 	WorkIndex *workindex.Index
@@ -58,17 +58,17 @@ type Deps struct {
 	Suggest *suggest.Service
 	Abuse   *suggest.Abuse
 	// Authorities, when set, mounts the local-authority editing surface
-	// (tasks/046) and hooks the on-save auto-linker into record writes.
+	// and hooks the on-save auto-linker into record writes.
 	Authorities *authoritiesvc.Service
 	// Batch, when set, mounts batch operations, macros, and saved queries
-	// (tasks/047).
+	//.
 	Batch *batch.Service
 	// Profiles is the live editing-profile set the record/batch/authority
 	// surfaces map through. New synthesizes a defaults-only, read-only
 	// service when this is nil, so the field is optional for tests.
 	Profiles *profilesvc.Service
 	// Copycat, when set, mounts external search and staged imports
-	// (tasks/050).
+	//.
 	Copycat *copycat.Service
 	// Publisher, when set, carries approved decisions into the grain store
 	// (POST /v1/publish and the review publish flag).
@@ -80,12 +80,12 @@ type Deps struct {
 	Exports *export.Service
 	// OrgCode is the deployment's MARC organization code; MARC surfaces
 	// derive each record's 040 from graph facts at decode time when set
-	// (tasks/192).
+	//.
 	OrgCode string
 	// Enrich, when set, mounts the admin enrichment surface.
 	Enrich *enrich.Service
 	// VocabSources, when set, mounts the authority-source registry, the
-	// vocabulary download list, and the live suggest proxy (tasks/067).
+	// vocabulary download list, and the live suggest proxy.
 	VocabSources *vocabsrc.Service
 	// VocabUploadCapMB bounds hand-uploaded vocabulary dumps (0 = the
 	// 512MB default). The install is synchronous and in-memory, so a
@@ -99,7 +99,7 @@ type Deps struct {
 	// secrets.
 	ClientConfig map[string]any
 	// ExtraFacets lists the extras keys the works view facets on
-	// (tasks/171), e.g. "sources" for provenance triage.
+	//, e.g. "sources" for provenance triage.
 	ExtraFacets []string
 	// ReadOnly puts the instance in demo mode: editorial and config writes are
 	// rejected (paired with a read-only blob store), while authentication,
@@ -165,6 +165,7 @@ func New(deps Deps) http.Handler {
 		wl := registerWorksList(mux, ix, deps.Verifier, deps.ExtraFacets, deps.Vocab)
 		registerTags(mux, wl, deps.Verifier)
 		registerWorksSimilar(mux, ix, deps.Verifier, deps.Vocab)
+		registerAudit(mux, ix, deps.Verifier)
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {
 		registerAuthorities(mux, deps.Authorities, deps.Profiles, deps.Verifier, deps.Logger)
@@ -203,7 +204,7 @@ func New(deps Deps) http.Handler {
 		// /v1/ is an API namespace: with the SPA catch-all mounted, an
 		// unmatched path or method must answer as an API (JSON 404), never
 		// fall through to index.html with 200 text/html -- which made route
-		// typos and unsupported methods read as successes (tasks/201).
+		// typos and unsupported methods read as successes.
 		// ServeMux prefers this over "/" and every registered /v1 route
 		// over this; a catch-all also preempts the mux's native 405, so
 		// wrong-method requests answer 404 here (route-table tracking

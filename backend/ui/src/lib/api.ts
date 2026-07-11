@@ -22,6 +22,7 @@ import type {
   CopycatTemplate,
   MarcFieldError,
   DecidePromotionResponse,
+  DiversityReport,
   DuplicateGroup,
   WorkItem,
   WorkVisibility,
@@ -70,7 +71,7 @@ export class ApiError extends Error {
 }
 
 /** A cataloger-facing message for a failed call: service-internal prefixes
- *  ("batch: invalid request:") never escape to the UI (tasks/197); anything
+ * ("batch: invalid request:") never escape to the UI; anything
  *  that is not an ApiError gets the caller's fallback copy. */
 export function humanApiMessage(e: unknown, fallback: string): string {
   if (!(e instanceof ApiError)) return fallback;
@@ -86,7 +87,7 @@ export class ConflictError extends ApiError {
   }
 }
 
-/** A refusal carrying field-anchored validation errors (tasks/077). */
+/** A refusal carrying field-anchored validation errors. */
 export class FieldedApiError extends ApiError {
   constructor(
     status: number,
@@ -98,7 +99,7 @@ export class FieldedApiError extends ApiError {
 }
 
 // callRaw is call for non-JSON request bodies (cover uploads): the body
-// passes through untouched under its own content type (tasks/215).
+// passes through untouched under its own content type.
 async function callRaw<T>(method: string, path: string, body: BodyInit, contentType: string): Promise<T> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getToken();
@@ -154,12 +155,12 @@ async function call<T>(method: string, path: string, body?: unknown, headers?: R
     return (await res.json()) as T;
   }
   // A refreshed token that still 401s: the session is dead server-side.
-  // expireSession swaps the shell into its re-auth prompt (tasks/223).
+  // expireSession swaps the shell into its re-auth prompt.
   expireSession();
   throw new ApiError(401, "authentication failed");
 }
 
-/** The withdrawal review queue (tasks/078): reconciliation-flagged works
+/** The withdrawal review queue: reconciliation-flagged works
  *  awaiting a suppress-or-keep decision (librarian). */
 export function fetchWithdrawn(): Promise<{ works: WorkSummary[] }> {
   return call("GET", "/v1/withdrawn");
@@ -171,12 +172,12 @@ export function decideWithdrawn(workId: string, action: "keep" | "suppress"): Pr
   return call("POST", `/v1/works/${encodeURIComponent(workId)}/withdrawn`, { action });
 }
 
-/** Facet selections for the works list, keyed by group (tasks/168):
+/** Facet selections for the works list, keyed by group:
  *  visibility, holdings, needs, subject, tag. Values within a group OR;
  *  groups AND. */
 export type WorkFilters = Record<string, string[]>;
 
-/** How the works list treats retired records (tasks/280). The server defaults to
+/** How the works list treats retired records. The server defaults to
  *  `exclude`: a tombstone says "this record is retired", and a cataloger
  *  searching for a book is not looking for one. `only` answers "what did I
  *  retire?". */
@@ -224,7 +225,7 @@ export function postOps(workId: string, ops: Op[], opts: { ifMatch?: string; dry
   );
 }
 
-/** The MARC materialization of a work's records (librarian, tasks/049). */
+/** The MARC materialization of a work's records (librarian). */
 export function fetchMarc(workId: string): Promise<MarcResponse> {
   return call("GET", `/v1/works/${encodeURIComponent(workId)}/marc`);
 }
@@ -283,6 +284,14 @@ export function fetchStats(month: string): Promise<MonthStats> {
   return call("GET", `/v1/stats?${new URLSearchParams({ month })}`);
 }
 
+/** The content-diversity audit over the live work index (librarian). */
+export function fetchDiversityAudit(source?: string): Promise<DiversityReport> {
+  const q = new URLSearchParams();
+  if (source) q.set("source", source);
+  const qs = q.toString();
+  return call("GET", `/v1/audit/diversity${qs ? `?${qs}` : ""}`);
+}
+
 /** The suggestion review queue, optionally filtered (moderator). */
 export function fetchQueue(
   params: { status?: string; scheme?: string; provenance?: string; type?: string; cursor?: string; limit?: number } = {},
@@ -334,7 +343,7 @@ export function resolveTerm(scheme: string, id: string): Promise<Term> {
   // "|" cannot occur in a scheme or in an IRI, so it separates the two without
   // a control byte in the source: a raw NUL here made the whole file binary to
   // grep and git diff, and a silent grep miss reads as "the symbol is not
-  // there" rather than "I did not look" (tasks/241).
+  // there" rather than "I did not look".
   const key = `${scheme}|${id}`;
   let p = termCache.get(key);
   if (!p) {
@@ -364,7 +373,7 @@ export function setFolkTermStatus(action: "acceptFolk" | "blockFolk", folkTerm: 
   return call("POST", "/v1/terms", { action, folkTerm });
 }
 
-/** A work's visibility stance (librarian, tasks/051). */
+/** A work's visibility stance (librarian). */
 export function fetchVisibility(workId: string): Promise<WorkVisibility> {
   return call("GET", `/v1/works/${encodeURIComponent(workId)}/visibility`);
 }
@@ -389,7 +398,7 @@ export function fetchItems(workId: string): Promise<{ etag: string; items: Recor
  *  This is a read-modify-write: the panel loads a list, a human edits it, and
  *  the whole list is written back. `ifMatch` is the etag `fetchItems` returned,
  *  and it is required -- without it the save would delete any copy another
- *  cataloger added while the panel was open, and report success (tasks/273).
+ * cataloger added while the panel was open, and report success.
  *  A concurrent write surfaces as ConflictError carrying the fresh state. */
 export function putItems(
   workId: string,
@@ -428,7 +437,7 @@ export function fetchCopycatTargets(): Promise<{ targets: CopycatTarget[] }> {
 }
 
 /** The curated open presets, served from the same Go table the seeder uses so
- *  the UI cannot keep a copy that drifts (tasks/256). Blurbs are added UI-side. */
+ * the UI cannot keep a copy that drifts. Blurbs are added UI-side. */
 export function fetchSuggestedTargets(): Promise<{ targets: CopycatTarget[] }> {
   return call("GET", "/v1/copycat/targets/suggested");
 }
@@ -444,14 +453,14 @@ export function deleteCopycatTarget(name: string): Promise<void> {
 }
 
 /** Fans a query out to the external targets (librarian). Fielded terms AND
- *  onto the free-text query (tasks/074); per-target failures come back in
+ * onto the free-text query; per-target failures come back in
  *  `failures` rather than failing the search.
  *
  *  `warnings` names the targets that answered incompletely -- a stream that
  *  broke partway, or one the search limit cut short. Their hits ARE in
  *  `results`, so a warning must never suppress them; it tells the cataloger
  *  that "not in this result set" does not mean "not in this catalog"
- *  (tasks/258). */
+ *. */
 export function copycatSearch(query: string, fields?: CopycatFieldTerm[], targets?: string[]): Promise<{
   results: CopycatSearchResult[];
   failures: Record<string, string>;
@@ -520,12 +529,12 @@ export function deleteCopycatBatch(id: string): Promise<void> {
 }
 
 /** Rolls a committed batch back grain by grain; post-commit editorial edits
- *  survive as reported skips (librarian, tasks/068). */
+ * survive as reported skips (librarian). */
 export function revertCopycatBatch(id: string): Promise<CopycatRevertResult> {
   return call("POST", `/v1/copycat/batches/${encodeURIComponent(id)}/revert`);
 }
 
-/** The saved staging profiles (librarian, tasks/068). */
+/** The saved staging profiles (librarian). */
 export function fetchCopycatProfiles(): Promise<{ profiles: CopycatProfile[] }> {
   return call("GET", "/v1/copycat/profiles");
 }
@@ -633,7 +642,7 @@ export function deleteSavedQuery(id: string): Promise<void> {
 
 /** Local-authority listing (q="") or label search (librarian). `total` is the
     true count of local headings (or matches), so the screen can tell a full
-    page from a capped one (tasks/329). */
+    page from a capped one. */
 export function fetchAuthorities(q: string, limit = 50): Promise<{ terms: Term[]; total?: number }> {
   const params = new URLSearchParams({ q, limit: String(limit) });
   return call("GET", `/v1/authorities?${params}`);
@@ -679,14 +688,14 @@ export function proposePromotion(tag: string, term: { scheme: string; id: string
 
 /** Decides a pending promotion; approval runs the batch rewrite first and only
  *  stamps APPROVED when it succeeds, so a 500 here leaves the promotion PENDING
- *  and retryable (tasks/300). Reports the touched work count (librarian). */
+ * and retryable. Reports the touched work count (librarian). */
 export function decidePromotion(tag: string, approve: boolean): Promise<DecidePromotionResponse> {
   return call("POST", "/v1/promotions/decide", { tag, approve });
 }
 
 /** Removes a promotion record outright, freeing the tag to be proposed again
  *  (librarian). The escape hatch for a record the one-way state machine cannot
- *  leave -- notably an approval made with no publisher wired (tasks/300). */
+ * leave -- notably an approval made with no publisher wired. */
 export function deletePromotion(tag: string): Promise<void> {
   return call("DELETE", `/v1/promotions/${encodeURIComponent(tag)}`);
 }
@@ -696,12 +705,12 @@ export function fetchVocabSources(): Promise<{ sources: VocabSourceView[] }> {
   return call("GET", "/v1/vocabsources");
 }
 
-/** The patron-suggestion policy (admin, tasks/263). */
+/** The patron-suggestion policy (admin). */
 export function fetchSuggestionPolicy(): Promise<SuggestionPolicy> {
   return call("GET", "/v1/config/suggestions");
 }
 
-/** Stores the patron-suggestion policy; the write is audited (admin, tasks/263).
+/** Stores the patron-suggestion policy; the write is audited (admin).
  *  Returns the normalized policy the server saved. */
 export function putSuggestionPolicy(policy: SuggestionPolicy): Promise<SuggestionPolicy> {
   return call("PUT", "/v1/config/suggestions", policy);
@@ -761,7 +770,7 @@ export function vocabSuggest(source: string, q: string, limit = 10): Promise<{ s
   return call("GET", `/v1/vocabsuggest?${params}`);
 }
 
-/** The caller's item templates plus every shared one (librarian, tasks/069). */
+/** The caller's item templates plus every shared one (librarian). */
 export function fetchItemTemplates(): Promise<{ templates: ItemTemplate[] }> {
   return call("GET", "/v1/item-templates");
 }
@@ -782,7 +791,7 @@ export function deleteItemTemplate(id: string): Promise<void> {
 }
 
 /** Bulk item creation: N copies with auto-incrementing, collision-checked
- *  barcodes; dryRun previews the generated list (librarian, tasks/069). */
+ * barcodes; dryRun previews the generated list (librarian). */
 export function bulkAddItems(
   workId: string,
   req: {
@@ -800,32 +809,32 @@ export function bulkAddItems(
 }
 
 /** Creates an authority export job: all / by-vocabulary / label-filtered
- *  terms as MARC authority, SKOS N-Quads, or JSON-LD (librarian, tasks/069). */
+ * terms as MARC authority, SKOS N-Quads, or JSON-LD (librarian). */
 export function createAuthorityExport(format: ExportFormat, authorities: AuthoritySelection): Promise<ExportJob> {
   return call("POST", "/v1/exports", { format, authorities });
 }
 
 /** Live MARC preview: the staged ops applied to the current doc server-side
  *  and re-encoded as MARC -- nothing written. Empty ops previews the saved
- *  state (librarian, tasks/070). */
+ * state (librarian). */
 export function marcPreview(workId: string, ops: Op[]): Promise<MarcResponse> {
   return call("POST", `/v1/works/${encodeURIComponent(workId)}/marc/preview`, { ops });
 }
 
 /** Uploads a work's cover image (raw body, typed); returns the cover URL
- *  the editorial extra now points at (tasks/215). */
+ * the editorial extra now points at. */
 export async function putCover(workId: string, file: File): Promise<{ workId: string; cover: string; etag: string }> {
   return callRaw("PUT", `/v1/works/${encodeURIComponent(workId)}/cover`, file, file.type || "image/jpeg");
 }
 
-/** Removes a work's editorial cover and its stored bytes (tasks/215). */
+/** Removes a work's editorial cover and its stored bytes. */
 export function deleteCover(workId: string): Promise<void> {
   return call("DELETE", `/v1/works/${encodeURIComponent(workId)}/cover`);
 }
 
-/** One zip entry's fate in a batch cover upload (tasks/220).
+/** One zip entry's fate in a batch cover upload.
  *
- *  `skipped` and `failed` are different outcomes (tasks/268). A skipped entry
+ * `skipped` and `failed` are different outcomes. A skipped entry
  *  was rejected before anything was written -- a bad name, a wrong format. A
  *  failed entry asked the stores to do the work and they did not, so it is
  *  worth retrying. `changed` marks the entry whose cover statement was written
@@ -849,13 +858,13 @@ export interface CoverBatchResponse {
 }
 
 /** Uploads a zip of covers named <workId>.<ext> or <isbn>.<ext>; returns
- *  per-entry results (librarian, tasks/220). A partial failure answers 207,
+ * per-entry results (librarian). A partial failure answers 207,
  *  which `callRaw` treats as success -- the per-entry detail is the point. */
 export async function postCoverBatch(file: File): Promise<CoverBatchResponse> {
   return callRaw("POST", "/v1/covers/batch", file, "application/zip");
 }
 
-/** A work's staff attachments (librarian, tasks/229). */
+/** A work's staff attachments (librarian). */
 export function fetchAttachments(workId: string): Promise<{ attachments: string[] }> {
   return call("GET", `/v1/works/${encodeURIComponent(workId)}/attachments`);
 }
@@ -870,7 +879,7 @@ export async function putAttachment(workId: string, file: File, name = file.name
   );
 }
 
-/** Reports why a filename cannot be attached, or "" when it can (tasks/236).
+/** Reports why a filename cannot be attached, or "" when it can.
  *
  *  Attachments keep the name the cataloger's file already has, in whatever
  *  script it is written in; the server derives a safe blob path from the name
@@ -907,7 +916,7 @@ export async function fetchAttachmentBlob(workId: string, name: string): Promise
   return res.blob();
 }
 
-/** One linked work in a relations listing (tasks/221). */
+/** One linked work in a relations listing. */
 export interface RelationEntry {
   workId: string;
   title?: string;
@@ -928,7 +937,7 @@ export function removeRelation(workId: string, kind: "hasPart" | "partOf", targe
   return call("DELETE", `/v1/works/${encodeURIComponent(workId)}/relations`, { kind, target });
 }
 
-/** One computed neighbour of a work (tasks/284). `shared` names the attribute
+/** One computed neighbour of a work. `shared` names the attribute
  *  values that put it on the list -- the answer to "why is this here?". */
 export interface SimilarNeighbor {
   workId: string;
@@ -946,7 +955,7 @@ export function fetchSimilar(workId: string, limit?: number): Promise<{ similar:
 }
 
 /** Batch scheme-agnostic term resolve: stored subject URIs to full terms;
- *  unresolvable URIs are absent from the map (tasks/071). */
+ * unresolvable URIs are absent from the map. */
 export function resolveTermURIs(ids: string[]): Promise<{ terms: Record<string, Term> }> {
   const params = new URLSearchParams();
   for (const id of ids) params.append("id", id);
@@ -954,17 +963,17 @@ export function resolveTermURIs(ids: string[]): Promise<{ terms: Record<string, 
 }
 
 /** Caches a live pick's label and exactMatch links into the local index so
- *  the subject resolves forever (librarian, tasks/072). */
+ * the subject resolves forever (librarian). */
 export function cacheVocabTerm(sugg: VocabSuggestion): Promise<{ cached: boolean }> {
   return call("POST", "/v1/vocabcache", sugg);
 }
 
 /** Searches the copycat targets by the work's ISBNs and returns their 6XX
  *  headings, deduped and reconciled against the local index (librarian,
- *  tasks/073). Seconds-slow: target fan-out.
+ *). Seconds-slow: target fan-out.
  *
  *  `warnings` names targets whose answer was incomplete; their candidates are
- *  included, but the heading list may be short (tasks/258). */
+ * included, but the heading list may be short. */
 export function lookupSubjects(
   workId: string,
   targets?: string[],
@@ -973,7 +982,7 @@ export function lookupSubjects(
 }
 
 /** Each identifier value mapped to its BIBFRAME kind (isbn/issn/id) so the
- *  editor can badge the Identifiers field (librarian, tasks/073). */
+ * editor can badge the Identifiers field (librarian). */
 export function fetchIdentifierKinds(workId: string): Promise<{ workId: string; kinds: Record<string, string> }> {
   return call("GET", `/v1/works/${encodeURIComponent(workId)}/identifiers`);
 }

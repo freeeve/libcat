@@ -15,7 +15,7 @@ export interface ClientConfig {
   /** Sandbox demo: read-only, but the editor shows Save and renders edits as
    *  if committed (wiped on refresh). */
   sandbox?: boolean;
-  /** Extras keys the works view facets on (LCATD_EXTRA_FACETS, tasks/171);
+  /** Extras keys the works view facets on (LCATD_EXTRA_FACETS);
    *  each is a facet-rail group and its own query parameter. */
   extraFacets?: string[];
 }
@@ -27,7 +27,7 @@ export interface WorkSummary {
   Contributors: string[];
   ISBNs: string[];
   Tags: string[];
-  /** Visibility + holdings signals (tasks/078): the editor list shows
+  /** Visibility + holdings signals: the editor list shows
    *  everything, so rows badge what public projection would do. */
   Suppressed?: boolean;
   Tombstoned?: boolean;
@@ -37,8 +37,8 @@ export interface WorkSummary {
   HasAvailability?: boolean;
 }
 
-/** One facet value with its work count (tasks/168). Subject values carry
- * the vocabulary scheme the IRI resolves to (tasks/174). */
+/** One facet value with its work count. Subject values carry
+ * the vocabulary scheme the IRI resolves to. */
 export interface FacetCount {
   value: string;
   count: number;
@@ -52,7 +52,7 @@ export interface WorksPage {
   matched?: number;
   offset?: number;
   /** Self-excluding facet counts by group: visibility, holdings, needs,
-   *  subject, tag (tasks/168). */
+   * subject, tag. */
   facets?: Record<string, FacetCount[]>;
 }
 
@@ -80,7 +80,7 @@ export interface ResourceDoc {
 export interface WorkDoc {
   workId: string;
   profileId: string;
-  /** The instance profile that shapes the instance forms (tasks/345); absent
+  /** The instance profile that shapes the instance forms; absent
    *  when no instance profile is configured. */
   instanceProfileId?: string;
   work: ResourceDoc;
@@ -92,7 +92,7 @@ export interface WorkDocResponse {
   etag: string;
   doc: WorkDoc;
   /** The work's cover URL, or "". Not a profile field, so it is not in
-   *  doc.work.fields -- the Cover panel reads it here (tasks/242). */
+   * doc.work.fields -- the Cover panel reads it here. */
   cover?: string;
 }
 
@@ -125,7 +125,7 @@ export interface Diff {
   removed: string[];
 }
 
-/** A saved doc's identity collision with another work (tasks/068). */
+/** A saved doc's identity collision with another work. */
 export interface DuplicateMatch {
   workId: string;
   via: "identifier" | "title-author";
@@ -174,7 +174,7 @@ export interface AuditEntry {
   terms?: string[];
   note?: string;
   etag?: string;
-  /** Ties a bulk run's per-record entries to its aggregate entry (tasks/239). */
+  /** Ties a bulk run's per-record entries to its aggregate entry. */
   runId?: string;
 }
 
@@ -233,11 +233,11 @@ export interface Term {
   exactMatch?: string[];
   closeMatch?: string[];
   mergedInto?: string; // set = retired: merged into the referenced term
-  /** Ancestor chain root → … → parent (search hits only, tasks/079). */
+  /** Ancestor chain root → … → parent (search hits only). */
   path?: TermRef[];
 }
 
-/** bibframe.AuthorityTerm -- one local authority description (tasks/046). */
+/** bibframe.AuthorityTerm -- one local authority description. */
 export interface AuthorityTerm {
   uri?: string; // server-assigned, read-only
   prefLabel: Record<string, string>; // lang -> label ("" = untagged)
@@ -263,7 +263,7 @@ export interface AuthorityMergeResult {
   winner: string;
   /** Work grains repointed at the winner. On a failed merge, what landed before it stopped. */
   rewritten: number;
-  /** Works naming the loser when the pass began; rewritten < carriers means retry to finish (tasks/305). */
+  /** Works naming the loser when the pass began; rewritten < carriers means retry to finish. */
   carriers: number;
   /** Every carrier rewritten and the loser retired. */
   complete: boolean;
@@ -305,7 +305,7 @@ export interface ProfileField {
 /** Every suggestion type, as a runtime array so the queue's Type filter derives
  *  from the same source as the type -- a hand-kept filter list is exactly how
  *  CONCERN got left out of the dropdown while the type union carried it
- *  (tasks/333). */
+ *. */
 export const SUGG_TYPES = ["ADD", "REMOVE", "CONCERN"] as const;
 export type SuggType = (typeof SUGG_TYPES)[number];
 export type SuggStatus = "PENDING" | "APPROVED" | "REJECTED" | "DISPUTED";
@@ -323,7 +323,7 @@ export interface Suggestion {
   confidence?: number;
   workTitle?: string;
   sourceRef?: string;
-  /** A concern's freetext (type CONCERN, tasks/210). */
+  /** A concern's freetext (type CONCERN). */
   note?: string;
   createdAt: string;
   lastActivityAt: string;
@@ -358,7 +358,7 @@ export interface ReviewResponse {
   approvedPending?: number;
   publishNote?: string;
   /** Decisions another moderator resolved first, so they were discarded
-   *  rather than applied (tasks/257). */
+   * rather than applied. */
   staleDecisions?: Decision[];
 }
 
@@ -376,14 +376,14 @@ export interface TagCount {
   count: number;
 }
 
-/** batch.Selection -- names a set of works for a batch run (tasks/047). */
+/** batch.Selection -- names a set of works for a batch run. */
 export interface Selection {
   kind: "ids" | "search" | "savedQuery" | "all" | "importBatch";
   ids?: string[];
   query?: string;
   savedQueryId?: string;
   /** Facet filters, AND across groups and OR within one, on kind=search and
-   *  kind=all (tasks/254). Same groups the works rail offers. */
+   * kind=all. Same groups the works rail offers. */
   facets?: Record<string, string[]>;
   /** exclude|include|only over retired records. A selection defaults to
    *  include, unlike the works listing; the works screen sends exclude. */
@@ -476,12 +476,12 @@ export interface MarcResponse {
   knownLoss: Record<string, string>;
 }
 
-/** bibframe.WorkVisibility -- a work's projection stance (tasks/051). */
+/** bibframe.WorkVisibility -- a work's projection stance. */
 export interface WorkVisibility {
   tombstoned: boolean;
   redirectTo?: string;
   suppressed: boolean;
-  /** Date the feed reconciliation flagged the work withdrawn (tasks/078). */
+  /** Date the feed reconciliation flagged the work withdrawn. */
   withdrawn?: string;
   suppressedBy?: string;
   kept?: boolean;
@@ -496,7 +496,7 @@ export interface WorkItem {
   note?: string;
 }
 
-/** batch.ItemTemplate -- a saved item field set (tasks/069). */
+/** batch.ItemTemplate -- a saved item field set. */
 export interface ItemTemplate {
   id?: string;
   label: string;
@@ -524,7 +524,7 @@ export interface CopycatTarget {
   protocol: "sru" | "z3950";
   /** SRU dialect knobs (Z39.50 ignores them): protocol version, requested
    *  recordSchema, and per-access-point CQL index overrides for servers off the
-   *  Bath mapping, e.g. K10plus {isbn: "pica.isb"} (tasks/256). */
+   * Bath mapping, e.g. K10plus {isbn: "pica.isb"}. */
   version?: string;
   schema?: string;
   indexes?: Record<string, string>;
@@ -556,7 +556,7 @@ export interface CopycatFieldTerm {
   term: string;
 }
 
-/** copycat.Template -- a blank-record MARC skeleton (tasks/077). */
+/** copycat.Template -- a blank-record MARC skeleton. */
 export interface CopycatTemplate {
   id: string;
   label: string;
@@ -597,7 +597,7 @@ export interface CopycatBatch {
   revertAt?: string;
 }
 
-/** copycat.Profile -- a saved staging configuration (tasks/068). */
+/** copycat.Profile -- a saved staging configuration. */
 export interface CopycatProfile {
   name: string;
   targets?: string[];
@@ -614,7 +614,7 @@ export interface CopycatRevertResult {
 export type ExportFormat = "marc" | "nquads" | "jsonld" | "csv";
 export type ExportStatus = "QUEUED" | "RUNNING" | "DONE" | "FAILED";
 
-/** export.AuthoritySelection -- scopes an authority export (tasks/069). */
+/** export.AuthoritySelection -- scopes an authority export. */
 export interface AuthoritySelection {
   all?: boolean;
   vocabs?: string[];
@@ -657,11 +657,11 @@ export interface DecidePromotionResponse {
 }
 
 /** suggest.FreeTextMode -- whether patrons may propose folksonomy tags, and
- *  which (tasks/263): off (none), existing (only tags already in use), any. */
+ * which: off (none), existing (only tags already in use), any. */
 export type FreeTextMode = "off" | "existing" | "any";
 
 /** suggest.Policy -- the deployment's opt-in patron-suggestion policy
- *  (tasks/263). enabled gates the whole public intake; schemes is the allowlist
+ *. enabled gates the whole public intake; schemes is the allowlist
  *  of controlled vocabularies patrons may propose from (empty = every loaded
  *  scheme); freeText governs folksonomy tags. It binds patrons only -- a
  *  cataloger adds any term through the review queue regardless. */
@@ -671,7 +671,7 @@ export interface SuggestionPolicy {
   freeText: FreeTextMode;
 }
 
-/** vocabsrc.Source -- one public authority source (tasks/067). */
+/** vocabsrc.Source -- one public authority source. */
 export interface VocabSource {
   name: string;
   scheme: string;
@@ -713,18 +713,18 @@ export interface VocabSourceView extends VocabSource {
   installed?: VocabInstall;
   job?: VocabJob;
   /** The row is synthesized from an install with no source record behind it, so
-   *  only Remove can act on it -- everything else answers 404 (tasks/255). */
+   * only Remove can act on it -- everything else answers 404. */
   orphan?: boolean;
   /** The scheme serves from sidecar artifacts on disk rather than resident
-   *  maps (tasks/267). */
+   * maps. */
   sidecar?: boolean;
   /** Terms this scheme holds resident in memory -- the whole scheme when
-   *  map-backed, just the live-pick overlay when sidecar-backed (tasks/267). */
+   * map-backed, just the live-pick overlay when sidecar-backed. */
   residentTerms?: number;
 }
 
 /** httpapi.subjectCandidate -- one external heading found by ISBN lookup
- *  (tasks/073); term set = whole-heading match in a loaded vocabulary. */
+ *; term set = whole-heading match in a loaded vocabulary. */
 export interface SubjectCandidate {
   heading: string;
   tag: string;
@@ -744,4 +744,23 @@ export interface VocabSuggestion {
   /** Variant/"used for" labels when the source exposes them (suggest2). */
   variants?: string[];
   exactMatch?: string[];
+}
+
+/** One category tally in the diversity audit (httpapi auditResponse). */
+export interface DiversityCategory {
+  id: string;
+  label: string;
+  works: number;
+  shareCovered: number;
+  shareTotal: number;
+}
+
+/** GET /v1/audit/diversity -- the coverage-first content-diversity report. */
+export interface DiversityReport {
+  input: string;
+  scope?: string;
+  totalWorks: number;
+  coveredWorks: number;
+  coverage: number;
+  categories: DiversityCategory[];
 }

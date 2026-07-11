@@ -1,4 +1,4 @@
-// Snapshot persistence for the work index (tasks/155): a cold start loads the
+// Snapshot persistence for the work index: a cold start loads the
 // projection from one blob instead of GETting every grain. The snapshot is the
 // in-memory projection (identity + merges + barcodes + summaries per grain),
 // serialized as gzipped JSON -- portable, inspectable, and readable by the
@@ -29,12 +29,14 @@ const DefaultSnapshotPath = "data/workindex.snapshot"
 
 // snapshotVersion is the on-disk schema version; a mismatch falls back to a full
 // scan rather than risk decoding an incompatible layout. v2: summaries carry
-// Extras (tasks/171) -- a v1 snapshot would silently serve extras-less
-// summaries for every unchanged grain, so it must rebuild.
-const snapshotVersion = 2
+// Extras -- a v1 snapshot would silently serve extras-less
+// summaries for every unchanged grain, so it must rebuild. v3: summaries carry
+// Headings -- a v2 snapshot would serve heading-less summaries and silently
+// undercount the diversity audit's keyword dimension.
+const snapshotVersion = 3
 
 // snapshotEntry is one grain's projected state, the JSON-portable mirror of the
-// unexported grainEntry. Shared shape with the change feed (tasks/156).
+// unexported grainEntry. Shared shape with the change feed.
 type snapshotEntry struct {
 	Path      string                 `json:"path"`
 	ETag      string                 `json:"etag"`
@@ -45,7 +47,7 @@ type snapshotEntry struct {
 }
 
 // snapshotFile is the whole persisted projection: a version tag, the fold epoch
-// it was taken at (shared with the change feed, tasks/156), and the grain
+// it was taken at (shared with the change feed), and the grain
 // entries in path order.
 type snapshotFile struct {
 	Version int             `json:"version"`
@@ -122,7 +124,7 @@ func (ix *Index) LoadSnapshot(ctx context.Context) error {
 // the primed entries: primed is the entry count the snapshot supplied,
 // refetched how many of those the ETag diff re-read anyway. refetched near
 // primed means the snapshot was built against a store with a different ETag
-// scheme (a dir-built seed copied into S3, tasks/162) -- correctness holds,
+// scheme (a dir-built seed copied into S3) -- correctness holds,
 // but the boot degrades to the full corpus scan the snapshot was meant to
 // avoid. Both are zero until a load-then-reconcile cycle completes.
 func (ix *Index) SnapshotDrift() (primed, refetched int) {
@@ -136,7 +138,7 @@ func (ix *Index) SnapshotDrift() (primed, refetched int) {
 
 // WarmScan reconciles against a fresh listing like RefreshNow, but fetches
 // changed grains with workers concurrent GETs and reports progress after each
-// -- the offline seed tool's path (tasks/162), where a sequential reconcile
+// -- the offline seed tool's path, where a sequential reconcile
 // over a high-latency store takes hours. Not for concurrent use with writers:
 // a grain written between the List and the final merge may be recorded stale
 // until the next refresh. progress may be nil.
@@ -283,7 +285,7 @@ func (ix *Index) loadSnapshotLocked(ctx context.Context) error {
 	}
 	ix.dirty = true
 	ix.at = time.Time{} // force the next refresh to reconcile the delta
-	// Arm the drift counter (tasks/162): the next reconcile measures how many
+	// Arm the drift counter: the next reconcile measures how many
 	// primed entries its ETag diff re-fetches anyway.
 	ix.primePending = true
 	ix.primeEntries = len(file.Entries)

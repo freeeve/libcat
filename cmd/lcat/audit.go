@@ -14,16 +14,16 @@ import (
 
 // runAudit reports the content-diversity profile of a projected catalog: how many
 // works fall into each diversity category, derived from their controlled subjects
-// via the diversity crosswalk (tasks/365/366). It reads catalog.json (the `lcat
+// via the diversity crosswalk. It reads catalog.json (the `lcat
 // project` output, which carries each subject's authority URI and heading labels),
 // never the graph, and it is coverage-first: every category share is stated against
 // an explicit denominator so undercounting is visible.
 //
 // This measures what works are ABOUT, from their subject headings. It says nothing
 // about the identity of their creators -- that is a separate, opt-in axis
-// (tasks/368).
+// .
 func runAudit(args []string) error {
-	fs := flag.NewFlagSet("audit", flag.ExitOnError)
+	fs := flag.NewFlagSet("diversity-audit", flag.ExitOnError)
 	catalogJSON := fs.String("catalog", "", "path to a projected catalog.json (from `lcat project`) -- audits the PUBLIC view")
 	graphNQ := fs.String("graph", "", "path to a catalog.nq dataset -- audits the FULL corpus, including works the projection suppresses")
 	crosswalk := fs.String("crosswalk", "",
@@ -143,7 +143,7 @@ func (f filterFlags) match(extra map[string]string) bool {
 }
 
 // valueMatches reports whether an extra's value satisfies a filter value: an
-// exact match or, for comma-joined extras (the `sources` convention, tasks/171),
+// exact match or, for comma-joined extras (the `sources` convention),
 // any comma-separated element matching.
 func valueMatches(got, want string) bool {
 	if got == want {
@@ -163,7 +163,7 @@ func valueMatches(got, want string) bool {
 // bf:subject Topic as a Tag, but for the audit it is the same subject-heading
 // signal -- an ILS feed carries it as a label-only Subject, a direct-BIBFRAME
 // feed as a Tag, and the graph input sees both as bf:subject -- so counting
-// tags keeps the three paths measuring the same thing (tasks/372).
+// tags keeps the three paths measuring the same thing.
 func auditRefs(w project.Work) []diversity.SubjectRef {
 	refs := make([]diversity.SubjectRef, 0, len(w.Subjects)+len(w.Tags))
 	for _, s := range w.Subjects {

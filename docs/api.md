@@ -550,6 +550,7 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `GET` | `/covers/{file}` | public | `cover_handlers.go` |
 | `ANY` | `/v1/` | public | `httpapi.go` |
 | `GET` | `/v1/audit` | librarian | `review_handlers.go` |
+| `GET` | `/v1/audit/diversity` | librarian | `audit_handler.go` |
 | `POST` | `/v1/auth/exchange` | public | `httpapi.go` |
 | `POST` | `/v1/auth/login` | public | `auth_handlers.go` |
 | `POST` | `/v1/auth/logout` | public | `auth_handlers.go` |

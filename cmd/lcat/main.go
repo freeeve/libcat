@@ -91,9 +91,11 @@ func main() {
 			fmt.Fprintln(os.Stderr, "lcat covers:", err)
 			os.Exit(1)
 		}
-	case "audit":
+	// "audit" is the pre-rename alias (v0.172.0-v0.175.x adopters); the
+	// documented name says what kind of audit it is.
+	case "diversity-audit", "audit":
 		if err := runAudit(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "lcat audit:", err)
+			fmt.Fprintln(os.Stderr, "lcat diversity-audit:", err)
 			os.Exit(1)
 		}
 	default:
@@ -125,7 +127,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "                    [--from-catalog]   (no network: snapshot from catalog.json's own labels, e.g. FAST)")
 	fmt.Fprintln(os.Stderr, "  lcat covers --store <blob-root> [--reap] [--json]")
 	fmt.Fprintln(os.Stderr, "              (cover blobs no grain references; they keep serving publicly until reaped)")
-	fmt.Fprintln(os.Stderr, "  lcat audit (--graph <catalog.nq> | --catalog <catalog.json>) [--crosswalk <override.toml,...>]")
+	fmt.Fprintln(os.Stderr, "  lcat diversity-audit (--graph <catalog.nq> | --catalog <catalog.json>) [--crosswalk <override.toml,...>]")
 	fmt.Fprintln(os.Stderr, "             [--filter k=v]... [--source <name>] [--format text|json] [--out <file>]")
 	fmt.Fprintln(os.Stderr, "             (content-diversity audit, coverage-first; --graph = full corpus incl. suppressed,")
 	fmt.Fprintln(os.Stderr, "              --catalog = the public projection)")

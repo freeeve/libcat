@@ -26,16 +26,22 @@ type WorkSummary struct {
 	// reconciliation enrichers match against.
 	Tags []string
 	// Subjects are the Work's controlled subject IRIs (bf:subject with an
-	// IRI object, any graph) -- what authority merges rewrite (tasks/046).
+	// IRI object, any graph) -- what authority merges rewrite.
 	Subjects []string
+	// Headings are the heading labels of those controlled subjects, where the
+	// grain describes them (skos:prefLabel or rdfs:label on the authority
+	// node) -- the keyword dimension of the diversity audit. Unordered and not
+	// paired with Subjects: the audit unions per-work category hits, so
+	// pairing carries no extra signal.
+	Headings []string `json:",omitempty"`
 	// Series and Languages are the similarity scorer's two strongest signals
-	// (tasks/284): two books in one series are related whatever else they
+	//: two books in one series are related whatever else they
 	// share, and a reader of one language is rarely served a book in another.
 	// Series holds the Work's series statements, read off its bf:relation
-	// series relations (tasks/309); Languages are bf:language local names ("en").
+	// series relations; Languages are bf:language local names ("en").
 	Series    []string `json:",omitempty"`
 	Languages []string `json:",omitempty"`
-	// Visibility and holdings signals for the admin works list (tasks/078):
+	// Visibility and holdings signals for the admin works list:
 	// the editor deliberately shows everything, so each row says what the
 	// public projection would do with it.
 	Suppressed bool   `json:",omitempty"`
@@ -50,14 +56,14 @@ type WorkSummary struct {
 	// Extras carries the Work's lcat:extra/* literals -- deployment-defined
 	// key/value metadata the feed graph attaches (bibframe.addWorkExtras),
 	// e.g. sources: "loc, mombian". The admin works view facets provenance
-	// on configured keys (tasks/171); multi-valued keys are comma-joined by
+	// on configured keys; multi-valued keys are comma-joined by
 	// convention and split at facet time.
 	Extras map[string]string `json:",omitempty"`
 }
 
 // Matches reports whether the summary matches a lowercased search query --
 // substring over title, id, contributors, tags, and ISBNs. One matcher
-// serves the works listing and batch search selections (tasks/047), so a
+// serves the works listing and batch search selections, so a
 // saved query means the same thing everywhere.
 func (s WorkSummary) Matches(q string) bool {
 	if strings.Contains(strings.ToLower(s.Title), q) || strings.Contains(strings.ToLower(s.WorkID), q) {
@@ -82,7 +88,7 @@ func (s WorkSummary) Matches(q string) bool {
 }
 
 // ExternalIdentity is an outward link to a hub resource that identifies the same
-// Work in another system (tasks/066): the hub URI and its short scheme
+// Work in another system: the hub URI and its short scheme
 // ("openlibrary", "wikidata", "lchub"). Rendered as owl:sameAs; the minted `w…`
 // id stays primary.
 type ExternalIdentity struct {
@@ -94,13 +100,13 @@ type ExternalIdentity struct {
 type Enrichment struct {
 	WorkID   string
 	Subjects []AuthoritySubject
-	// Identities are outward links to external hubs (tasks/066), rendered as
+	// Identities are outward links to external hubs, rendered as
 	// owl:sameAs into the enrichment graph alongside any subjects.
 	Identities []ExternalIdentity
 	// Terms carries standalone term descriptions -- typically the
 	// skos:broader ancestor chains of Subjects -- asserted into the
 	// enrichment graph as labels + hierarchy only, with no link to the Work
-	// (tasks/178). They keep ancestor nodes labeled in projections that roll
+	//. They keep ancestor nodes labeled in projections that roll
 	// subtree data up the hierarchy even when no work carries the ancestor
 	// directly.
 	Terms []AuthoritySubject
@@ -136,7 +142,7 @@ func RunEnrich(ctx context.Context, st blob.Store, prefix string, e Enricher) (i
 	}
 	// Collect every batch's results before writing: post-merge grains hold
 	// several Works sharing one path, and replacing the graph once per Work
-	// would wipe the sibling Work's statements (tasks/102) -- so group by
+	// would wipe the sibling Work's statements -- so group by
 	// grain and write each grain exactly once.
 	byGrain := map[string][]Enrichment{}
 	for start := 0; start < len(summaries); start += enrichBatchSize {
@@ -170,7 +176,7 @@ func RunEnrich(ctx context.Context, st blob.Store, prefix string, e Enricher) (i
 
 // enrichmentQuads renders one enrichment as self-contained statements: the
 // subject links plus each term's labels and hierarchy, then the standalone
-// Terms descriptions (ancestor-chain metadata with no work link, tasks/178),
+// Terms descriptions (ancestor-chain metadata with no work link),
 // all destined for the enricher's own graph.
 func enrichmentQuads(res Enrichment) []rdf.Quad {
 	var quads []rdf.Quad
@@ -218,7 +224,7 @@ func termQuads(subj AuthoritySubject) []rdf.Quad {
 // conditional write, retrying from fresh on conflict. The graph's new
 // contents are the fresh statements for the Works in results, plus the
 // preserved statements of any co-grained Work the enricher did not return --
-// those must stay untouched per RunEnrich's contract (tasks/102).
+// those must stay untouched per RunEnrich's contract.
 func replaceGrainEnrichment(ctx context.Context, st blob.Store, grainPath string, graph rdf.Term, results []Enrichment) error {
 	resolved := map[string]bool{}
 	var fresh []rdf.Quad
@@ -301,13 +307,13 @@ func grainWorkID(t rdf.Term) string {
 }
 
 // availabilitySources are the bf:source schemes a runtime availability
-// adapter can resolve -- the digital-holding signal (tasks/078); mirrors the
+// adapter can resolve -- the digital-holding signal; mirrors the
 // projector's list.
 var availabilitySources = map[string]bool{"overdrive-reserve": true}
 
 // SummarySource yields the corpus's WorkSummaries plus each Work's grain
 // path without a fresh corpus walk -- the seam a maintained index (the
-// backend's workindex, tasks/106/109) plugs into where workers would
+// backend's workindex) plugs into where workers would
 // otherwise each run their own ScanSummaries. Both return values are shared,
 // read-only views.
 type SummarySource interface {
@@ -355,7 +361,7 @@ func ScanSummaries(ctx context.Context, st blob.Store, prefix string) ([]WorkSum
 
 // SummarizeGrain extracts the WorkSummaries a grain carries (post-merge
 // grains can hold several Works). Exported for callers that already hold the
-// grain bytes, like the on-save authority auto-linker (tasks/046).
+// grain bytes, like the on-save authority auto-linker.
 func SummarizeGrain(grain []byte) ([]WorkSummary, error) {
 	ds, err := rdf.ParseNQuads(grain)
 	if err != nil {
@@ -377,7 +383,7 @@ func sortedUnique(vs []string) []string {
 }
 
 // seriesTitles reads a Work's series statements for the similarity scorer
-// (tasks/309). Titles only: what links two Works is the series they are both in,
+// . Titles only: what links two Works is the series they are both in,
 // and an enumeration two unrelated series happen to share is a coincidence.
 //
 // libcodex >= v0.25.0 hangs one bf:relation per 490 on the Work. bf:relation also
@@ -428,14 +434,15 @@ func seriesTitles(g *rdf.Graph, work rdf.Term) []string {
 // parse).
 func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 	const (
-		bfNS      = "http://id.loc.gov/ontologies/bibframe/"
-		rdfsLabel = "http://www.w3.org/2000/01/rdf-schema#label"
+		bfNS          = "http://id.loc.gov/ontologies/bibframe/"
+		rdfsLabel     = "http://www.w3.org/2000/01/rdf-schema#label"
+		skosPrefLabel = "http://www.w3.org/2004/02/skos/core#prefLabel"
 	)
 	// One merged view over all graphs; enrichers see feed + editorial data.
 	// Built in one exactly-sized pass straight off the quads, in the same
 	// graph-grouped order Dataset.Graph would yield: materializing each
 	// graph and re-Adding tripled the copies and dominated the per-grain
-	// allocation profile at workindex boot/refresh scale (tasks/121).
+	// allocation profile at workindex boot/refresh scale.
 	merged := &rdf.Graph{Triples: make([]rdf.Triple, 0, len(ds.Quads))}
 	for _, gt := range ds.Graphs() {
 		for i := range ds.Quads {
@@ -445,7 +452,7 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 		}
 	}
 	// lcat:extra/* literals by subject, one pass: deployment-defined Work
-	// metadata the feed graph carries (tasks/171).
+	// metadata the feed graph carries.
 	extras := map[string]map[string]string{}
 	for _, tr := range merged.Triples {
 		key, ok := strings.CutPrefix(tr.P.Value, bibframe.ExtraPred)
@@ -481,13 +488,21 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 		for _, subj := range merged.Objects(work, bfNS+"subject") {
 			// A grain-local node (blank or fragment IRI like an editor
 			// skolem) is an uncontrolled heading, not a controlled term
-			// (tasks/218).
+			//.
 			if subj.IsBlank() || (subj.IsIRI() && bibframe.GrainLocalIRI(subj.Value)) {
 				if label, ok := merged.Literal(subj, rdfsLabel); ok {
 					s.Tags = append(s.Tags, label)
 				}
 			} else if subj.IsIRI() {
 				s.Subjects = append(s.Subjects, subj.Value)
+				// The authority's heading label, when the grain describes it
+				// (skos:prefLabel from a vocabulary snapshot or rdfs:label
+				// from the feed) -- the diversity audit's keyword dimension.
+				if label, ok := merged.Literal(subj, skosPrefLabel); ok {
+					s.Headings = append(s.Headings, label)
+				} else if label, ok := merged.Literal(subj, rdfsLabel); ok {
+					s.Headings = append(s.Headings, label)
+				}
 			}
 		}
 		for _, tag := range merged.Objects(work, bibframe.PredTag) {
@@ -516,11 +531,11 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 			}
 			s.Items += len(merged.Objects(inst, bfNS+"hasItem"))
 		}
-		// Series hang off the Work since libcodex v0.25.0 (tasks/309), which is
+		// Series hang off the Work since libcodex v0.25.0, which is
 		// where similarity wanted them anyway: a reader wants the next book, not
-		// the next printing (tasks/284).
+		// the next printing.
 		s.Series = seriesTitles(merged, work)
-		// Visibility + reconciliation stance (tasks/078); statements are
+		// Visibility + reconciliation stance; statements are
 		// editorial, so the merged view carries them.
 		s.Tombstoned = len(merged.Objects(work, bibframe.PredTombstoned)) > 0
 		if v, ok := merged.Literal(work, bibframe.PredSuppressed); ok {
@@ -538,7 +553,7 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 		// s.Series needs no sortedUnique here: seriesTitles reads one Work-level
 		// relation set and returns it sorted and de-duplicated. The old cross-
 		// instance dedupe existed because every printing transcribed the same 490
-		// (tasks/286); the graph no longer repeats it per Instance.
+		//; the graph no longer repeats it per Instance.
 		s.Languages = sortedUnique(s.Languages)
 		out = append(out, s)
 	}
