@@ -71,3 +71,8 @@ node "$here/browse-scope.spec.mjs" "http://127.0.0.1:$bigport"
 # first page of a match set, the pages must partition it, a page must be
 # deep-linkable, and clearing must restore the static list and its corpus pager.
 node "$here/browse-pager.spec.mjs" "http://127.0.0.1:$bigport"
+
+# Facet selections in the URL (tasks/349). A faceted page must reconstruct from a
+# cold ?f=/?x= deep link (alongside ?q= and ?page=), pager links must carry the
+# facet, and clearing must drop it from the URL.
+node "$here/browse-facet-url.spec.mjs" "http://127.0.0.1:$bigport"

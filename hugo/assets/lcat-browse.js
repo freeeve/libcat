@@ -166,6 +166,7 @@ function start() {
           for (let i = 0; i < allIds.length; i++) allIds[i] = i;
           if (adoptSidebar()) treeifySidebar();
           else if (!sharedPending()) renderPanel();
+          reconstructFacets();
           return true;
         })
         .catch((e) => {
@@ -318,6 +319,7 @@ function start() {
       treeifySidebar();
       refresh();
     } else renderPanel();
+    reconstructFacets();
   });
 
   /** browseConfig reads the list template's config blob: the localized
@@ -626,6 +628,16 @@ function start() {
     state.excluded.forEach((id) => {
       if (eng.meta[id]) ancestryOf(eng, id, active);
     });
+    // A facet deep link may target a subject in a collapsed branch that has no
+    // row yet -- force its branch open so reconstructFacets can then check it
+    // (tasks/349). Only during a pending cold restore, so normal renders are
+    // unaffected.
+    if (facetRestorePending) {
+      urlSelection.forEach((f) => {
+        if (f.field === "subject" && eng.meta[f.cat])
+          ancestryOf(eng, f.cat, active);
+      });
+    }
     let visible = null; // null = unfiltered: capped roots + active branches
     if (q) {
       visible = new Set(active);
@@ -721,6 +733,8 @@ function start() {
         renderTree(eng, scheme, ul, "");
         wireTreeFilter(eng, scheme, details, ul);
       });
+      // Trees now rendered; apply a pending facet deep link (tasks/349).
+      reconstructFacets();
     });
   }
 
@@ -845,6 +859,9 @@ function start() {
       // A deep link (?q=) can refresh before the panel exists; repaint the
       // fresh rows from the live set (tasks/177).
       applyLiveCounts();
+      // The panel (and its subject trees) now exist; apply a pending facet deep
+      // link now that its rows are in the DOM (tasks/349).
+      reconstructFacets();
     });
   }
 
@@ -1014,6 +1031,14 @@ function start() {
   let pageSeq = 0; // guards concurrent page renders independently of query seq
   let pagerHost = null;
 
+  // Facet deep links (tasks/349): the selection encoded in the URL (?f=/?x=),
+  // reconstructed into the facet UI on load and back/forward. facetRestorePending
+  // holds while a cold load waits for the async facet UI to build, so renderTree
+  // can force-open a restored subject's branch and pendingPage survives until the
+  // selection is applied.
+  let urlSelection = [];
+  let facetRestorePending = false;
+
   /** ensurePagerHost lazily creates the pager's nav landmark after the list. */
   function ensurePagerHost() {
     if (pagerHost && pagerHost.isConnected) return pagerHost;
@@ -1052,14 +1077,30 @@ function start() {
     return out;
   }
 
-  /** pageHref builds the URL for page p (1-based in the URL, omitted for page
-   * one), preserving the active query and any other params/hash so the link is
-   * shareable and degrades to a real navigation if the click handler is gone. */
-  function pageHref(p) {
+  /** selectionParams builds the query string for the current browse state: the
+   * text query (q) and the active facet selection (repeated f= includes and x=
+   * excludes, each "field:category"), preserving any foreign params already in
+   * the URL. The single source both the address bar and the pager links draw
+   * from, so a pager link never drops the facets (tasks/301, 349). */
+  function selectionParams() {
     const params = new URLSearchParams(window.location.search);
     const q = input.value.trim();
     if (q) params.set("q", q);
     else params.delete("q");
+    params.delete("f");
+    params.delete("x");
+    selected().forEach((f) => {
+      if (Array.isArray(f)) params.append("f", f[0] + ":" + f[1]);
+      else params.append("x", f.field + ":" + f.category);
+    });
+    return params;
+  }
+
+  /** pageHref builds the URL for page p (1-based in the URL, omitted for page
+   * one), carrying the active query and facets so the link is shareable and
+   * degrades to a real navigation if the click handler is gone (tasks/301, 349). */
+  function pageHref(p) {
+    const params = selectionParams();
     if (p > 0) params.set("page", String(p + 1));
     else params.delete("page");
     const qs = params.toString();
@@ -1170,15 +1211,12 @@ function start() {
     renderPage();
   }
 
-  /** updateURL syncs the active query and page into the address bar so paging
-   * is shareable and the back button returns to the page the reader left.
-   * Query typing replaces (no history spam); a pager click pushes. Facet state
-   * is not yet encoded here (tasks/301 follow-up). */
+  /** updateURL syncs the active query, facet selection, and page into the
+   * address bar so a faceted page is shareable and the back button returns to
+   * the state the reader left. Query/facet changes replace (no history spam); a
+   * pager click pushes (tasks/301, 349). */
   function updateURL(replace) {
-    const params = new URLSearchParams(window.location.search);
-    const q = input.value.trim();
-    if (q) params.set("q", q);
-    else params.delete("q");
+    const params = selectionParams();
     if (curIds && curPage > 0) params.set("page", String(curPage + 1));
     else params.delete("page");
     const qs = params.toString();
@@ -1192,17 +1230,179 @@ function start() {
     }
   }
 
+  /** splitFC parses a "field:category" param value. The category can be an IRI
+   * (its own colons), so only the first colon splits field from category. */
+  function splitFC(v) {
+    const i = v.indexOf(":");
+    if (i <= 0) return null;
+    return { field: v.slice(0, i), cat: v.slice(i + 1) };
+  }
+
+  /** parseSelection reads the URL's f=/x= params into the {field, cat, exclude}
+   * shape reconstruction works over. */
+  function parseSelection(params) {
+    const out = [];
+    params.getAll("f").forEach((v) => {
+      const f = splitFC(v);
+      if (f) out.push({ field: f.field, cat: f.cat, exclude: false });
+    });
+    params.getAll("x").forEach((v) => {
+      const f = splitFC(v);
+      if (f) out.push({ field: f.field, cat: f.cat, exclude: true });
+    });
+    return out;
+  }
+
+  /** findFacetInput locates the include checkbox for a field+category across the
+   * panel, hydrated sidebar, and trees. The category can be an IRI, so it is
+   * matched by attribute value rather than a CSS selector. */
+  function findFacetInput(field, cat) {
+    const inputs = document.querySelectorAll(
+      'input[data-field="' + field + '"]',
+    );
+    for (const cb of inputs) if (cb.getAttribute("data-cat") === cat) return cb;
+    return null;
+  }
+
+  /** findFacetRow locates the row (li) carrying a field+category, for exclude
+   * toggles which live on the row rather than the checkbox. */
+  function findFacetRow(field, cat) {
+    const rows = document.querySelectorAll(
+      'li[data-lcat-field="' + field + '"]',
+    );
+    for (const li of rows)
+      if (li.getAttribute("data-lcat-cat") === cat) return li;
+    return null;
+  }
+
+  /** applyOneFilter reflects one desired {field, cat, exclude} entry into the
+   * DOM if its row exists: checking the include box, or pressing the exclude
+   * toggle -- the same mutations a click makes, so selected() then reports it. */
+  function applyOneFilter(f) {
+    if (f.exclude) {
+      const li = findFacetRow(f.field, f.cat);
+      const not = li && li.querySelector(".lcat-facet-not");
+      if (li && not && not.getAttribute("aria-pressed") !== "true") {
+        const cb = li.querySelector("input[data-cat]");
+        if (cb) cb.checked = false;
+        setNot(li, not, true);
+        if (li.getAttribute("data-lcat-field") === "subject") syncTwins(li);
+      }
+    } else {
+      const cb = findFacetInput(f.field, f.cat);
+      if (cb && !cb.checked) {
+        cb.checked = true;
+        const li = cb.closest("li");
+        const not = li && li.querySelector(".lcat-facet-not");
+        if (not) setNot(li, not, false);
+        if (li && li.getAttribute("data-lcat-field") === "subject")
+          syncTwins(li);
+      }
+    }
+  }
+
+  /** isReflected reports whether a desired entry is already applied in the DOM. */
+  function isReflected(f) {
+    if (f.exclude) {
+      const li = findFacetRow(f.field, f.cat);
+      return !!(li && li.querySelector('.lcat-facet-not[aria-pressed="true"]'));
+    }
+    const cb = findFacetInput(f.field, f.cat);
+    return !!(cb && cb.checked);
+  }
+
+  /** syncFacetDOM makes the rendered facet state match urlSelection exactly:
+   * every checked include or pressed exclude not in the target is cleared, then
+   * every target entry whose row exists is applied. Returns whether the whole
+   * target is now reflected (a row for a collapsed tree branch may not exist yet
+   * on a cold load; renderTree force-opens restored branches so a later pass
+   * finds it). */
+  function syncFacetDOM() {
+    const want = new Set();
+    urlSelection.forEach((f) =>
+      want.add((f.exclude ? "x" : "i") + "\u001f" + f.field + "\u001f" + f.cat),
+    );
+    document.querySelectorAll("input[data-field]:checked").forEach((cb) => {
+      const key =
+        "i\u001f" +
+        cb.getAttribute("data-field") +
+        "\u001f" +
+        cb.getAttribute("data-cat");
+      if (want.has(key)) return;
+      cb.checked = false;
+      const li = cb.closest("li");
+      if (li && li.getAttribute("data-lcat-field") === "subject") syncTwins(li);
+    });
+    document
+      .querySelectorAll('.lcat-facet-not[aria-pressed="true"]')
+      .forEach((btn) => {
+        const li = btn.closest("li");
+        if (!li) return;
+        const key =
+          "x\u001f" +
+          li.getAttribute("data-lcat-field") +
+          "\u001f" +
+          li.getAttribute("data-lcat-cat");
+        if (want.has(key)) return;
+        setNot(li, btn, false);
+        if (li.getAttribute("data-lcat-field") === "subject") syncTwins(li);
+      });
+    let allReflected = true;
+    urlSelection.forEach((f) => {
+      applyOneFilter(f);
+      if (!isReflected(f)) allReflected = false;
+    });
+    return allReflected;
+  }
+
+  /** finalizeRestore ends a deferred cold-load restore: the pending flag drops
+   * and a single refresh renders the reconstructed selection on pendingPage. */
+  function finalizeRestore() {
+    if (!facetRestorePending) return;
+    facetRestorePending = false;
+    refresh();
+  }
+
+  /** reconstructFacets is called as each facet-UI render path completes; while a
+   * cold restore is pending it applies the URL selection and, once every entry
+   * is reflected, renders it. A safety timeout finalizes anyway so an
+   * unmatchable id never hangs on the static list. */
+  function reconstructFacets() {
+    if (!facetRestorePending) return;
+    if (syncFacetDOM()) finalizeRestore();
+  }
+
   /** applyURLState drives the list from the address bar: on first load and on
-   * every back/forward. A ?page= is honored only where the query path
-   * reconstructs the same result set; with no query the page is meaningless and
-   * ignored (facets are not in the URL yet). */
+   * every back/forward. When the reader has already booted (a popstate, or a
+   * late load) the facet UI exists, so the selection is reconciled synchronously
+   * and rendered; on a cold load it is deferred until the async facet UI builds
+   * (reconstructFacets), so pendingPage and the query render together with the
+   * restored facets rather than flashing an unfiltered page first (tasks/349). */
   function applyURLState() {
     const params = new URLSearchParams(window.location.search);
     const q = params.get("q") || "";
     const p = parseInt(params.get("page"), 10);
     pendingPage = p > 1 ? p - 1 : 0;
     if (input.value !== q) input.value = q;
-    refresh();
+    urlSelection = parseSelection(params);
+    if (catalog) {
+      // Booted: the facet rows exist. Reconcile now (this also clears facets a
+      // back-navigation dropped) and render.
+      facetRestorePending = false;
+      syncFacetDOM();
+      refresh();
+    } else if (urlSelection.length) {
+      // Cold load with facets: defer to the render-path hooks below.
+      facetRestorePending = true;
+      boot().then((ok) => {
+        if (!ok) finalizeRestore();
+        else reconstructFacets();
+      });
+      setTimeout(finalizeRestore, 2500);
+    } else {
+      facetRestorePending = false;
+      refresh();
+    }
   }
 
   /** filterField reads an entry's field from either shape selected() emits. */
