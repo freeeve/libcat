@@ -62,7 +62,7 @@ func TestQueueMode(t *testing.T) {
 		Blob: bs, Queue: queue,
 		Sources: map[string]Source{"stub": {Enricher: stubEnricher{}, Mode: ModeQueue, Scheme: "lcsh"}},
 	}
-	result, err := svc.Run(t.Context(), "stub")
+	result, err := svc.Run(t.Context(), "stub", nil)
 	if err != nil || result.Works != 1 || result.Mode != ModeQueue {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
@@ -76,7 +76,7 @@ func TestQueueMode(t *testing.T) {
 		t.Fatalf("item = %+v", item)
 	}
 	// Re-running never duplicates or resets moderation state.
-	if _, err := svc.Run(t.Context(), "stub"); err != nil {
+	if _, err := svc.Run(t.Context(), "stub", nil); err != nil {
 		t.Fatal(err)
 	}
 	page, _ = queue.Queue(t.Context(), suggest.QueueQuery{})
@@ -89,7 +89,7 @@ func TestQueueMode(t *testing.T) {
 	}}, "lib"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Run(t.Context(), "stub"); err != nil {
+	if _, err := svc.Run(t.Context(), "stub", nil); err != nil {
 		t.Fatal(err)
 	}
 	page, _ = queue.Queue(t.Context(), suggest.QueueQuery{})
@@ -109,7 +109,7 @@ func TestDirectMode(t *testing.T) {
 		Blob:    bs,
 		Sources: map[string]Source{"stub": {Enricher: stubEnricher{}, Mode: ModeDirect}},
 	}
-	result, err := svc.Run(t.Context(), "stub")
+	result, err := svc.Run(t.Context(), "stub", nil)
 	if err != nil || result.Works != 1 {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
@@ -117,7 +117,7 @@ func TestDirectMode(t *testing.T) {
 	if !strings.Contains(string(grain), "<enrichment:stub>") || !strings.Contains(string(grain), "sh85118553") {
 		t.Fatalf("direct mode did not write:\n%s", grain)
 	}
-	if _, err := svc.Run(t.Context(), "nope"); err == nil {
+	if _, err := svc.Run(t.Context(), "nope", nil); err == nil {
 		t.Fatal("unknown source accepted")
 	}
 }

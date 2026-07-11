@@ -186,10 +186,29 @@ const enrichBatchSize = 50
 // a Work's statements from this source. Works absent from the result are
 // left untouched. Returns the number of Works written.
 func RunEnrich(ctx context.Context, st blob.Store, prefix string, e Enricher) (int, error) {
+	return RunEnrichScoped(ctx, st, prefix, e, nil)
+}
+
+// RunEnrichScoped is RunEnrich over a sub-collection: only summaries keep
+// accepts are handed to the enricher, so an external-service source (the
+// wikidata resolver) queries for exactly the scoped works and only their
+// grains gain statements. Out-of-scope Works on shared grains keep their
+// existing statements (withPreservedEnrichment). A nil keep enriches
+// everything.
+func RunEnrichScoped(ctx context.Context, st blob.Store, prefix string, e Enricher, keep func(*WorkSummary) bool) (int, error) {
 	graph := bibframe.EnrichmentGraph(e.Name())
 	summaries, paths, err := ScanSummaries(ctx, st, prefix)
 	if err != nil {
 		return 0, err
+	}
+	if keep != nil {
+		kept := summaries[:0:0]
+		for i := range summaries {
+			if keep(&summaries[i]) {
+				kept = append(kept, summaries[i])
+			}
+		}
+		summaries = kept
 	}
 	// Collect every batch's results before writing: post-merge grains hold
 	// several Works sharing one path, and replacing the graph once per Work
@@ -375,9 +394,25 @@ func withPreservedEnrichment(grain []byte, graph rdf.Term, resolved map[string]b
 		}
 		termQuads[q.S.Value] = append(termQuads[q.S.Value], q)
 	}
-	for term, quads := range termQuads {
-		if referenced[term] && !freshTerms[term] {
+	// Follow references transitively: a preserved work's creator entity
+	// references its claim values, whose labels are two hops from the work --
+	// single-hop preservation would strand them (tasks scope runs make
+	// partial-corpus enrichment the norm).
+	kept := map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for term, quads := range termQuads {
+			if kept[term] || !referenced[term] || freshTerms[term] {
+				continue
+			}
+			kept[term] = true
+			changed = true
 			out = append(out, quads...)
+			for _, q := range quads {
+				if q.O.IsIRI() {
+					referenced[q.O.Value] = true
+				}
+			}
 		}
 	}
 	return out, nil

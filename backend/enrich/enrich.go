@@ -54,20 +54,25 @@ type Result struct {
 	// Works is the number of Works enriched (direct) or with candidates
 	// queued (queue).
 	Works int `json:"works"`
+	// Scope names the run's filter ("" when the whole corpus).
+	Scope string `json:"scope,omitempty"`
 }
 
-// Run executes one configured source by name.
-func (s *Service) Run(ctx context.Context, name string) (Result, error) {
+// Run executes one configured source by name. A non-nil keep scopes the run
+// to the summaries it accepts: only those works are handed to the enricher
+// (an external-service source queries for exactly the scoped set) and only
+// their grains gain statements; out-of-scope works keep what they have.
+func (s *Service) Run(ctx context.Context, name string, keep func(*ingest.WorkSummary) bool) (Result, error) {
 	src, ok := s.Sources[name]
 	if !ok {
 		return Result{}, fmt.Errorf("enrich: unknown source %q", name)
 	}
 	switch src.Mode {
 	case ModeDirect:
-		n, err := ingest.RunEnrich(ctx, s.Blob, s.GrainPrefix, src.Enricher)
+		n, err := ingest.RunEnrichScoped(ctx, s.Blob, s.GrainPrefix, src.Enricher, keep)
 		return Result{Source: name, Mode: src.Mode, Works: n}, err
 	case ModeQueue:
-		n, err := s.runQueued(ctx, src)
+		n, err := s.runQueued(ctx, src, keep)
 		return Result{Source: name, Mode: src.Mode, Works: n}, err
 	}
 	return Result{}, fmt.Errorf("enrich: source %q has invalid mode %q", name, src.Mode)
@@ -82,13 +87,22 @@ func (s *Service) Names() []string {
 	return names
 }
 
-func (s *Service) runQueued(ctx context.Context, src Source) (int, error) {
+func (s *Service) runQueued(ctx context.Context, src Source, keep func(*ingest.WorkSummary) bool) (int, error) {
 	if s.Queue == nil {
 		return 0, fmt.Errorf("enrich: queue mode needs the suggestion service")
 	}
 	summaries, _, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.GrainPrefix)
 	if err != nil {
 		return 0, err
+	}
+	if keep != nil {
+		kept := summaries[:0:0]
+		for i := range summaries {
+			if keep(&summaries[i]) {
+				kept = append(kept, summaries[i])
+			}
+		}
+		summaries = kept
 	}
 	results, err := src.Enricher.Enrich(ctx, summaries)
 	if err != nil {

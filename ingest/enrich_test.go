@@ -337,3 +337,62 @@ func TestRunEnrichSharedGrain(t *testing.T) {
 		t.Fatal("selective re-enrichment changed the grain")
 	}
 }
+
+// TestRunEnrichScoped: a keep predicate limits both what the enricher SEES
+// (an external source must query for exactly the scoped works) and which
+// grains gain statements; out-of-scope grains stay byte-identical.
+func TestRunEnrichScoped(t *testing.T) {
+	st := enrichFixture(t)
+	// A second work outside the scope.
+	const bfNS = "http://id.loc.gov/ontologies/bibframe/"
+	ds := &rdf.Dataset{}
+	feed := bibframe.FeedGraph("overdrive")
+	work := rdf.NewIRI(bibframe.WorkIRI("wenrich000002"))
+	ds.Add(work, rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), rdf.NewIRI(bfNS+"Work"), feed)
+	ds.Add(work, rdf.NewIRI(bibframe.ExtraPred+"inQll"), rdf.NewLiteral("false", "", ""), feed)
+	nq, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Put(t.Context(), bibframe.GrainPath("wenrich000002"), nq, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	before, _, _ := st.Get(t.Context(), bibframe.GrainPath("wenrich000002"))
+
+	seen := map[string]bool{}
+	e := &recordingEnricher{name: "scoped", seen: seen}
+	n, err := ingest.RunEnrichScoped(t.Context(), st, "data/works/", e,
+		func(s *ingest.WorkSummary) bool { return s.WorkID == "wenrich000001" })
+	if err != nil || n != 1 {
+		t.Fatalf("RunEnrichScoped = %d, %v; want 1 work", n, err)
+	}
+	if !seen["wenrich000001"] || seen["wenrich000002"] {
+		t.Fatalf("enricher saw %v, want only the scoped work", seen)
+	}
+	after, _, _ := st.Get(t.Context(), bibframe.GrainPath("wenrich000002"))
+	if string(after) != string(before) {
+		t.Error("out-of-scope grain changed")
+	}
+	scoped, _, _ := st.Get(t.Context(), bibframe.GrainPath("wenrich000001"))
+	if !strings.Contains(string(scoped), "<enrichment:scoped>") {
+		t.Error("scoped grain did not gain the enrichment graph")
+	}
+}
+
+// recordingEnricher notes which works it was handed and asserts one identity
+// on each.
+type recordingEnricher struct {
+	name string
+	seen map[string]bool
+}
+
+func (r *recordingEnricher) Name() string { return r.name }
+func (r *recordingEnricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]ingest.Enrichment, error) {
+	var out []ingest.Enrichment
+	for _, w := range works {
+		r.seen[w.WorkID] = true
+		out = append(out, ingest.Enrichment{WorkID: w.WorkID,
+			Identities: []ingest.ExternalIdentity{{URI: "https://example.org/" + w.WorkID, Scheme: "x"}}})
+	}
+	return out, nil
+}
