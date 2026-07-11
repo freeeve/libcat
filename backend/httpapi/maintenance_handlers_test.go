@@ -125,6 +125,29 @@ func TestVisibilityFlow(t *testing.T) {
 	}
 }
 
+// TestTombstoneRejectsSelfRedirect pins the tasks/342 guard: a tombstone whose
+// redirectTo is the work being tombstoned would republish a permalink that loops
+// (the successor IS the retired page), so it is refused -- symmetric to the
+// relations (target != work) and merge (from != to) self-guards. A tombstone to a
+// different successor still works.
+func TestTombstoneRejectsSelfRedirect(t *testing.T) {
+	h, _ := newMaintenanceAPI(t)
+	const workID = "wvis00000001" // the seeded work grain
+
+	rec := request(t, h, http.MethodPost, "/v1/works/"+workID+"/visibility", "lib-token", "",
+		map[string]string{"action": "tombstone", "redirectTo": workID})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "redirect to itself") {
+		t.Fatalf("self-redirect tombstone = %d %s, want 400 refusing a self-redirect", rec.Code, rec.Body.String())
+	}
+
+	// Control: a tombstone to a different successor is accepted, so the guard is
+	// specific to the self case and did not simply break tombstoning.
+	if rec := request(t, h, http.MethodPost, "/v1/works/"+workID+"/visibility", "lib-token", "",
+		map[string]string{"action": "tombstone", "redirectTo": "wsucc0000001"}); rec.Code != http.StatusOK {
+		t.Fatalf("tombstone to a distinct successor = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestItemsRoundTrip is the tasks/051 acceptance: bf:Item fields round-trip
 // grain -> editor -> projection.
 func TestItemsRoundTrip(t *testing.T) {

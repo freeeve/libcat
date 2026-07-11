@@ -55,6 +55,15 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 			writeError(w, http.StatusBadRequest, "bad redirect target")
 			return
 		}
+		// A tombstone that redirects to the work being tombstoned is a permalink
+		// that loops (the successor IS the retired page), so the republished
+		// redirect dead-ends in ERR_TOO_MANY_REDIRECTS. Reject it, symmetric to
+		// the relations (target != work) and merge (from != to) self-guards
+		// (tasks/342).
+		if req.RedirectTo == workID {
+			writeError(w, http.StatusBadRequest, "a tombstone cannot redirect to itself")
+			return
+		}
 		mutate := map[string]func([]byte) ([]byte, error){
 			"tombstone":   func(g []byte) ([]byte, error) { return bibframe.SetTombstone(g, workID, req.RedirectTo) },
 			"untombstone": func(g []byte) ([]byte, error) { return bibframe.ClearTombstone(g, workID) },
