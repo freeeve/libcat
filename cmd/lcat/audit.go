@@ -24,7 +24,8 @@ import (
 // (tasks/368).
 func runAudit(args []string) error {
 	fs := flag.NewFlagSet("audit", flag.ExitOnError)
-	catalogJSON := fs.String("catalog", "", "path to a projected catalog.json (from `lcat project`)")
+	catalogJSON := fs.String("catalog", "", "path to a projected catalog.json (from `lcat project`) -- audits the PUBLIC view")
+	graphNQ := fs.String("graph", "", "path to a catalog.nq dataset -- audits the FULL corpus, including works the projection suppresses (tasks/372)")
 	crosswalk := fs.String("crosswalk", "",
 		"comma-separated operator override crosswalk TOML file(s), merged over the built-in seed (tasks/365)")
 	format := fs.String("format", "text", "output format: text or json")
@@ -37,8 +38,8 @@ func runAudit(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *catalogJSON == "" {
-		return fmt.Errorf("--catalog is required (the catalog.json from `lcat project`)")
+	if (*catalogJSON == "") == (*graphNQ == "") {
+		return fmt.Errorf("exactly one of --catalog (catalog.json, public view) or --graph (catalog.nq, full corpus) is required")
 	}
 	if *format != "text" && *format != "json" {
 		return fmt.Errorf("--format must be text or json, got %q", *format)
@@ -47,28 +48,37 @@ func runAudit(args []string) error {
 		filters = append(filters, filterPair{key: "sources", value: *source})
 	}
 
-	data, err := os.ReadFile(*catalogJSON)
-	if err != nil {
-		return fmt.Errorf("read catalog: %w", err)
-	}
-	var cat project.Catalog
-	if err := json.Unmarshal(data, &cat); err != nil {
-		return fmt.Errorf("parse catalog.json: %w", err)
-	}
-
 	cw, err := diversity.Load(splitList(*crosswalk)...)
 	if err != nil {
 		return err
 	}
 
-	a := diversity.NewAuditor(cw)
-	for _, w := range cat.Works {
-		if !filters.match(w.Extra) {
-			continue
+	var report diversity.Report
+	input := ""
+	if *graphNQ != "" {
+		input = "full corpus (catalog.nq, includes suppressed works)"
+		if report, err = auditGraph(*graphNQ, cw, filters); err != nil {
+			return err
 		}
-		a.Add(subjectRefs(w))
+	} else {
+		input = "public view (projected catalog.json)"
+		data, err := os.ReadFile(*catalogJSON)
+		if err != nil {
+			return fmt.Errorf("read catalog: %w", err)
+		}
+		var cat project.Catalog
+		if err := json.Unmarshal(data, &cat); err != nil {
+			return fmt.Errorf("parse catalog.json: %w", err)
+		}
+		a := diversity.NewAuditor(cw)
+		for _, w := range cat.Works {
+			if !filters.match(w.Extra) {
+				continue
+			}
+			a.Add(auditRefs(w))
+		}
+		report = a.Report()
 	}
-	report := a.Report()
 
 	w := os.Stdout
 	if *out != "" {
@@ -82,14 +92,16 @@ func runAudit(args []string) error {
 	if *format == "json" {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		return enc.Encode(auditOutput{Scope: filters.String(), Report: report})
+		return enc.Encode(auditOutput{Input: input, Scope: filters.String(), Report: report})
 	}
-	return writeAuditText(w, report, filters.String())
+	return writeAuditText(w, report, input, filters.String())
 }
 
-// auditOutput wraps the report with the scope it was computed over, so a saved
-// JSON report says whether it covers the whole catalog or a --filter subset.
+// auditOutput wraps the report with what it was computed over -- the input mode
+// (full corpus vs public view) and the --filter scope -- so a saved JSON report
+// says what it covers.
 type auditOutput struct {
+	Input string `json:"input,omitempty"`
 	Scope string `json:"scope,omitempty"`
 	diversity.Report
 }
@@ -119,37 +131,41 @@ func (f *filterFlags) Set(s string) error {
 	return nil
 }
 
-// match reports whether a work's extras satisfy every filter. A filter matches
-// when the extra equals the value exactly or, for comma-joined extras (the
-// `sources` convention, tasks/171), when any comma-separated element equals it.
+// match reports whether a work's extras satisfy every filter.
 func (f filterFlags) match(extra map[string]string) bool {
 	for _, p := range f {
 		got, ok := extra[p.key]
-		if !ok {
-			return false
-		}
-		if got == p.value {
-			continue
-		}
-		found := false
-		for _, part := range strings.Split(got, ",") {
-			if strings.TrimSpace(part) == p.value {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !ok || !valueMatches(got, p.value) {
 			return false
 		}
 	}
 	return true
 }
 
-// subjectRefs turns a projected Work's subjects into audit SubjectRefs: the
-// authority URI plus every localized heading label, so both controlled (URI) and
-// bare-string (label) subjects feed the crosswalk.
-func subjectRefs(w project.Work) []diversity.SubjectRef {
-	refs := make([]diversity.SubjectRef, 0, len(w.Subjects))
+// valueMatches reports whether an extra's value satisfies a filter value: an
+// exact match or, for comma-joined extras (the `sources` convention, tasks/171),
+// any comma-separated element matching.
+func valueMatches(got, want string) bool {
+	if got == want {
+		return true
+	}
+	for _, part := range strings.Split(got, ",") {
+		if strings.TrimSpace(part) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// auditRefs turns a projected Work's aboutness signal into audit SubjectRefs:
+// its controlled subjects (authority URI + localized labels + scheme) AND its
+// uncontrolled tags as label-only refs. The projector classifies a bare-label
+// bf:subject Topic as a Tag, but for the audit it is the same subject-heading
+// signal -- an ILS feed carries it as a label-only Subject, a direct-BIBFRAME
+// feed as a Tag, and the graph input sees both as bf:subject -- so counting
+// tags keeps the three paths measuring the same thing (tasks/372).
+func auditRefs(w project.Work) []diversity.SubjectRef {
+	refs := make([]diversity.SubjectRef, 0, len(w.Subjects)+len(w.Tags))
 	for _, s := range w.Subjects {
 		labels := make([]string, 0, len(s.Labels))
 		for _, l := range s.Labels {
@@ -157,13 +173,17 @@ func subjectRefs(w project.Work) []diversity.SubjectRef {
 		}
 		refs = append(refs, diversity.SubjectRef{URI: s.ID, Labels: labels, Scheme: s.Scheme})
 	}
+	for _, tag := range w.Tags {
+		refs = append(refs, diversity.SubjectRef{Labels: []string{tag}})
+	}
 	return refs
 }
 
 // writeAuditText renders the report as a human-readable, coverage-first summary.
-func writeAuditText(f *os.File, r diversity.Report, scope string) error {
+func writeAuditText(f *os.File, r diversity.Report, input, scope string) error {
 	fmt.Fprintln(f, "Content diversity audit")
 	fmt.Fprintln(f, "=======================")
+	fmt.Fprintf(f, "Input:           %s\n", input)
 	if scope != "" {
 		fmt.Fprintf(f, "Scope:           %s\n", scope)
 	}

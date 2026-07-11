@@ -39,7 +39,8 @@ func TestRunAuditJSON(t *testing.T) {
 			{ID: "w1", Title: "A", Subjects: []project.Subject{subj("Lesbian fiction")}},
 			{ID: "w2", Title: "B", Subjects: []project.Subject{subj("Immigrants"), subj("Women authors")}},
 			{ID: "w3", Title: "C", Subjects: []project.Subject{subj("Cooking")}},
-			{ID: "w4", Title: "D"}, // no subjects: dilutes coverage
+			{ID: "w4", Title: "D"}, // no signal: dilutes coverage
+			{ID: "w5", Title: "E", Tags: []string{"LGBTQIA+ (Fiction)"}}, // tag-only work counts (tasks/372)
 		},
 	}
 	catPath := writeCatalog(t, cat)
@@ -56,14 +57,14 @@ func TestRunAuditJSON(t *testing.T) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		t.Fatalf("parse report: %v", err)
 	}
-	if r.TotalWorks != 4 || r.CoveredWorks != 3 {
-		t.Errorf("totals = %d/%d, want 4/3", r.CoveredWorks, r.TotalWorks)
+	if r.TotalWorks != 5 || r.CoveredWorks != 4 {
+		t.Errorf("totals = %d/%d, want 5 total / 4 covered (the tag-only work counts)", r.TotalWorks, r.CoveredWorks)
 	}
 	got := map[string]int{}
 	for _, c := range r.Categories {
 		got[c.ID] = c.Works
 	}
-	for id, want := range map[string]int{"lgbtqia": 1, "immigrant-diaspora": 1, "women-gender": 1} {
+	for id, want := range map[string]int{"lgbtqia": 2, "immigrant-diaspora": 1, "women-gender": 1} {
 		if got[id] != want {
 			t.Errorf("category %s works = %d, want %d", id, got[id], want)
 		}
@@ -155,5 +156,77 @@ func TestRunAuditFilter(t *testing.T) {
 	var ff filterFlags
 	if err := ff.Set("novalue"); err == nil {
 		t.Error("--filter without key=value should error")
+	}
+}
+
+// TestRunAuditGraph is the tasks/372 graph mode: --graph audits a catalog.nq
+// dataset directly (the full corpus), resolving each subject's URI, its
+// skos:prefLabel/rdfs:label, and its scheme from the URI namespace -- so a
+// Homosaurus subject with a keyword-less label still counts via the scheme
+// dimension, and blank-node bare-string topics count via keywords. --filter
+// reads the lcat extra/* work properties.
+func TestRunAuditGraph(t *testing.T) {
+	const extraNS = "https://github.com/freeeve/libcat/ns#extra/"
+	nq := `<#w1Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:coll> .
+<#w1Work> <http://id.loc.gov/ontologies/bibframe/subject> <https://homosaurus.org/v5/homoit0000506> <feed:coll> .
+<https://homosaurus.org/v5/homoit0000506> <http://www.w3.org/2004/02/skos/core#prefLabel> "Chosen family"@en <feed:coll> .
+<#w1Work> <` + extraNS + `inQll> "true" <feed:coll> .
+<#w2Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:coll> .
+<#w2Work> <http://id.loc.gov/ontologies/bibframe/subject> _:t1 <feed:coll> .
+_:t1 <http://www.w3.org/2000/01/rdf-schema#label> "Lesbians" <feed:coll> .
+<#w2Work> <` + extraNS + `inQll> "false" <feed:coll> .
+<#w3Work> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Work> <feed:coll> .
+`
+	nqPath := filepath.Join(t.TempDir(), "catalog.nq")
+	if err := os.WriteFile(nqPath, []byte(nq), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	run := func(args ...string) map[string]any {
+		t.Helper()
+		outPath := filepath.Join(t.TempDir(), "report.json")
+		args = append([]string{"--graph", nqPath, "--format", "json", "--out", outPath}, args...)
+		if err := runAudit(args); err != nil {
+			t.Fatalf("runAudit(%v): %v", args, err)
+		}
+		data, err := os.ReadFile(outPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var r map[string]any
+		if err := json.Unmarshal(data, &r); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	r := run()
+	if r["totalWorks"].(float64) != 3 || r["coveredWorks"].(float64) != 2 {
+		t.Errorf("graph totals = %v/%v, want 3 total / 2 covered", r["totalWorks"], r["coveredWorks"])
+	}
+	lgbtqia := 0.0
+	for _, c := range r["categories"].([]any) {
+		cat := c.(map[string]any)
+		if cat["id"] == "lgbtqia" {
+			lgbtqia = cat["works"].(float64)
+		}
+	}
+	// w1 counts via the homosaurus SCHEME (its label has no seed keyword);
+	// w2 counts via the plural-tolerant KEYWORD on a blank-node topic.
+	if lgbtqia != 2 {
+		t.Errorf("graph lgbtqia works = %v, want 2 (scheme + keyword paths)", lgbtqia)
+	}
+
+	// --filter reads the extra/* work props in graph mode.
+	if r := run("--filter", "inQll=true"); r["totalWorks"].(float64) != 1 {
+		t.Errorf("graph --filter inQll=true = %v works, want 1", r["totalWorks"])
+	}
+
+	// --graph and --catalog are mutually exclusive; neither errors too.
+	if err := runAudit([]string{"--graph", nqPath, "--catalog", "x.json"}); err == nil {
+		t.Error("--graph with --catalog should error")
+	}
+	if err := runAudit([]string{"--format", "json"}); err == nil {
+		t.Error("neither input should error")
 	}
 }
