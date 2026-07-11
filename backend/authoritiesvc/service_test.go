@@ -380,6 +380,8 @@ func TestMergeRefusesPhantomWinner(t *testing.T) {
 		"short id": {Scheme: authoritiesvc.LocalScheme, ID: "anevermintedid00"},
 		"full IRI": {Scheme: authoritiesvc.LocalScheme, ID: bibframe.LocalAuthorityIRI("anevermintedid00")},
 		"with lbl": {Scheme: authoritiesvc.LocalScheme, ID: "anevermintedid00", Label: "Looks real"},
+		// outside the [0-9a-v] id alphabet: never IRI-expanded, was stored verbatim
+		"bad alphabet": {Scheme: authoritiesvc.LocalScheme, ID: "azzzzzzzzzzzz"},
 	} {
 		if _, err := svc.Merge(t.Context(), id, winner, "lib@example.org"); !errors.Is(err, authoritiesvc.ErrValidation) {
 			t.Errorf("%s: err = %v, want ErrValidation", name, err)
