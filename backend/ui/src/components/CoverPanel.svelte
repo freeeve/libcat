@@ -17,7 +17,18 @@
   let error = $state("");
   let bump = $state(0); // cache-buster after replace
 
-  const src = $derived(current ? `${apiBase()}/${current}?v=${bump}` : "");
+  // An absolute feed/CDN cover (extra.cover passthrough, e.g. OverDrive
+  // img-od-cdn) is already resolved -- prefixing apiBase corrupts it into a
+  // same-origin path the server answers with the SPA shell (tasks/374). Only
+  // a site-relative editorial blob path takes the apiBase prefix, and only
+  // that branch can change under this editor, so it alone gets the ?v bump.
+  const src = $derived(
+    !current
+      ? ""
+      : /^https?:\/\//.test(current)
+        ? current
+        : `${apiBase()}/${current}?v=${bump}`,
+  );
 
   async function upload(ev: Event): Promise<void> {
     const input = ev.currentTarget as HTMLInputElement;
