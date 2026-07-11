@@ -22,8 +22,20 @@ put those works in the libcat catalog, the flow is:
    - *Incremental*: OAI-PMH with a `from`/`until` window and resumption tokens, or
      the ILS's changed-records API, so only new/changed/deleted records sync.
 
-   Today libcat has the file end of this only: the `marc` provider reads a MARC file
-   from disk (`Config.Source`). A *live* harvester is the gap.
+   The **OAI-PMH harvester** (`ingest/oaipmh`, tasks/361) does the live end for any
+   OAI-capable ILS: it issues `ListRecords` over the metadata prefix (default
+   `marc21`), follows resumption-token pagination to the end, honours the `from`/
+   `until` incremental window and `set` selector, decodes each record's MARCXML, and
+   feeds it through the shared MARC crosswalk. Records the endpoint marks deleted are
+   skipped. Run it:
+
+   ```sh
+   lcat ingest --provider oai --source https://ils.example/cgi-bin/koha/oai.pl \
+     --feed koha --param set=biblios --param from=2026-07-01 --out data/out
+   ```
+
+   Per-ILS export APIs (Koha REST, Sierra) are the follow-ups where OAI is absent or
+   thin. The `marc` file provider remains for staged exports.
 
 2. **Convert**. MARC → BIBFRAME via the libcodex crosswalk (the path the `marc`
    provider already uses), producing `ingest.Record`s: stable two-tier identity keys
@@ -92,6 +104,7 @@ three layers:
 | Aspen concept | libcat equivalent | State |
 |---|---|---|
 | MARC indexing | `ingest/marc` provider → BIBFRAME grains | present (file input) |
+| Live bib harvest from an ILS | `ingest/oaipmh` (OAI-PMH ListRecords, resumption, incremental, deletions) | present (OAI); per-ILS APIs are follow-ups |
 | Grouped Works | `identity.WorkKey` clustering | present |
 | Solr discovery index | `lcat project` → static catalog.json + roaringrange search | present (static-first, no server) |
 | eContent driver (OverDrive) | `ingest/overdrive` (direct JSON→BIBFRAME) + Thunder availability adapter | present |
@@ -105,9 +118,9 @@ Grouped by layer, roughly in value order. Each slots into an existing seam excep
 where noted.
 
 **A. Live bib harvest (import works FROM an ILS)** -- new `RoleIngest` providers:
-- **OAI-PMH harvester** (highest leverage: one adapter reaches every ILS that exposes
-  OAI-PMH -- Koha, Evergreen, many others -- with full + incremental `from`/`until`
-  sync and deletions).
+- **OAI-PMH harvester** -- **shipped** (`ingest/oaipmh`, tasks/361). One adapter
+  reaches every OAI-capable ILS (Koha, Evergreen, many others) with full +
+  incremental `from`/`until` sync and deletions.
 - Per-ILS export/changed-records APIs where OAI is absent or thin: **Koha REST**,
   **Sierra API**, **Symphony / SirsiDynix**, **Polaris API**, **Evergreen**.
 
