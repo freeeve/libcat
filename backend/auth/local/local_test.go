@@ -265,3 +265,18 @@ func TestCreateUserRepairsIndex(t *testing.T) {
 		t.Fatalf("retry should repair the index: %v, %v", users, err)
 	}
 }
+
+// TestCreateUserRejectsMalformedEmails is the 403 regression: shapes that
+// passed a bare contains-@ check (and then persisted and authenticated) must
+// refuse, while ordinary addresses keep working.
+func TestCreateUserRejectsMalformedEmails(t *testing.T) {
+	svc, _ := newService(t)
+	for _, bad := range []string{"@", "a@", "@b", "a b@example.org", "x@ example.org", "Bob <bob@example.org>", ""} {
+		if err := svc.CreateUser(t.Context(), bad, "n", "longenough", nil); err == nil {
+			t.Errorf("CreateUser(%q) accepted a malformed email", bad)
+		}
+	}
+	if err := svc.CreateUser(t.Context(), "ok@example.org", "n", "longenough", nil); err != nil {
+		t.Errorf("valid email refused: %v", err)
+	}
+}

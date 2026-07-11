@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -45,6 +46,19 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+// validEmail accepts an RFC 5322 addr-spec and nothing more: ParseAddress
+// alone would admit display-name forms ("Bob <b@x>") and other decorations,
+// so the parsed address must round-trip the input exactly. Malformed shapes
+// ("@", "a@", "@b", embedded whitespace) fail the parse; they used to pass a
+// bare contains-@ check, persist, and authenticate.
+func validEmail(email string) bool {
+	if email == "" {
+		return false
+	}
+	addr, err := mail.ParseAddress(email)
+	return err == nil && addr.Address == email
+}
+
 func userKey(email string) store.Key {
 	return store.Key{PK: "USER#" + email, SK: "PROFILE"}
 }
@@ -70,7 +84,7 @@ func (s *Service) getUser(ctx context.Context, email string) (user, error) {
 // CreateUser adds a user with the given roles.
 func (s *Service) CreateUser(ctx context.Context, email, name, password string, roles []auth.Role) error {
 	email = normalizeEmail(email)
-	if email == "" || !strings.Contains(email, "@") {
+	if !validEmail(email) {
 		return errors.New("local: invalid email")
 	}
 	if len(password) < 8 {
