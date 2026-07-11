@@ -162,6 +162,14 @@ type Config struct {
 	// EnrichOpenLibraryDump is the path to an OpenLibrary editions dump the
 	// source builds its ISBN -> work index from at boot (offline, no live API).
 	EnrichOpenLibraryDump string
+
+	// EnrichWikidata enables the creator-demographics source (resolve
+	// creators via cataloged ISBNs against the Wikidata Query Service and
+	// cache their explicitly-stated claims). Opt-in and direct-only:
+	// creator claims are entity statements, not subject candidates, so
+	// there is nothing for the moderation queue to moderate. Set "direct"
+	// to enable.
+	EnrichWikidata string
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
@@ -199,6 +207,7 @@ func FromEnv() (Config, error) {
 		EnrichLocsh:           os.Getenv("LCATD_ENRICH_LOCSH"),
 		EnrichOpenLibrary:     os.Getenv("LCATD_ENRICH_OPENLIBRARY"),
 		EnrichOpenLibraryDump: os.Getenv("LCATD_ENRICH_OPENLIBRARY_DUMP"),
+		EnrichWikidata:        os.Getenv("LCATD_ENRICH_WIKIDATA"),
 	}
 	if cfg.Sandbox {
 		cfg.ReadOnly = true // sandbox never persists
@@ -208,6 +217,9 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.EnrichOpenLibrary != "" && cfg.EnrichOpenLibrary != "queue" && cfg.EnrichOpenLibrary != "direct" {
 		return Config{}, fmt.Errorf("config: LCATD_ENRICH_OPENLIBRARY must be queue or direct")
+	}
+	if cfg.EnrichWikidata != "" && cfg.EnrichWikidata != "direct" {
+		return Config{}, fmt.Errorf("config: LCATD_ENRICH_WIKIDATA must be direct (creator claims are not queue-moderated)")
 	}
 	if cfg.EnrichOpenLibrary != "" && cfg.EnrichOpenLibraryDump == "" {
 		return Config{}, fmt.Errorf("config: LCATD_ENRICH_OPENLIBRARY needs LCATD_ENRICH_OPENLIBRARY_DUMP (the editions dump path)")

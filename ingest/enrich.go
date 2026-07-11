@@ -110,9 +110,47 @@ type Enrichment struct {
 	// subtree data up the hierarchy even when no work carries the ancestor
 	// directly.
 	Terms []AuthoritySubject
+	// Creators are the Work's creators resolved to external knowledge-base
+	// entities carrying explicitly-stated demographic claims (the
+	// creator-demographics audit axis; ingest/wikidata). Rendered into the
+	// enrichment graph as a work->entity link plus the entity's claims and
+	// resolution provenance.
+	Creators []CreatorClaim
 	// Confidence (0-1] qualifies queue-moderated enrichments; direct-mode
 	// callers may threshold on it.
 	Confidence float64
+}
+
+// CreatorClaim is one resolved creator identity: the knowledge-base entity id
+// (a Wikidata QID), its display label, the explicitly-stated demographic
+// claims it carries, and the resolution provenance -- which cataloged
+// identifier matched it and when it was retrieved. Claims are only ever
+// copied from explicit statements; nothing here is inferred.
+type CreatorClaim struct {
+	QID        string
+	Label      string
+	Claims     []DemographicClaim
+	MatchedVia string
+	Retrieved  string
+}
+
+// AddClaim appends a claim, dropping exact duplicates (a SPARQL join yields
+// one row per label variant).
+func (c *CreatorClaim) AddClaim(d DemographicClaim) {
+	for _, have := range c.Claims {
+		if have == d {
+			return
+		}
+	}
+	c.Claims = append(c.Claims, d)
+}
+
+// DemographicClaim is one explicitly-stated claim on a creator entity: the
+// property id (P21, P27, P91, P172), the value's entity id, and its label.
+type DemographicClaim struct {
+	Property   string
+	ValueQID   string
+	ValueLabel string
 }
 
 // Enricher produces enrichments for batches of Works. This executes the
@@ -189,6 +227,41 @@ func enrichmentQuads(res Enrichment) []rdf.Quad {
 	}
 	for _, term := range res.Terms {
 		quads = append(quads, termQuads(term)...)
+	}
+	for _, c := range res.Creators {
+		quads = append(quads, creatorQuads(res.WorkID, c)...)
+	}
+	return quads
+}
+
+// creatorQuads renders one resolved creator: the work->entity link, the
+// entity's label, each explicitly-stated demographic claim under its real
+// wdt: property IRI with the value's label, and the resolution provenance.
+func creatorQuads(workID string, c CreatorClaim) []rdf.Quad {
+	const (
+		wd           = "http://www.wikidata.org/entity/"
+		wdt          = "http://www.wikidata.org/prop/direct/"
+		rdfsLabelIRI = "http://www.w3.org/2000/01/rdf-schema#label"
+	)
+	entity := rdf.NewIRI(wd + c.QID)
+	quads := []rdf.Quad{
+		{S: rdf.NewIRI(bibframe.WorkIRI(workID)), P: rdf.NewIRI(bibframe.PredCreatorIdentity), O: entity},
+	}
+	if c.Label != "" {
+		quads = append(quads, rdf.Quad{S: entity, P: rdf.NewIRI(rdfsLabelIRI), O: rdf.NewLiteral(c.Label, "en", "")})
+	}
+	for _, d := range c.Claims {
+		value := rdf.NewIRI(wd + d.ValueQID)
+		quads = append(quads, rdf.Quad{S: entity, P: rdf.NewIRI(wdt + d.Property), O: value})
+		if d.ValueLabel != "" {
+			quads = append(quads, rdf.Quad{S: value, P: rdf.NewIRI(rdfsLabelIRI), O: rdf.NewLiteral(d.ValueLabel, "en", "")})
+		}
+	}
+	if c.MatchedVia != "" {
+		quads = append(quads, rdf.Quad{S: entity, P: rdf.NewIRI(bibframe.PredMatchedVia), O: rdf.NewLiteral(c.MatchedVia, "", "")})
+	}
+	if c.Retrieved != "" {
+		quads = append(quads, rdf.Quad{S: entity, P: rdf.NewIRI(bibframe.PredRetrieved), O: rdf.NewLiteral(c.Retrieved, "", "")})
 	}
 	return quads
 }

@@ -28,6 +28,16 @@ func SameAsQuad(workID, externalURI string) rdf.Quad {
 	}
 }
 
+// Creator-demographics enrichment predicates (ingest/wikidata): a Work links
+// to its creator's resolved knowledge-base entity, and the entity carries the
+// resolution provenance -- which cataloged identifier matched it and when.
+// The demographic claims themselves ride under their real wdt: property IRIs.
+const (
+	PredCreatorIdentity = LcatNS + "creatorIdentity"
+	PredMatchedVia      = LcatNS + "matchedVia"
+	PredRetrieved       = LcatNS + "retrieved"
+)
+
 // PredTag carries an uncontrolled folksonomy tag as a plain literal on a
 // Work. Feed tags arrive as labeled blank bf:Topic nodes, but editorial-class
 // statements must be blank-free, so approved community tags use this
