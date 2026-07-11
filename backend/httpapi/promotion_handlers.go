@@ -74,11 +74,16 @@ func registerPromotions(mux *http.ServeMux, svc *suggest.Service, publisher Grap
 		}
 		if !req.Approve {
 			promo, err := svc.RejectPromotion(r.Context(), req.Tag, id.Email)
-			if err != nil {
-				writeError(w, http.StatusConflict, err.Error())
-				return
+			switch {
+			case errors.Is(err, store.ErrNotFound):
+				writeError(w, http.StatusNotFound, "no such promotion")
+			case errors.Is(err, suggest.ErrPromotionNotPending):
+				writeError(w, http.StatusConflict, "promotion for "+req.Tag+" is already decided")
+			case err != nil:
+				writeError(w, http.StatusInternalServerError, "reject failed")
+			default:
+				writeJSON(w, http.StatusOK, map[string]any{"promotion": promo, "works": 0})
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"promotion": promo, "works": 0})
 			return
 		}
 

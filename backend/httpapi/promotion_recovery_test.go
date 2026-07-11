@@ -12,6 +12,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/freeeve/libcodex/rdf"
@@ -235,5 +236,20 @@ func TestDeleteFreesAnApprovedButUnexecutedTag(t *testing.T) {
 	}
 	if rec := doJSON(t, h, http.MethodDelete, "/v1/promotions/never-proposed", "lib-token", nil); rec.Code != http.StatusNotFound {
 		t.Fatalf("delete unknown: %d", rec.Code)
+	}
+}
+
+// TestRejectMissingPromotion is the 404 regression: rejecting a promotion
+// that does not exist is a 404 with a clean message (it was a 409 carrying
+// the raw internal error); rejecting an already-decided one is a clean 409.
+func TestRejectMissingPromotion(t *testing.T) {
+	h, _ := newPromotionAPIWith(t, &flakyPromoter{})
+	rec := request(t, h, http.MethodPost, "/v1/promotions/decide", "lib-token", "",
+		map[string]any{"tag": "never-proposed", "approve": false})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("reject missing = %d %s, want 404", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); strings.Contains(body, "suggest:") || strings.Contains(body, "store:") {
+		t.Fatalf("raw internal error leaked: %s", body)
 	}
 }
