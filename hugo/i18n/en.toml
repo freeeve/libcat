@@ -54,6 +54,13 @@ other = "Editions & formats"
 [isbn]
 other = "ISBN"
 
+# Borrow/hold CTA on an edition (tasks/352). lcat-availability.js reveals the button
+# and points it at the provider deep link once a borrowable/holdable copy resolves;
+# this is only its label. A deployment can override it per its provider ("Open in
+# Libby", "Place a hold", ...).
+[availabilityAction]
+other = "Borrow"
+
 [relatedWorks]
 other = "Related works"
 

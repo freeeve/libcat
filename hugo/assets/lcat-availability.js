@@ -471,6 +471,27 @@
     }
   }
 
+  // wireAction turns an edition's borrow/hold deep link into a visible CTA. When the
+  // model carries an actionUrl and the copy is borrowable or holdable, it points the
+  // edition's [data-availability-action] anchor at the link and reveals it; otherwise
+  // the anchor stays hidden -- so no-JS, and an unavailable or unknown edition, shows
+  // no dead control. The button's label is authored in the template (localized via
+  // i18n), so this only owns the href and visibility, never the text.
+  function wireAction(edition, model) {
+    if (!edition || !edition.querySelector) return;
+    var cta = edition.querySelector("[data-availability-action]");
+    if (!cta) return;
+    var borrowable =
+      model && model.actionUrl && (model.status === "available" || model.status === "holdable");
+    if (borrowable) {
+      cta.setAttribute("href", model.actionUrl);
+      cta.removeAttribute("hidden");
+    } else {
+      cta.removeAttribute("href");
+      cta.setAttribute("hidden", "");
+    }
+  }
+
   // renderInto writes a resolved model into a status element: data-status for styling,
   // a data-action-url a theme can turn into a borrow link, and the status text.
   function renderInto(el, model) {
@@ -552,9 +573,9 @@
       var map = {};
       Array.prototype.forEach.call(editions, function (ed) {
         var id = ed.getAttribute(adapter.domAttr);
-        var el = ed.querySelector("[data-availability]") || ed;
         if (!id) return;
-        (map[id] = map[id] || []).push(el);
+        var el = ed.querySelector("[data-availability]") || ed;
+        (map[id] = map[id] || []).push({ edition: ed, chip: el });
       });
       if (Object.keys(map).length) byProvider[providerKey] = map;
     });
@@ -578,8 +599,9 @@
         .then(function (models) {
           ids.forEach(function (id) {
             var model = models[id] || unknownModel(providerKey, id, opts.now || Date.now());
-            map[id].forEach(function (el) {
-              renderInto(el, model);
+            map[id].forEach(function (slot) {
+              renderInto(slot.chip, model);
+              wireAction(slot.edition, model);
             });
           });
         })
@@ -610,6 +632,7 @@
     // DOM entry point
     init: init,
     renderInto: renderInto,
+    wireAction: wireAction,
     readConfig: readConfig,
   };
 });

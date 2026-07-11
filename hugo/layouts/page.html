@@ -188,6 +188,12 @@
              that config (or JS) the placeholder stays inert -- the static page never
              depends on it. */}}
         <span class="lcat-availability" data-availability role="status" aria-live="polite"></span>
+        {{- /* Borrow/hold CTA (tasks/352): starts hidden. lcat-availability.js points
+               it at the provider deep link and reveals it once availability resolves
+               to a borrowable/holdable copy -- so no-JS and unavailable editions show
+               no dead button. The label is authored here (localized) since the script
+               only owns the href and visibility. */ -}}
+        <a class="lcat-availability-cta lcat-btn lcat-btn--solid" data-availability-action hidden>{{ i18n "availabilityAction" }}</a>
       </li>
       {{ end }}
     </ul>

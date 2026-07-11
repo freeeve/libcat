@@ -48,6 +48,9 @@ other = "Ediciones y formatos"
 [isbn]
 other = "ISBN"
 
+[availabilityAction]
+other = "Pedir prestado"
+
 [moreLikeThis]
 other = "Obras similares"
 

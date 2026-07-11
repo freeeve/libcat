@@ -686,11 +686,19 @@ summary:focus-visible {
   font-size: 0.9em;
   margin-left: 0.5rem;
 }
-/* Live availability (tasks/004): color by resolved data-status; empty (unknown or
-   not-yet-fetched) stays invisible so it never shows a misleading state. */
+/* Live availability (tasks/004, chipped in tasks/352): a pill outlined and inked in
+   the resolved status colour. Empty (unknown or not-yet-fetched) stays invisible so
+   it never shows a misleading state or an empty outline. */
 .lcat-availability {
   margin-left: 0.5rem;
-  font-size: 0.9em;
+  font-size: 0.82em;
+  font-weight: 600;
+}
+.lcat-availability:not(:empty) {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
 }
 .lcat-availability:empty {
   display: none;
@@ -703,6 +711,16 @@ summary:focus-visible {
 }
 .lcat-availability[data-status="unavailable"] {
   color: var(--lcat-avail-none);
+}
+/* Borrow/hold CTA (tasks/352): the solid button, sized down to sit inline on the
+   edition line. Hidden until lcat-availability.js reveals it, so [hidden] applies. */
+.lcat-availability-cta {
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.82em;
+}
+.lcat-availability-cta::after {
+  content: " →";
 }
 .lcat-meta dt {
   font-weight: 600;

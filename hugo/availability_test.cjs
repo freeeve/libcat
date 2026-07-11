@@ -254,6 +254,62 @@ test("statusText: physical holding shows shelf location and due date", () => {
   );
 });
 
+// fakeEl is a minimal attribute-carrying element for the DOM-adjacent wireAction
+// logic, so the CTA wiring is testable without a browser.
+function fakeEl() {
+  const attrs = {};
+  return {
+    attrs,
+    setAttribute: (k, v) => {
+      attrs[k] = String(v);
+    },
+    getAttribute: (k) => (k in attrs ? attrs[k] : null),
+    removeAttribute: (k) => {
+      delete attrs[k];
+    },
+    hasAttribute: (k) => k in attrs,
+  };
+}
+function fakeEdition(cta) {
+  return { querySelector: (sel) => (sel === "[data-availability-action]" ? cta : null) };
+}
+
+test("wireAction: reveals the CTA and sets href for a borrowable copy", () => {
+  const cta = fakeEl();
+  cta.setAttribute("hidden", "");
+  A.wireAction(fakeEdition(cta), { status: "available", actionUrl: "https://lib.example/media/42" });
+  assert.equal(cta.getAttribute("href"), "https://lib.example/media/42");
+  assert.equal(cta.hasAttribute("hidden"), false);
+});
+
+test("wireAction: reveals the CTA for a holdable copy", () => {
+  const cta = fakeEl();
+  cta.setAttribute("hidden", "");
+  A.wireAction(fakeEdition(cta), { status: "holdable", actionUrl: "https://lib.example/media/7" });
+  assert.equal(cta.getAttribute("href"), "https://lib.example/media/7");
+  assert.equal(cta.hasAttribute("hidden"), false);
+});
+
+test("wireAction: keeps the CTA hidden when unavailable, unknown, or link-less", () => {
+  for (const model of [
+    { status: "unavailable", actionUrl: "https://lib.example/x" },
+    { status: "unknown", actionUrl: "https://lib.example/x" },
+    { status: "available" }, // borrowable but no deep link
+  ]) {
+    const cta = fakeEl();
+    cta.setAttribute("hidden", "");
+    cta.setAttribute("href", "stale");
+    A.wireAction(fakeEdition(cta), model);
+    assert.equal(cta.hasAttribute("hidden"), true, `hidden for ${JSON.stringify(model)}`);
+    assert.equal(cta.getAttribute("href"), null, `no href for ${JSON.stringify(model)}`);
+  }
+});
+
+test("wireAction: no CTA element in the edition is a no-op, not a throw", () => {
+  A.wireAction(fakeEdition(null), { status: "available", actionUrl: "https://lib.example/x" });
+  A.wireAction(null, { status: "available", actionUrl: "https://lib.example/x" });
+});
+
 test("daiaRequest: direct GETs repeated id params, proxied POSTs the batch", () => {
   const direct = A.daiaRequest(["d1", "d2"], { baseUrl: "https://ils.example/daia" });
   assert.equal(direct.method, "GET");

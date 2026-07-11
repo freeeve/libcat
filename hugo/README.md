@@ -509,6 +509,15 @@ and fills each `.lcat-availability` placeholder. A failed or slow fetch degrades
 inert. A new source plugs in via `registerAdapter({ providerKey, domAttr, batchSize,
 fetchBatch })` -- the runtime sibling of an ingest provider (`tasks/006`).
 
+Each edition also carries a borrow/hold CTA (`a.lcat-availability-cta`) that ships
+`hidden`. When a copy resolves to `available` or `holdable` and the model has an
+`actionUrl` (the provider deep link -- OverDrive's `actionUrlTemplate` or the
+`{slug}.overdrive.com/media/{id}` default), the script points the button at that link and
+reveals it; otherwise, and with no config or no JavaScript, it stays hidden, so a static
+page never shows a dead button. Its label is the `availabilityAction` i18n key
+(default "Borrow"), so it localizes and a deployment can rename it per provider ("Open in
+Libby", "Place a hold", ...).
+
 ### Direct vs proxied transport
 
 If the source's CORS does not permit a browser call from your deploy origin (or you
