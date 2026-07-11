@@ -131,6 +131,25 @@ other = "results"
 [browseShowing]
 other = "showing the first {shown} of {total} {results}"
 
+# Browse result pager (tasks/301). browseShowingRange labels a later page (the
+# window no longer starts at one); {from}, {to}, {total}, {results} are
+# substituted by the script. The browsePager* strings name the pager's nav
+# landmark, its prev/next controls, and each numbered link ("Page {n}").
+[browseShowingRange]
+other = "showing {from}–{to} of {total} {results}"
+
+[browsePagerLabel]
+other = "Search results pages"
+
+[browsePagerPrev]
+other = "Previous"
+
+[browsePagerNext]
+other = "Next"
+
+[browsePagerPage]
+other = "Page {n}"
+
 [darkMode]
 other = "Dark mode"
 

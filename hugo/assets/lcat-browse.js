@@ -57,8 +57,12 @@ const CATS_SHOWN = 40; // per-field category cap in the panel, by descending cou
 
 /** esc HTML-escapes untrusted record/facet text before insertion. */
 function esc(s) {
-  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+  return String(s == null ? "" : s).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
   );
 }
 
@@ -79,8 +83,12 @@ function card(dec, rec) {
     '<span class="lcat-result-title">' +
     esc(c.title || c.id) +
     "</span>" +
-    (c.subtitle ? '<span class="lcat-result-subtitle">' + esc(c.subtitle) + "</span>" : "") +
-    (contrib ? '<span class="lcat-result-contributors">' + esc(contrib) + "</span>" : "") +
+    (c.subtitle
+      ? '<span class="lcat-result-subtitle">' + esc(c.subtitle) + "</span>"
+      : "") +
+    (contrib
+      ? '<span class="lcat-result-contributors">' + esc(contrib) + "</span>"
+      : "") +
     "</a></li>"
   );
 }
@@ -92,16 +100,33 @@ function start() {
   const input = form.querySelector('input[name="q"]');
   if (!input) return;
 
-  const base = (results.getAttribute("data-lcat-browse") || "/search").replace(/\/+$/, "");
+  const base = (results.getAttribute("data-lcat-browse") || "/search").replace(
+    /\/+$/,
+    "",
+  );
   const staticList = results.innerHTML; // restored when query + facets clear
   const countEl = document.querySelector(".lcat-resultcount");
   const staticCount = countEl ? countEl.textContent : "";
   const labels = {
     none: results.getAttribute("data-lcat-noresults") || "No matches",
     results: results.getAttribute("data-lcat-resultsword") || "results",
-    // "showing the first {shown} of {total} {results}" -- rendered when the match
-    // set is larger than one page, so the reader is told the page is a page.
-    showing: results.getAttribute("data-lcat-showing") || "showing the first {shown} of {total} {results}",
+    // "showing the first {shown} of {total} {results}" -- rendered for page one
+    // of a match set larger than a page, so the reader is told the page is a page.
+    showing:
+      results.getAttribute("data-lcat-showing") ||
+      "showing the first {shown} of {total} {results}",
+    // "showing {from}-{to} of {total} {results}" -- rendered on later pages, where
+    // "the first" no longer describes the window (tasks/301).
+    showingRange:
+      results.getAttribute("data-lcat-showingrange") ||
+      "showing {from}–{to} of {total} {results}",
+    // Browse pager labels (tasks/301): the nav landmark's accessible name, the
+    // prev/next controls, and the per-number link name ("Page {n}").
+    pagerLabel:
+      results.getAttribute("data-lcat-pagerlabel") || "Search results pages",
+    pagerPrev: results.getAttribute("data-lcat-pagerprev") || "Previous",
+    pagerNext: results.getAttribute("data-lcat-pagernext") || "Next",
+    pagerPage: results.getAttribute("data-lcat-pagerpage") || "Page {n}",
   };
   const panel = document.getElementById("lcat-browse-facets");
   const dec = new TextDecoder();
@@ -127,7 +152,10 @@ function start() {
               c.openFacets(base + "/browse-facets.rrsf").then(() => c),
             ),
             RrfFacets.open(base + "/browse-facets.rrsf"),
-            RrsRecords.open(base + "/browse-records.idx", base + "/browse-records.bin"),
+            RrsRecords.open(
+              base + "/browse-records.idx",
+              base + "/browse-records.bin",
+            ),
           ]),
         )
         .then(([c, f, r]) => {
@@ -141,7 +169,10 @@ function start() {
           return true;
         })
         .catch((e) => {
-          console.warn("lcat-browse: reader unavailable, staying on static list", e);
+          console.warn(
+            "lcat-browse: reader unavailable, staying on static list",
+            e,
+          );
           return false;
         });
     }
@@ -159,10 +190,17 @@ function start() {
    * exclude} entries for pressed exclude toggles (tasks/173). The reader
    * accepts both entry shapes in one array. */
   function selected() {
-    const boxes = Array.from(panel ? panel.querySelectorAll("input:checked") : []).concat(
-      Array.from(document.querySelectorAll(".lcat-facets input[data-field]:checked")),
+    const boxes = Array.from(
+      panel ? panel.querySelectorAll("input:checked") : [],
+    ).concat(
+      Array.from(
+        document.querySelectorAll(".lcat-facets input[data-field]:checked"),
+      ),
     );
-    const filters = boxes.map((cb) => [cb.getAttribute("data-field"), cb.getAttribute("data-cat")]);
+    const filters = boxes.map((cb) => [
+      cb.getAttribute("data-field"),
+      cb.getAttribute("data-cat"),
+    ]);
     document
       .querySelectorAll(
         '.lcat-facets li[data-lcat-field] .lcat-facet-not[aria-pressed="true"], ' +
@@ -197,7 +235,10 @@ function start() {
   function setNot(li, btn, pressed) {
     btn.setAttribute("aria-pressed", pressed ? "true" : "false");
     const value = li.querySelector(".lcat-facet-value");
-    const name = negLabel(pressed ? "remove" : "exclude", value ? value.textContent.trim() : "");
+    const name = negLabel(
+      pressed ? "remove" : "exclude",
+      value ? value.textContent.trim() : "",
+    );
     btn.setAttribute("aria-label", name);
     btn.title = name;
   }
@@ -223,7 +264,11 @@ function start() {
       while (li.firstChild) {
         // The hidden negatives button stays a direct row child; everything
         // else (value + count spans) moves into the toggle label.
-        if (li.firstChild.classList && li.firstChild.classList.contains("lcat-facet-not")) break;
+        if (
+          li.firstChild.classList &&
+          li.firstChild.classList.contains("lcat-facet-not")
+        )
+          break;
         label.appendChild(li.firstChild);
       }
       li.insertBefore(label, li.firstChild);
@@ -257,7 +302,10 @@ function start() {
    * (tasks/173). If the fetch fails the loader keeps its static fallback
    * links, which remain the (JS-free) facet UI. */
   function sharedPending() {
-    return !!document.querySelector("[data-lcat-facets-src]") && !document.querySelector(".lcat-facets");
+    return (
+      !!document.querySelector("[data-lcat-facets-src]") &&
+      !document.querySelector(".lcat-facets")
+    );
   }
 
   // Shared-sidebar mode inserts the fragment after boot may have finished;
@@ -279,7 +327,10 @@ function start() {
     if (!el) return { subjects: "subject", subjectSchemes: [] };
     try {
       const cfg = JSON.parse(el.textContent) || {};
-      return { subjects: cfg.subjects || "subject", subjectSchemes: cfg.subjectSchemes || [] };
+      return {
+        subjects: cfg.subjects || "subject",
+        subjectSchemes: cfg.subjectSchemes || [],
+      };
     } catch (e) {
       return { subjects: "subject", subjectSchemes: [] };
     }
@@ -331,11 +382,17 @@ function start() {
         const lang = document.documentElement.lang || "en";
         const counts = new Map();
         (facets ? facets.facets() || [] : []).forEach((f) => {
-          if (f.field === "subject") (f.cats || []).forEach((c) => counts.set(c.name, c.count));
+          if (f.field === "subject")
+            (f.cats || []).forEach((c) => counts.set(c.name, c.count));
         });
         const label = (id) => {
           const m = meta[id];
-          return (m && m.labels && (m.labels[lang] || m.labels.en || m.labels[""])) || id;
+          return (
+            (m &&
+              m.labels &&
+              (m.labels[lang] || m.labels.en || m.labels[""])) ||
+            id
+          );
         };
         // A minted entry with no labels yet is postings plumbing, not a
         // concept anyone described; everything else displays (an unlabeled
@@ -343,7 +400,11 @@ function start() {
         // uses label-like ids).
         const displayable = (id) => {
           const m = meta[id];
-          return !!m && (!m.minted || !!(m.labels && (m.labels[lang] || m.labels.en || m.labels[""])));
+          return (
+            !!m &&
+            (!m.minted ||
+              !!(m.labels && (m.labels[lang] || m.labels.en || m.labels[""])))
+          );
         };
         // parentsOf resolves id's displayable parents: displayable broader
         // concepts directly, plumbing nodes replaced by their own displayable
@@ -373,7 +434,9 @@ function start() {
         const children = new Map();
         const roots = new Map(); // scheme -> [id]
         const treeSchemes = new Set();
-        const byCount = (a, b) => (counts.get(b) || 0) - (counts.get(a) || 0) || (label(a) < label(b) ? -1 : 1);
+        const byCount = (a, b) =>
+          (counts.get(b) || 0) - (counts.get(a) || 0) ||
+          (label(a) < label(b) ? -1 : 1);
         Object.keys(meta).forEach((id) => {
           if (!displayable(id)) return;
           const scheme = meta[id].scheme || "";
@@ -392,7 +455,16 @@ function start() {
         });
         roots.forEach((ids) => ids.sort(byCount));
         children.forEach((ids) => ids.sort(byCount));
-        return { meta, counts, label, displayable, parents, children, roots, treeSchemes };
+        return {
+          meta,
+          counts,
+          label,
+          displayable,
+          parents,
+          children,
+          roots,
+          treeSchemes,
+        };
       });
     }
     return engineP;
@@ -407,13 +479,16 @@ function start() {
     const id = li.getAttribute("data-lcat-cat");
     const cb = li.querySelector("input[data-cat]");
     const not = li.querySelector(".lcat-facet-not");
-    document.querySelectorAll('li[data-lcat-field="subject"]').forEach((twin) => {
-      if (twin === li || twin.getAttribute("data-lcat-cat") !== id) return;
-      const tcb = twin.querySelector("input[data-cat]");
-      if (tcb && cb) tcb.checked = cb.checked;
-      const tnot = twin.querySelector(".lcat-facet-not");
-      if (tnot && not) setNot(twin, tnot, not.getAttribute("aria-pressed") === "true");
-    });
+    document
+      .querySelectorAll('li[data-lcat-field="subject"]')
+      .forEach((twin) => {
+        if (twin === li || twin.getAttribute("data-lcat-cat") !== id) return;
+        const tcb = twin.querySelector("input[data-cat]");
+        if (tcb && cb) tcb.checked = cb.checked;
+        const tnot = twin.querySelector(".lcat-facet-not");
+        if (tnot && not)
+          setNot(twin, tnot, not.getAttribute("aria-pressed") === "true");
+      });
   }
 
   /** subjectRow builds one toggle row for a subject id: optional expand
@@ -484,7 +559,9 @@ function start() {
     if (open && !ul) {
       ul = document.createElement("ul");
       ul.className = "lcat-facet-children";
-      (eng.children.get(li.getAttribute("data-lcat-cat")) || []).forEach((kid) => ul.appendChild(subjectRow(eng, kid)));
+      (eng.children.get(li.getAttribute("data-lcat-cat")) || []).forEach(
+        (kid) => ul.appendChild(subjectRow(eng, kid)),
+      );
       li.appendChild(ul);
       applyLiveCounts();
     }
@@ -497,7 +574,9 @@ function start() {
   function treeState(ul) {
     const checked = new Set();
     const excluded = new Set();
-    ul.querySelectorAll("input[data-cat]:checked").forEach((cb) => checked.add(cb.getAttribute("data-cat")));
+    ul.querySelectorAll("input[data-cat]:checked").forEach((cb) =>
+      checked.add(cb.getAttribute("data-cat")),
+    );
     ul.querySelectorAll('.lcat-facet-not[aria-pressed="true"]').forEach((b) => {
       excluded.add(b.closest("li").getAttribute("data-lcat-cat"));
     });
@@ -553,8 +632,13 @@ function start() {
       const needle = q.toLowerCase();
       let matched = 0;
       Object.keys(eng.meta).forEach((id) => {
-        if ((eng.meta[id].scheme || "") !== scheme || matched >= MATCHES_SHOWN) return;
-        if (!eng.displayable(id) || eng.label(id).toLowerCase().indexOf(needle) === -1) return;
+        if ((eng.meta[id].scheme || "") !== scheme || matched >= MATCHES_SHOWN)
+          return;
+        if (
+          !eng.displayable(id) ||
+          eng.label(id).toLowerCase().indexOf(needle) === -1
+        )
+          return;
         matched++;
         ancestryOf(eng, id, visible);
       });
@@ -563,7 +647,9 @@ function start() {
       if (visible ? !visible.has(id) : !keep.has(id)) return false;
       const li = subjectRow(eng, id);
       parent.appendChild(li);
-      const kids = (eng.children.get(id) || []).filter((k) => (visible ? visible.has(k) : keep.has(k)));
+      const kids = (eng.children.get(id) || []).filter((k) =>
+        visible ? visible.has(k) : keep.has(k),
+      );
       if (kids.length) {
         const kidUl = document.createElement("ul");
         kidUl.className = "lcat-facet-children";
@@ -611,7 +697,9 @@ function start() {
     // clone filters the whole vocabulary instead.
     const clone = input.cloneNode(true);
     input.replaceWith(clone);
-    clone.addEventListener("input", () => renderTree(eng, scheme, ul, clone.value.trim()));
+    clone.addEventListener("input", () =>
+      renderTree(eng, scheme, ul, clone.value.trim()),
+    );
   }
 
   /** treeifySidebar upgrades hydrated subject groups whose scheme carries
@@ -624,7 +712,8 @@ function start() {
         if (details.dataset.lcatTree) return;
         const first = details.querySelector('li[data-lcat-field="subject"]');
         if (!first) return;
-        const scheme = (eng.meta[first.getAttribute("data-lcat-cat")] || {}).scheme || "";
+        const scheme =
+          (eng.meta[first.getAttribute("data-lcat-cat")] || {}).scheme || "";
         if (!eng.treeSchemes.has(scheme)) return;
         const ul = details.querySelector("ul");
         if (!ul) return;
@@ -648,7 +737,9 @@ function start() {
       let list = cats.slice().sort((a, b) => b.count - a.count);
       if (q) {
         const needle = q.toLowerCase();
-        list = list.filter((c) => display(c.name).toLowerCase().indexOf(needle) !== -1);
+        list = list.filter(
+          (c) => display(c.name).toLowerCase().indexOf(needle) !== -1,
+        );
       }
       list.slice(0, CATS_SHOWN).forEach((c) => {
         const li = document.createElement("li");
@@ -697,7 +788,9 @@ function start() {
       panel.innerHTML = "";
       fields.forEach((f) => {
         if (f.field !== "subject") {
-          panel.appendChild(panelFlatGroup(f.field, f.field, f.cats || [], (n) => n));
+          panel.appendChild(
+            panelFlatGroup(f.field, f.field, f.cats || [], (n) => n),
+          );
           return;
         }
         // Partition subject categories by scheme: configured schemes first
@@ -715,13 +808,16 @@ function start() {
         const order = [];
         cfg.subjectSchemes.forEach((s) => {
           const scheme = s.scheme || "";
-          if (byScheme.has(scheme)) order.push({ scheme, name: s.name || scheme });
+          if (byScheme.has(scheme))
+            order.push({ scheme, name: s.name || scheme });
         });
         byScheme.forEach((_, scheme) => {
-          if (!order.some((o) => o.scheme === scheme)) order.push({ scheme, name: scheme });
+          if (!order.some((o) => o.scheme === scheme))
+            order.push({ scheme, name: scheme });
         });
         order.forEach((o) => {
-          const title = order.length > 1 ? o.name || cfg.subjects : cfg.subjects;
+          const title =
+            order.length > 1 ? o.name || cfg.subjects : cfg.subjects;
           if (eng.treeSchemes.has(o.scheme)) {
             const details = document.createElement("details");
             details.className = "lcat-browse-facet";
@@ -734,7 +830,14 @@ function start() {
             wireTreeFilter(eng, o.scheme, details, ul);
             panel.appendChild(details);
           } else {
-            panel.appendChild(panelFlatGroup(title, "subject", byScheme.get(o.scheme), eng.label));
+            panel.appendChild(
+              panelFlatGroup(
+                title,
+                "subject",
+                byScheme.get(o.scheme),
+                eng.label,
+              ),
+            );
           }
         });
       });
@@ -770,7 +873,11 @@ function start() {
   /** countRows returns every rendered facet row that can carry a live count:
    * the hydrated/tree/panel checkbox next to its .lcat-count span. */
   function countRows() {
-    return Array.from(document.querySelectorAll(".lcat-facets input[data-field], .lcat-browse-facets input[data-field]"));
+    return Array.from(
+      document.querySelectorAll(
+        ".lcat-facets input[data-field], .lcat-browse-facets input[data-field]",
+      ),
+    );
   }
 
   /** applyLiveCounts paints liveCounts onto every rendered row, remembering
@@ -786,7 +893,8 @@ function start() {
       if (!span) return;
       const li = cb.closest("li");
       if (!liveCounts) {
-        if (span.dataset.lcatCold != null) span.textContent = span.dataset.lcatCold;
+        if (span.dataset.lcatCold != null)
+          span.textContent = span.dataset.lcatCold;
         if (li) li.classList.remove("lcat-count-zero");
         return;
       }
@@ -798,7 +906,8 @@ function start() {
         missing.get(field).push(cat);
         return;
       }
-      if (span.dataset.lcatCold == null) span.dataset.lcatCold = span.textContent;
+      if (span.dataset.lcatCold == null)
+        span.dataset.lcatCold = span.textContent;
       const n = m.get(cat);
       span.textContent = String(n);
       if (li) li.classList.toggle("lcat-count-zero", n === 0);
@@ -808,7 +917,10 @@ function start() {
       const ids = (liveIds && liveIds.get(field)) || liveResultIds;
       if (!ids) return;
       facets
-        .countsFor(ids, cats.map((c) => [field, c]))
+        .countsFor(
+          ids,
+          cats.map((c) => [field, c]),
+        )
         .then((arr) => {
           if (mine !== seq || !liveCounts) return;
           const m = liveCounts.get(field) || new Map();
@@ -832,35 +944,51 @@ function start() {
     results.innerHTML = staticList;
     if (countEl) countEl.textContent = staticCount;
     setLiveCounts(null, null, null);
+    curIds = null;
+    curPage = 0;
+    clearPager();
     setPagerHidden(false);
   }
 
-  function renderCards(recs, total) {
+  /** renderCards renders curPage's window of cards and its count. off is the
+   * page's start offset into the result set, so the count reads "the first N"
+   * on page one and a "{from}-{to}" range beyond it (tasks/301). */
+  function renderCards(recs, total, off) {
+    off = off || 0;
     const html = [];
     for (const r of recs) {
       if (r) html.push(card(dec, r));
     }
-    results.innerHTML = html.length ? html.join("") : '<li class="lcat-noresults">' + esc(labels.none) + "</li>";
+    results.innerHTML = html.length
+      ? html.join("")
+      : '<li class="lcat-noresults">' + esc(labels.none) + "</li>";
     // The base set is the complete match set, so `total` is exact. It used to be
     // `total + (total >= PAGE ? "+" : "")`, where the "+" meant "at least this
     // many" on the query path (the set was truncated to PAGE) and "exactly this
     // many" on the filter path (it was not) -- the same glyph, opposite meanings
-    // (tasks/281). Now: an exact count, and when the list is a page of a larger
-    // set, a sentence that says so rather than a suffix that hints at it.
+    // (tasks/281). Now: an exact count, and when the list is one page of a larger
+    // set, a sentence that says which slice this is -- the browse pager beneath
+    // it reaches the rest (tasks/301), where before the count only said how many
+    // were held back.
     if (countEl) {
-      countEl.textContent =
-        total > PAGE
-          ? labels.showing
-              .replace("{shown}", String(Math.min(PAGE, html.length)))
-              .replace("{total}", String(total))
-              .replace("{results}", labels.results)
-          : total + " " + labels.results;
+      if (total <= PAGE) {
+        countEl.textContent = total + " " + labels.results;
+      } else if (off === 0) {
+        countEl.textContent = labels.showing
+          .replace("{shown}", String(Math.min(PAGE, html.length)))
+          .replace("{total}", String(total))
+          .replace("{results}", labels.results);
+      } else {
+        countEl.textContent = labels.showingRange
+          .replace("{from}", String(off + 1))
+          .replace("{to}", String(off + html.length))
+          .replace("{total}", String(total))
+          .replace("{results}", labels.results);
+      }
     }
-    // The static pager beneath the list pages the server-rendered, unfiltered
-    // corpus. While browse owns the list it is a control that silently discards
-    // the reader's query and facets, so hide it (tasks/281). restore() brings it
-    // back. Browse has no pager of its own yet; the count says how many are held
-    // back, which is honest, where "Next" was not.
+    // The static pager below pages the server-rendered, unfiltered corpus, so it
+    // stays hidden while browse owns the list (tasks/281); restore() brings it
+    // back. The browse pager (renderPage) reaches the rest of THIS result set.
     setPagerHidden(true);
   }
 
@@ -872,6 +1000,211 @@ function start() {
     });
   }
 
+  // ---- Browse result pager (tasks/301) ----
+  //
+  // The static Hugo pager pages the server-rendered, unfiltered corpus, so it is
+  // hidden while browse owns the list (renderCards, tasks/281). This pager pages
+  // the browse *result set* instead: curIds is the whole filtered/ranked id set
+  // already in hand, so paging is a re-slice + records.getMany of the next
+  // window -- no new reader call. It carries its own class (not .pagination) so
+  // the "static pager is hidden" checks still key on ul.pagination alone.
+  let curIds = null; // full result id set the pager windows over (null when idle)
+  let curPage = 0; // 0-based page within curIds
+  let pendingPage = 0; // page to land on for the next showResults (deep link / popstate)
+  let pageSeq = 0; // guards concurrent page renders independently of query seq
+  let pagerHost = null;
+
+  /** ensurePagerHost lazily creates the pager's nav landmark after the list. */
+  function ensurePagerHost() {
+    if (pagerHost && pagerHost.isConnected) return pagerHost;
+    pagerHost = document.createElement("nav");
+    pagerHost.className = "lcat-browse-pager-nav";
+    pagerHost.setAttribute("aria-label", labels.pagerLabel);
+    pagerHost.hidden = true;
+    results.insertAdjacentElement("afterend", pagerHost);
+    return pagerHost;
+  }
+
+  /** clearPager tears the pager down (idle, or the static list restored). */
+  function clearPager() {
+    if (pagerHost) {
+      pagerHost.hidden = true;
+      pagerHost.innerHTML = "";
+    }
+  }
+
+  /** pagerWindow returns the page indices to render around cur: always the
+   * first and last page and cur +/- 2, with null marking an elided gap. Keeps
+   * the control bounded when a facet selection spans hundreds of pages. */
+  function pagerWindow(cur, pages) {
+    const span = 2;
+    const wanted = new Set([0, pages - 1]);
+    for (let p = cur - span; p <= cur + span; p++)
+      if (p >= 0 && p < pages) wanted.add(p);
+    const sorted = Array.from(wanted).sort((a, b) => a - b);
+    const out = [];
+    let last = -1;
+    sorted.forEach((p) => {
+      if (last >= 0 && p - last > 1) out.push(null);
+      out.push(p);
+      last = p;
+    });
+    return out;
+  }
+
+  /** pageHref builds the URL for page p (1-based in the URL, omitted for page
+   * one), preserving the active query and any other params/hash so the link is
+   * shareable and degrades to a real navigation if the click handler is gone. */
+  function pageHref(p) {
+    const params = new URLSearchParams(window.location.search);
+    const q = input.value.trim();
+    if (q) params.set("q", q);
+    else params.delete("q");
+    if (p > 0) params.set("page", String(p + 1));
+    else params.delete("page");
+    const qs = params.toString();
+    return window.location.pathname + (qs ? "?" + qs : "");
+  }
+
+  /** renderPager (re)builds the browse pager for a total-of-total result set,
+   * mirroring the static paginator's a11y shape (aria-current on the active
+   * page, aria-disabled prev/next at the ends). Hidden for a single page. */
+  function renderPager(total) {
+    const host = ensurePagerHost();
+    const pages = Math.max(1, Math.ceil(total / PAGE));
+    if (pages <= 1) {
+      clearPager();
+      return;
+    }
+    const ul = document.createElement("ul");
+    ul.className = "lcat-browse-pager";
+    const item = (p, text, opts) => {
+      opts = opts || {};
+      const li = document.createElement("li");
+      li.className =
+        "page-item" +
+        (opts.active ? " active" : "") +
+        (opts.disabled ? " disabled" : "");
+      const a = document.createElement("a");
+      a.className = "page-link";
+      a.textContent = text;
+      if (opts.disabled) {
+        a.setAttribute("aria-disabled", "true");
+        a.setAttribute("tabindex", "-1");
+      } else {
+        a.href = pageHref(p);
+        if (opts.active) a.setAttribute("aria-current", "page");
+        if (opts.rel) a.setAttribute("rel", opts.rel);
+        if (opts.aria) a.setAttribute("aria-label", opts.aria);
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          gotoPage(p, true);
+        });
+      }
+      li.appendChild(a);
+      ul.appendChild(li);
+    };
+    item(curPage - 1, "‹ " + labels.pagerPrev, {
+      disabled: curPage === 0,
+      rel: "prev",
+    });
+    pagerWindow(curPage, pages).forEach((p) => {
+      if (p === null) {
+        const li = document.createElement("li");
+        li.className = "page-item disabled";
+        const span = document.createElement("span");
+        span.className = "page-link";
+        span.setAttribute("aria-hidden", "true");
+        span.textContent = "…";
+        li.appendChild(span);
+        ul.appendChild(li);
+      } else {
+        item(p, String(p + 1), {
+          active: p === curPage,
+          aria: labels.pagerPage.replace("{n}", String(p + 1)),
+        });
+      }
+    });
+    item(curPage + 1, labels.pagerNext + " ›", {
+      disabled: curPage === pages - 1,
+      rel: "next",
+    });
+    host.innerHTML = "";
+    host.appendChild(ul);
+    host.hidden = false;
+  }
+
+  /** renderPage fetches and renders curPage's window of curIds, updates the
+   * count, and repaints the pager. Guarded so a superseded page (a newer page
+   * click, or a newer query) never paints over the current one. */
+  function renderPage() {
+    if (!curIds || !records) return Promise.resolve();
+    const total = curIds.length;
+    const off = curPage * PAGE;
+    const mine = ++pageSeq;
+    const qmine = seq;
+    return records.getMany(curIds.slice(off, off + PAGE)).then((recs) => {
+      if (mine !== pageSeq || qmine !== seq) return;
+      renderCards(recs, total, off);
+      renderPager(total);
+    });
+  }
+
+  /** showResults installs a new result id set and renders one page of it,
+   * landing on startPage (clamped) -- 0 for a fresh query/facet, or the
+   * deep-linked/popped page on restore. */
+  function showResults(ids, startPage) {
+    curIds = ids;
+    const pages = Math.max(1, Math.ceil(ids.length / PAGE));
+    curPage = Math.min(Math.max(0, startPage || 0), pages - 1);
+    return renderPage();
+  }
+
+  /** gotoPage moves within the current result set without re-querying; the
+   * live facet counts describe the whole set, so they are left untouched. */
+  function gotoPage(p, pushURL) {
+    if (!curIds) return;
+    const pages = Math.max(1, Math.ceil(curIds.length / PAGE));
+    curPage = Math.min(Math.max(0, p), pages - 1);
+    if (pushURL) updateURL(false);
+    renderPage();
+  }
+
+  /** updateURL syncs the active query and page into the address bar so paging
+   * is shareable and the back button returns to the page the reader left.
+   * Query typing replaces (no history spam); a pager click pushes. Facet state
+   * is not yet encoded here (tasks/301 follow-up). */
+  function updateURL(replace) {
+    const params = new URLSearchParams(window.location.search);
+    const q = input.value.trim();
+    if (q) params.set("q", q);
+    else params.delete("q");
+    if (curIds && curPage > 0) params.set("page", String(curPage + 1));
+    else params.delete("page");
+    const qs = params.toString();
+    const url =
+      window.location.pathname + (qs ? "?" + qs : "") + window.location.hash;
+    try {
+      if (replace) history.replaceState(null, "", url);
+      else history.pushState(null, "", url);
+    } catch (e) {
+      /* history unavailable (sandboxed/file://): paging still works in-session */
+    }
+  }
+
+  /** applyURLState drives the list from the address bar: on first load and on
+   * every back/forward. A ?page= is honored only where the query path
+   * reconstructs the same result set; with no query the page is meaningless and
+   * ignored (facets are not in the URL yet). */
+  function applyURLState() {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q") || "";
+    const p = parseInt(params.get("page"), 10);
+    pendingPage = p > 1 ? p - 1 : 0;
+    if (input.value !== q) input.value = q;
+    refresh();
+  }
+
   /** filterField reads an entry's field from either shape selected() emits. */
   function filterField(f) {
     return f.field || f[0];
@@ -879,11 +1212,17 @@ function start() {
 
   let seq = 0;
   function refresh() {
+    // The page to land on comes from a deep link / back-forward navigation
+    // (applyURLState); a fresh interaction resets to page one. Read it before
+    // the async boot so a later refresh cannot steal it (tasks/301).
+    const startPage = pendingPage;
+    pendingPage = 0;
     const q = input.value.trim();
     const filters = selected();
     if (q === "" && filters.length === 0) {
       seq++;
       restore();
+      updateURL(true);
       return;
     }
     const mine = ++seq;
@@ -913,21 +1252,17 @@ function start() {
           if (!filters.length) {
             // Query only. base.counts is the engine's count over every hit, and
             // base.ids is now that same set, so the rail and the result list
-            // describe the same works again.
-            return records.getMany(base.ids.slice(0, PAGE)).then((recs) => {
-              if (mine !== seq) return;
-              renderCards(recs, base.ids.length);
-              setLiveCounts(countsToMap(base.counts), new Map(), base.ids);
-            });
+            // describe the same works again. The pager windows over base.ids.
+            const renderP = showResults(base.ids, startPage);
+            setLiveCounts(countsToMap(base.counts), new Map(), base.ids);
+            updateURL(true);
+            return renderP;
           }
           return facets.filterIds(base.ids, filters, true).then((fi) => {
             if (mine !== seq) return;
             const ids = fi.ids;
             const cmap = countsToMap(fi.facetCounts());
-            const renderP = records.getMany(ids.slice(0, PAGE)).then((recs) => {
-              // getMany resolves to an Array aligned with the input ids.
-              if (mine === seq) renderCards(recs, ids.length);
-            });
+            const renderP = showResults(ids, startPage);
             // Drill-down (POC/Pagefind): each active field recounts with its
             // own selections removed, so its other values stay addable
             // instead of dropping to the intersection's zeros.
@@ -944,7 +1279,10 @@ function start() {
               }),
             );
             return Promise.all([renderP, drillP]).then(() => {
-              if (mine === seq) setLiveCounts(cmap, idsByField, ids);
+              if (mine === seq) {
+                setLiveCounts(cmap, idsByField, ids);
+                updateURL(true);
+              }
             });
           });
         });
@@ -958,12 +1296,11 @@ function start() {
   });
   input.addEventListener("input", refresh);
 
-  // Honor an initial ?q= (a deep link, or the no-JS form landing here).
-  const initial = new URLSearchParams(window.location.search).get("q");
-  if (initial) {
-    input.value = initial;
-    refresh();
-  }
+  // Drive the list from the address bar: an initial ?q=/?page= (a deep link, or
+  // the no-JS form landing here) and every subsequent back/forward navigation
+  // (tasks/301). A bare page load with no query leaves the static list in place.
+  window.addEventListener("popstate", applyURLState);
+  if (window.location.search) applyURLState();
 }
 
 if (document.readyState === "loading") {

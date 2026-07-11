@@ -9,21 +9,22 @@
    a curator-green accent -- the same ink the cataloging backend renders editorial
    provenance in. All of it retunes from the tokens; nothing is baked into markup. */
 :root {
-  --lcat-fg: #1f2421;           /* iron-gall green-black ink */
-  --lcat-bg: #f7f6f2;           /* bone: warm near-white, not cream */
-  --lcat-accent: #1e6b4e;       /* curator green; links, active states (>=4.5:1 on bg) */
-  --lcat-accent-ink: #14523a;   /* darker accent for headings / large text */
+  --lcat-fg: #1f2421; /* iron-gall green-black ink */
+  --lcat-bg: #f7f6f2; /* bone: warm near-white, not cream */
+  --lcat-accent: #1e6b4e; /* curator green; links, active states (>=4.5:1 on bg) */
+  --lcat-accent-ink: #14523a; /* darker accent for headings / large text */
   --lcat-muted: #5b615d;
   --lcat-border: #d9d5cb;
-  --lcat-surface: #fff;         /* raised cards and the facet panel: index-card white */
-  --lcat-surface-alt: #edeae2;  /* tag chips, subtle fills */
+  --lcat-surface: #fff; /* raised cards and the facet panel: index-card white */
+  --lcat-surface-alt: #edeae2; /* tag chips, subtle fills */
   --lcat-radius: 6px;
-  --lcat-shadow: 0 1px 0 rgba(31, 36, 33, 0.07), 0 3px 10px rgba(31, 36, 33, 0.06);
+  --lcat-shadow:
+    0 1px 0 rgba(31, 36, 33, 0.07), 0 3px 10px rgba(31, 36, 33, 0.06);
   --lcat-gap: 2rem;
-  --lcat-maxw: 72rem;           /* readable measure, wider than the old minimal 68rem */
+  --lcat-maxw: 72rem; /* readable measure, wider than the old minimal 68rem */
   /* Type roles: display carries the bookish personality (work titles only); the
      body stays a modern sans; mono covers identifiers and call numbers. */
-  --lcat-on-accent: #fff;      /* text on accent-filled controls */
+  --lcat-on-accent: #fff; /* text on accent-filled controls */
   --lcat-avail-ok: #1e6b4e;
   --lcat-avail-hold: #8a5a00;
   --lcat-avail-none: #a34224;
@@ -41,7 +42,9 @@
    `!important` is the point, not a shortcut: the whole failure is that a later,
    more specific author rule wins. An adopter who wants a hidden element shown
    should remove the attribute, not outrank this. */
-[hidden] { display: none !important; }
+[hidden] {
+  display: none !important;
+}
 /* Dark mode: the closed stacks -- the light theme's ink becomes the card
    surface, bone becomes the text, and the inks brighten to hold AA. Applies
    automatically from the OS preference, or explicitly via
@@ -87,7 +90,9 @@
     color-scheme: dark;
   }
 }
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 body {
   margin: 0;
   color: var(--lcat-fg);
@@ -95,13 +100,25 @@ body {
   font: 100%/1.5 var(--lcat-sans);
 }
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 /* Underline links by default so in-text links do not rely on color alone
    (WCAG 1.4.1); chrome links with a non-color affordance (brand, facet rows,
    tag pills, pagination buttons) opt out below. */
-a { color: var(--lcat-accent); text-decoration: underline; text-underline-offset: 0.12em; }
-a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible {
+a {
+  color: var(--lcat-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible {
   outline: 3px solid var(--lcat-accent);
   outline-offset: 2px;
 }
@@ -119,10 +136,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 }
 .lcat-visually-hidden {
   position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0 0 0 0);
-  white-space: nowrap; border: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 .lcat-header {
   display: flex;
@@ -166,10 +187,24 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   text-decoration: none;
   cursor: pointer;
 }
-.lcat-btn:hover { text-decoration: underline; }
-.lcat-btn--solid { background: var(--lcat-accent); color: var(--lcat-on-accent); border-color: var(--lcat-accent); }
-.lcat-btn--surface { background: var(--lcat-surface); color: var(--lcat-accent); border-color: var(--lcat-border); }
-.lcat-btn--ghost { background: transparent; color: var(--lcat-on-accent); border-color: var(--lcat-on-accent); }
+.lcat-btn:hover {
+  text-decoration: underline;
+}
+.lcat-btn--solid {
+  background: var(--lcat-accent);
+  color: var(--lcat-on-accent);
+  border-color: var(--lcat-accent);
+}
+.lcat-btn--surface {
+  background: var(--lcat-surface);
+  color: var(--lcat-accent);
+  border-color: var(--lcat-border);
+}
+.lcat-btn--ghost {
+  background: transparent;
+  color: var(--lcat-on-accent);
+  border-color: var(--lcat-on-accent);
+}
 
 /* Primary nav (tasks/118): configuration-driven from [[menu.main]]; sits in the
    header flex between brand and search, wrapping on narrow viewports. */
@@ -189,9 +224,18 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   font-weight: 600;
   color: var(--lcat-accent-ink);
 }
-.lcat-nav a:hover { background: var(--lcat-surface-alt); text-decoration: underline; }
-.lcat-nav a[aria-current="page"] { color: var(--lcat-accent); box-shadow: inset 0 -3px 0 var(--lcat-accent); }
-.lcat-search { display: flex; gap: 0.5rem; }
+.lcat-nav a:hover {
+  background: var(--lcat-surface-alt);
+  text-decoration: underline;
+}
+.lcat-nav a[aria-current="page"] {
+  color: var(--lcat-accent);
+  box-shadow: inset 0 -3px 0 var(--lcat-accent);
+}
+.lcat-search {
+  display: flex;
+  gap: 0.5rem;
+}
 .lcat-search input {
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--lcat-border);
@@ -219,7 +263,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   padding: 0.4rem 1.1rem;
   cursor: pointer;
 }
-.lcat-search-trigger:hover { color: var(--lcat-fg); border-color: var(--lcat-accent); }
+.lcat-search-trigger:hover {
+  color: var(--lcat-fg);
+  border-color: var(--lcat-accent);
+}
 .lcat-search-dialog {
   --pagefind-ui-primary: var(--lcat-accent);
   --pagefind-ui-text: var(--lcat-fg);
@@ -236,7 +283,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   color: var(--lcat-fg);
   padding: 1rem 1.25rem 1.25rem;
 }
-.lcat-search-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.lcat-search-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
 .lcat-search-close {
   display: block;
   margin-left: auto;
@@ -246,7 +295,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   cursor: pointer;
   padding: 0.15rem 0.25rem;
 }
-.lcat-search-close:hover { color: var(--lcat-fg); }
+.lcat-search-close:hover {
+  color: var(--lcat-fg);
+}
 .lcat-layout {
   display: grid;
   grid-template-columns: 16rem 1fr;
@@ -256,12 +307,18 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   padding: 1.75rem clamp(1rem, 4vw, 2rem);
 }
 @media (max-width: 48rem) {
-  .lcat-layout { grid-template-columns: 1fr; }
+  .lcat-layout {
+    grid-template-columns: 1fr;
+  }
 }
 /* Work detail (page.html) defines no sidebar block, so <main> is the layout's only
    child; span it across both tracks instead of stranding it in the 16rem column. */
-.lcat-layout > .lcat-main:only-child { grid-column: 1 / -1; }
-.lcat-main:focus { outline: none; }
+.lcat-layout > .lcat-main:only-child {
+  grid-column: 1 / -1;
+}
+.lcat-main:focus {
+  outline: none;
+}
 /* Facet sidebar as a raised panel so it reads as a distinct filter surface. */
 .lcat-sidebar {
   background: var(--lcat-surface);
@@ -271,7 +328,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   align-self: start;
   box-shadow: var(--lcat-shadow);
 }
-.lcat-facet { margin-bottom: 1rem; border-bottom: 1px solid var(--lcat-border); padding-bottom: 0.5rem; }
+.lcat-facet {
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--lcat-border);
+  padding-bottom: 0.5rem;
+}
 /* Facet group labels read like catalog-drawer labels: small caps, tracked out. */
 .lcat-facet summary {
   cursor: pointer;
@@ -281,9 +342,17 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   letter-spacing: 0.07em;
   color: var(--lcat-accent-ink);
 }
-.lcat-facet-total, .lcat-count { color: var(--lcat-muted); font-size: 0.85em; }
+.lcat-facet-total,
+.lcat-count {
+  color: var(--lcat-muted);
+  font-size: 0.85em;
+}
 /* A subject term page's vocabulary qualifier (tasks/141). */
-.lcat-term-scheme { color: var(--lcat-muted); font-size: 0.7em; font-weight: 400; }
+.lcat-term-scheme {
+  color: var(--lcat-muted);
+  font-size: 0.7em;
+  font-weight: 400;
+}
 /* Per-group type-to-filter (tasks/141). */
 .lcat-facet-filter {
   width: 100%;
@@ -296,8 +365,16 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border: 1px solid var(--lcat-border);
   border-radius: 4px;
 }
-.lcat-facets ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
-.lcat-facets li { display: flex; align-items: center; gap: 0.3rem; }
+.lcat-facets ul {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+.lcat-facets li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
 .lcat-facets li a {
   flex: 1 1 auto;
   min-width: 0;
@@ -307,7 +384,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   padding: 0.15rem 0;
   text-decoration: none;
 }
-.lcat-facets li a:hover .lcat-facet-value { text-decoration: underline; }
+.lcat-facets li a:hover .lcat-facet-value {
+  text-decoration: underline;
+}
 /* Browse-mode facet toggles (tasks/170): unlinked rows hydrate into checkbox
    labels driving the client-side reader; mirror the anchor row's layout. */
 .lcat-facets li > label {
@@ -319,7 +398,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   padding: 0.15rem 0;
   cursor: pointer;
 }
-.lcat-facets li > label:hover .lcat-facet-value { text-decoration: underline; }
+.lcat-facets li > label:hover .lcat-facet-value {
+  text-decoration: underline;
+}
 /* Shrink/wrap rules keyed to the value span itself, not the row markup, so
    linked, hydrated, and panel rows all confine long labels to the sidebar's
    fixed track instead of painting over the results column (tasks/173). */
@@ -330,7 +411,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   overflow-wrap: anywhere;
 }
 .lcat-facets .lcat-count,
-.lcat-browse-facets .lcat-count { flex: none; }
+.lcat-browse-facets .lcat-count {
+  flex: none;
+}
 /* Subject vocabulary trees (tasks/174): expand carets on concepts with
    narrower terms, children indented under their parent. The leaf spacer
    keeps siblings aligned. */
@@ -347,7 +430,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border: none;
   cursor: pointer;
 }
-.lcat-facet-caret-leaf { cursor: default; }
+.lcat-facet-caret-leaf {
+  cursor: default;
+}
 .lcat-facets .lcat-facet-children,
 .lcat-browse-facets .lcat-facet-children {
   /* Shrinkable (tasks/176): with flex-shrink 0 the 1.1rem indent margin
@@ -362,17 +447,32 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   max-width: calc(100% - 1.1rem);
 }
 .lcat-facets li:has(> .lcat-facet-children),
-.lcat-browse-facets li:has(> .lcat-facet-children) { flex-wrap: wrap; }
+.lcat-browse-facets li:has(> .lcat-facet-children) {
+  flex-wrap: wrap;
+}
 .lcat-facets li,
-.lcat-browse-facets li { min-width: 0; max-width: 100%; }
+.lcat-browse-facets li {
+  min-width: 0;
+  max-width: 100%;
+}
 /* Live counts (tasks/177): a category with no hits in the current result set
    greys out instead of hiding, so the rail stays stable while filtering. */
 .lcat-facets li.lcat-count-zero > label,
-.lcat-browse-facets li.lcat-count-zero > label { opacity: 0.55; }
+.lcat-browse-facets li.lcat-count-zero > label {
+  opacity: 0.55;
+}
 /* Fallback facet panel rows (tasks/158): same toggle-row layout as hydrated
    sidebar rows (tasks/173). */
-.lcat-browse-facets ul { list-style: none; margin: 0.5rem 0 0; padding: 0; }
-.lcat-browse-facets li { display: flex; align-items: center; gap: 0.3rem; }
+.lcat-browse-facets ul {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+.lcat-browse-facets li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
 .lcat-browse-facets li > label {
   flex: 1 1 auto;
   min-width: 0;
@@ -384,9 +484,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 }
 /* Shared-sidebar fallback (tasks/150): taxonomy landing links shown before the
    fragment loads, without JS, or when the fetch fails. */
-.lcat-facets-fallback { list-style: none; margin: 0; padding: 0; }
-.lcat-facets-fallback li a { display: block; padding: 0.15rem 0; text-decoration: none; }
-.lcat-facets-fallback li a:hover { text-decoration: underline; }
+.lcat-facets-fallback {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lcat-facets-fallback li a {
+  display: block;
+  padding: 0.15rem 0;
+  text-decoration: none;
+}
+.lcat-facets-fallback li a:hover {
+  text-decoration: underline;
+}
 /* Negative facet filters (tasks/144): the per-row exclude button, the "Not X"
    chips above the results, and the class lcat-negatives.js hides cards with.
    The exclusion state borrows the availability "none" red. */
@@ -409,7 +519,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   color: var(--lcat-avail-none);
   border-color: currentColor;
 }
-.lcat-excluded { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.75rem; padding: 0; }
+.lcat-excluded {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
 .lcat-excluded li {
   font-size: 0.8rem;
   color: var(--lcat-avail-none);
@@ -427,21 +544,55 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border: none;
   cursor: pointer;
 }
-.lcat-neg-hidden { display: none; }
-.lcat-results { list-style: none; margin: 0; padding: 0; }
-.lcat-results > li { padding: 0.9rem 0; border-bottom: 1px solid var(--lcat-border); }
+.lcat-neg-hidden {
+  display: none;
+}
+.lcat-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lcat-results > li {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--lcat-border);
+}
 /* The generic section index (tasks/290): /lists/, and any prose section an
    adopter adds. Deliberately not .lcat-results -- these are pages, not works. */
-.lcat-pagelist { list-style: none; margin: 1.25rem 0 0; padding: 0; }
-.lcat-pagelist > li { padding: 0.9rem 0; border-bottom: 1px solid var(--lcat-border); }
-.lcat-pagelist-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
-.lcat-pagelist-summary { margin: 0.35rem 0 0; color: var(--lcat-muted); }
-.lcat-pagelist-summary > :first-child { margin-top: 0; }
-.lcat-pagelist-summary > :last-child { margin-bottom: 0; }
+.lcat-pagelist {
+  list-style: none;
+  margin: 1.25rem 0 0;
+  padding: 0;
+}
+.lcat-pagelist > li {
+  padding: 0.9rem 0;
+  border-bottom: 1px solid var(--lcat-border);
+}
+.lcat-pagelist-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.lcat-pagelist-summary {
+  margin: 0.35rem 0 0;
+  color: var(--lcat-muted);
+}
+.lcat-pagelist-summary > :first-child {
+  margin-top: 0;
+}
+.lcat-pagelist-summary > :last-child {
+  margin-bottom: 0;
+}
 /* Card is a flex row so an optional cover sits beside the text block; with covers off
    the body is the lone flex child and fills the width (tasks/025). */
-.lcat-card { display: flex; gap: 1rem; align-items: flex-start; }
-.lcat-card-body { flex: 1 1 auto; min-width: 0; }
+.lcat-card {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.lcat-card-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .lcat-card-title {
   margin: 0 0 0.25rem;
   font-family: var(--lcat-display);
@@ -449,14 +600,33 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   line-height: 1.25;
   letter-spacing: 0.005em;
 }
-.lcat-subtitle { font-weight: 400; color: var(--lcat-muted); }
-.lcat-contribs { margin: 0.15rem 0; color: var(--lcat-muted); }
-.lcat-role { font-style: italic; }
+.lcat-subtitle {
+  font-weight: 400;
+  color: var(--lcat-muted);
+}
+.lcat-contribs {
+  margin: 0.15rem 0;
+  color: var(--lcat-muted);
+}
+.lcat-role {
+  font-style: italic;
+}
 /* Work summary (bf:summary, tasks/124): measure-capped prose so a long blurb reads
    comfortably next to full-width sections. */
-.lcat-summary { max-width: 65ch; }
-.lcat-summary p { margin: 0.6rem 0; }
-.lcat-tags { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.35rem 0 0; padding: 0; }
+.lcat-summary {
+  max-width: 65ch;
+}
+.lcat-summary p {
+  margin: 0.6rem 0;
+}
+.lcat-tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
 .lcat-tags li {
   font-size: 0.8rem;
   background: var(--lcat-surface-alt);
@@ -465,21 +635,56 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   padding: 0.1rem 0.6rem;
 }
 /* Pills read as distinct shapes, not in-text links, so they skip the default underline. */
-.lcat-tags li a { text-decoration: none; }
-.lcat-tags li a:hover { text-decoration: underline; }
-.lcat-terms { list-style: none; padding: 0; columns: 2; }
-.lcat-editions { list-style: none; padding: 0; }
-.lcat-edition { padding: 0.5rem 0; border-bottom: 1px dashed var(--lcat-border); }
-.lcat-format { font-weight: 600; text-transform: capitalize; margin-right: 0.5rem; }
-.lcat-isbn { color: var(--lcat-muted, #667); font-family: var(--lcat-mono); font-size: 0.85em; }
+.lcat-tags li a {
+  text-decoration: none;
+}
+.lcat-tags li a:hover {
+  text-decoration: underline;
+}
+.lcat-terms {
+  list-style: none;
+  padding: 0;
+  columns: 2;
+}
+.lcat-editions {
+  list-style: none;
+  padding: 0;
+}
+.lcat-edition {
+  padding: 0.5rem 0;
+  border-bottom: 1px dashed var(--lcat-border);
+}
+.lcat-format {
+  font-weight: 600;
+  text-transform: capitalize;
+  margin-right: 0.5rem;
+}
+.lcat-isbn {
+  color: var(--lcat-muted, #667);
+  font-family: var(--lcat-mono);
+  font-size: 0.85em;
+}
 /* Live availability (tasks/004): color by resolved data-status; empty (unknown or
    not-yet-fetched) stays invisible so it never shows a misleading state. */
-.lcat-availability { margin-left: 0.5rem; font-size: 0.9em; }
-.lcat-availability:empty { display: none; }
-.lcat-availability[data-status="available"] { color: var(--lcat-avail-ok); }
-.lcat-availability[data-status="holdable"] { color: var(--lcat-avail-hold); }
-.lcat-availability[data-status="unavailable"] { color: var(--lcat-avail-none); }
-.lcat-meta dt { font-weight: 600; }
+.lcat-availability {
+  margin-left: 0.5rem;
+  font-size: 0.9em;
+}
+.lcat-availability:empty {
+  display: none;
+}
+.lcat-availability[data-status="available"] {
+  color: var(--lcat-avail-ok);
+}
+.lcat-availability[data-status="holdable"] {
+  color: var(--lcat-avail-hold);
+}
+.lcat-availability[data-status="unavailable"] {
+  color: var(--lcat-avail-none);
+}
+.lcat-meta dt {
+  font-weight: 600;
+}
 /* "More like this" (tasks/284, redesigned in tasks/310). A shelf, not a list: the
    reader scans by cover and reads the caption only once something catches them.
 
@@ -493,7 +698,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
    cataloger's claim. What used to say so was a visible "Shares:" line under every
    title; the covers took that room, and the explanation moved into assistive text
    on each tile. */
-.lcat-similar { border-top: 1px solid var(--lcat-border); margin-top: var(--lcat-gap); padding-top: var(--lcat-gap); }
+.lcat-similar {
+  border-top: 1px solid var(--lcat-border);
+  margin-top: var(--lcat-gap);
+  padding-top: var(--lcat-gap);
+}
 .lcat-similar-grid {
   list-style: none;
   padding: 0;
@@ -503,12 +712,21 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   gap: 1.25rem 1rem;
   align-items: start;
 }
-.lcat-similar-link { display: block; text-decoration: none; color: inherit; }
+.lcat-similar-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
 .lcat-similar-link:hover .lcat-similar-title,
-.lcat-similar-link:focus-visible .lcat-similar-title { text-decoration: underline; }
+.lcat-similar-link:focus-visible .lcat-similar-title {
+  text-decoration: underline;
+}
 /* The badge is positioned against the art, so the art is the containing block --
    and the art is what a missing cover has to keep the size of. */
-.lcat-similar-art { position: relative; display: block; }
+.lcat-similar-art {
+  position: relative;
+  display: block;
+}
 .lcat-similar-cover {
   display: block;
   width: 100%;
@@ -520,7 +738,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
 /* An <img> gets its height from the aspect-ratio + the intrinsic width; an empty
    <span> has no intrinsic anything, so it needs the box stated outright or the
    grid row collapses around it. */
-.lcat-similar-cover--none { height: 0; padding-block-end: 150%; }
+.lcat-similar-cover--none {
+  height: 0;
+  padding-block-end: 150%;
+}
 .lcat-similar-badge {
   position: absolute;
   inset-block-start: 0.4rem;
@@ -534,14 +755,28 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.lcat-similar-title { display: block; margin-top: 0.5rem; font-weight: 600; line-height: 1.25; }
-.lcat-similar-by { display: block; margin-top: 0.15rem; color: var(--lcat-muted, #667); font-size: 0.8em; line-height: 1.3; }
+.lcat-similar-title {
+  display: block;
+  margin-top: 0.5rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.lcat-similar-by {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--lcat-muted, #667);
+  font-size: 0.8em;
+  line-height: 1.3;
+}
 /* One <span> per shared term, separated by CSS rather than by a comma in the text
    (tasks/302). Subject headings and contributor names carry their own commas --
    "Lesbians' writings, Canadian" is one heading, "Elledge, Jim" is one person --
    so a comma-joined line reads as more terms than it names. Still true where the
    terms now live: a screen reader announces the separator. */
-.lcat-similar-term + .lcat-similar-term::before { content: "· "; color: var(--lcat-border, #ccc); }
+.lcat-similar-term + .lcat-similar-term::before {
+  content: "· ";
+  color: var(--lcat-border, #ccc);
+}
 /* Revealed by lcat-similar.js, which also hides the tiles past [params]
    similarShown. Centred under the grid, and gone once clicked -- there is no
    second thing to reveal. */
@@ -557,7 +792,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   font-weight: 600;
   cursor: pointer;
 }
-.lcat-similar-more:hover { border-color: var(--lcat-fg, #111); }
+.lcat-similar-more:hover {
+  border-color: var(--lcat-fg, #111);
+}
 /* Optional cover art (tasks/025): rendered by lcat-cover.html only when the site sets
    [params] covers = true. Set BOTH width and height in CSS per variant -- the <img>
    carries width/height HTML hints for CLS, and without an explicit CSS height that hint
@@ -571,8 +808,16 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   border: 1px solid var(--lcat-border);
   box-shadow: var(--lcat-shadow);
 }
-.lcat-cover--card { width: 3.5rem; height: 5.25rem; }        /* true 2:3 portrait */
-.lcat-cover--detail { width: 8.5rem; height: 12.75rem; float: right; margin: 0 0 1rem 1.25rem; }
+.lcat-cover--card {
+  width: 3.5rem;
+  height: 5.25rem;
+} /* true 2:3 portrait */
+.lcat-cover--detail {
+  width: 8.5rem;
+  height: 12.75rem;
+  float: right;
+  margin: 0 0 1rem 1.25rem;
+}
 .lcat-cover--placeholder {
   display: grid;
   place-items: center;
@@ -580,11 +825,28 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   font-weight: 700;
   font-size: 1.1rem;
 }
-/* Hugo's _internal/pagination.html emits .pagination > .page-item > .page-link. Size the
-   links as >=44px button targets (WCAG 2.5.8) rather than bare text links. */
-.pagination { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; margin: 1.5rem 0; }
-.pagination .page-item { display: flex; }
-.pagination .page-link {
+/* Hugo's _internal/pagination.html emits .pagination > .page-item > .page-link. The
+   client browse pager (tasks/301) mirrors the same shape under .lcat-browse-pager --
+   a distinct class so the "static pager is hidden" checks key on ul.pagination alone.
+   Size the links as >=44px button targets (WCAG 2.5.8) rather than bare text links. */
+.pagination,
+.lcat-browse-pager {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0;
+  margin: 1.5rem 0;
+}
+.lcat-browse-pager-nav[hidden] {
+  display: none;
+}
+.pagination .page-item,
+.lcat-browse-pager .page-item {
+  display: flex;
+}
+.pagination .page-link,
+.lcat-browse-pager .page-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -596,9 +858,22 @@ a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visibl
   text-decoration: none;
   color: var(--lcat-accent);
 }
-.pagination .page-link:hover { border-color: var(--lcat-accent); }
-.pagination .active .page-link { background: var(--lcat-accent); border-color: var(--lcat-accent); color: var(--lcat-on-accent); }
-.pagination .disabled .page-link { color: var(--lcat-muted); border-color: var(--lcat-border); pointer-events: none; }
+.pagination .page-link:hover,
+.lcat-browse-pager .page-link:hover {
+  border-color: var(--lcat-accent);
+}
+.pagination .active .page-link,
+.lcat-browse-pager .active .page-link {
+  background: var(--lcat-accent);
+  border-color: var(--lcat-accent);
+  color: var(--lcat-on-accent);
+}
+.pagination .disabled .page-link,
+.lcat-browse-pager .disabled .page-link {
+  color: var(--lcat-muted);
+  border-color: var(--lcat-border);
+  pointer-events: none;
+}
 
 /* Work detail heading: the display serif over an index-card double rule --
    the theme's one structural flourish, and it encodes the page's job (this is

@@ -66,3 +66,8 @@ node "$here/range-server.mjs" "$out-big" "$bigport" &
 bigsrv=$!
 sleep 1
 node "$here/browse-scope.spec.mjs" "http://127.0.0.1:$bigport"
+
+# Result pager (tasks/301). Same 600-work build: the reader must reach past the
+# first page of a match set, the pages must partition it, a page must be
+# deep-linkable, and clearing must restore the static list and its corpus pager.
+node "$here/browse-pager.spec.mjs" "http://127.0.0.1:$bigport"

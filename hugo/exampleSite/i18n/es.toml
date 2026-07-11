@@ -123,6 +123,22 @@ other = "resultados"
 [browseShowing]
 other = "mostrando los primeros {shown} de {total} {results}"
 
+# Paginador de resultados de navegación (tasks/301).
+[browseShowingRange]
+other = "mostrando {from}–{to} de {total} {results}"
+
+[browsePagerLabel]
+other = "Páginas de resultados"
+
+[browsePagerPrev]
+other = "Anterior"
+
+[browsePagerNext]
+other = "Siguiente"
+
+[browsePagerPage]
+other = "Página {n}"
+
 ["lang-spa"]
 other = "Español"
 
