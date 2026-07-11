@@ -1,7 +1,7 @@
 github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
 github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
-github.com/RoaringBitmap/roaring/v2 v2.14.4 h1:4aKySrrg9G/5oRtJ3TrZLObVqxgQ9f1znCRBwEwjuVw=
-github.com/RoaringBitmap/roaring/v2 v2.14.4/go.mod h1:oMvV6omPWr+2ifRdeZvVJyaz+aoEUopyv5iH0u/+wbY=
+github.com/RoaringBitmap/roaring/v2 v2.19.0 h1:zsWtVE+biht4eVl0YDLvykUqGkftR3Qc5UCbeKB4UQ4=
+github.com/RoaringBitmap/roaring/v2 v2.19.0/go.mod h1:SfT3of9nYh3vis1dIbCj4Yw6KQGujTN+f345nrN/0JA=
 github.com/aws/aws-lambda-go v1.54.0 h1:EGYpdyRGF88xszqlGcBewz811mJeRS+maNlLZXFheII=
 github.com/aws/aws-lambda-go v1.54.0/go.mod h1:dpMpZgvWx5vuQJfBt0zqBha60q7Dd7RfgJv23DymV8A=
 github.com/aws/aws-sdk-go-v2 v1.42.1 h1:9eOTgu1z/dVtYpNZ3/8/XbbaX0x/BqE3HUzAzs6K0ek=
@@ -48,8 +48,8 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.43.5 h1:T3ANO8QWDbzQD8f4+UaX+fvJlyGn
 github.com/aws/aws-sdk-go-v2/service/sts v1.43.5/go.mod h1:9gdl4RrflIdpDb2TlXshWgR1F9TeCkvqDx77Vpr4Z/Q=
 github.com/aws/smithy-go v1.27.3 h1:F3Zb497UhhskkfpJmfkXswyo+t0sh9OTBnIHjogWbVY=
 github.com/aws/smithy-go v1.27.3/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
-github.com/bits-and-blooms/bitset v1.24.2 h1:M7/NzVbsytmtfHbumG+K2bremQPMJuqv1JD3vOaFxp0=
-github.com/bits-and-blooms/bitset v1.24.2/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
+github.com/bits-and-blooms/bitset v1.24.4 h1:95H15Og1clikBrKr/DuzMXkQzECs1M6hhoGXLwLQOZE=
+github.com/bits-and-blooms/bitset v1.24.4/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -61,8 +61,8 @@ github.com/freeeve/go-ivfpq v0.1.0 h1:m4HUFIXTqQajgcw26Pc+xdVSWv66DSkucrkyBJyB+e
 github.com/freeeve/go-ivfpq v0.1.0/go.mod h1:hIDRgFpPy2P3Sk0q4Y/8XdCeQLuMCja+LtNa3WYM/Ks=
 github.com/freeeve/go-stemmers v0.0.0-20260606195828-3c78df9017f5 h1:0wX7Qz3XG3seGek1UnRO32IKF5tRoJB35LxCUCNXI5k=
 github.com/freeeve/go-stemmers v0.0.0-20260606195828-3c78df9017f5/go.mod h1:dcWXNghdzPDH46QYDvDtDOcXIDhieNz0jNdM7T87MZk=
-github.com/freeeve/libcat v0.174.0 h1:g8Mt+3sGurnoGS2832sZ/+5rICYdP4YVN7MLWkuDs+E=
-github.com/freeeve/libcat v0.174.0/go.mod h1:1T+rk6DeEfFMWKeiz3M+kIpECc2eE6PejyBIvOwK4Ys=
+github.com/freeeve/libcat v0.175.0 h1:GtEZc2P64lTNUzCG1U91izliEYj3+xMNy1rpR1uZ/cI=
+github.com/freeeve/libcat v0.175.0/go.mod h1:607BH6RjpA7/gMjpFdIWVpPYL5LJ1GU/1DJGlnae3Dc=
 github.com/freeeve/libcodex v0.30.0 h1:lE+U9696PLVNYmbRa1l2ADhYX+LLCYPbTjapzLo1CcI=
 github.com/freeeve/libcodex v0.30.0/go.mod h1:CfAOUn99dnS35oL3NBI99NOtTcPgltlg1MSbudNgjrA=
 github.com/freeeve/roaringrange v0.30.0 h1:OMHTiudHck8egR269J89wkHEvtf4i7GwV+72hZz6Fwg=

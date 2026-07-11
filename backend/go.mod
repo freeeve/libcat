@@ -1,8 +1,8 @@
 module github.com/freeeve/libcat/backend
 
-go 1.25.0
+go 1.25.6
 
-require github.com/freeeve/libcat v0.174.0
+require github.com/freeeve/libcat v0.175.0
 
 require (
 	github.com/aws/aws-lambda-go v1.54.0
@@ -14,7 +14,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/RoaringBitmap/roaring/v2 v2.14.4
+	github.com/RoaringBitmap/roaring/v2 v2.19.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.27
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.46.8
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.2
@@ -35,7 +35,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.31.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.5 // indirect
-	github.com/bits-and-blooms/bitset v1.24.2 // indirect
+	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/freeeve/fst-go v0.1.0 // indirect
 	github.com/freeeve/go-ivfpq v0.1.0 // indirect
 	github.com/freeeve/go-stemmers v0.0.0-20260606195828-3c78df9017f5 // indirect
