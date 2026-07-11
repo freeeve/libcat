@@ -110,6 +110,14 @@ defaultContentLanguage = "en"
 [params.facets]
   negatives = true
 
+# Opt-in "suggest a subject" intake (tasks/355): the Subjects section on each Work
+# page gets a link to this URL. {workID} and {title} are substituted (URL-encoded) so
+# the form knows which Work. Point it at your own form, a mailto, or a suggestion
+# endpoint; rename the link via the i18n key "suggestSubject" (e.g. "Suggest a
+# Homosaurus subject"). Unset, nothing renders.
+[params.suggest]
+  subjectUrl = "https://example.org/suggest-subject?work={workID}&title={title}"
+
 # Live availability (tasks/004): when enabled, lcat-availability.js fetches each
 # edition's status client-side from the provider, keyed on the scheme-tagged id the
 # projector emits (OverDrive: the Reserve ID). The example ships it DISABLED so the

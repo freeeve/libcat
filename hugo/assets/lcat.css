@@ -641,6 +641,18 @@ summary:focus-visible {
 .lcat-tags li a:hover {
   text-decoration: underline;
 }
+/* Opt-in "suggest a subject" link (tasks/355): a quiet action at the foot of the
+   Subjects section, set apart from the term chips it follows. */
+.lcat-suggest {
+  margin: 0.8rem 0 0;
+  font-size: 0.85rem;
+}
+.lcat-suggest-link {
+  color: var(--lcat-muted);
+}
+.lcat-suggest-link:hover {
+  color: var(--lcat-accent);
+}
 /* Homosaurus subjects grouped under their broader term (tasks/354): the parent label
    is a small-caps subheading, echoing the facet-drawer register, over its narrower
    chips. */

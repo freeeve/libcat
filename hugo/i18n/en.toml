@@ -39,6 +39,12 @@ other = "Contributors"
 [aboutTitle]
 other = "About this title"
 
+# Opt-in "suggest a subject" link in the Subjects section (tasks/355), shown only when
+# [params.suggest] subjectUrl is set. A deployment renames it (e.g. "Suggest a
+# Homosaurus subject") by overriding this key.
+[suggestSubject]
+other = "Suggest a subject →"
+
 [details]
 other = "Details"
 

@@ -206,6 +206,23 @@ term pages stay the precomputed totals. A deployment whose search shadow
 uses the roaringrange wasm reader can apply the same x-params with andnot()
 server-shaped; keep the param convention shared.
 
+## Suggest a subject (opt-in, tasks/355)
+
+The Subjects section on each Work page can carry a link to a subject-suggestion
+intake -- a curator's "found a missing heading?" path. Point it at your own form,
+a `mailto:`, or a suggestion endpoint:
+
+```toml
+[params.suggest]
+  subjectUrl = "https://forms.example/subject?work={workID}&title={title}"
+```
+
+`{workID}` and `{title}` are substituted (URL-encoded) so the intake knows which
+Work. The link label is the `suggestSubject` i18n key (default "Suggest a subject
+→"); override it per your vocabulary (e.g. "Suggest a Homosaurus subject"). It is
+opt-in: with `subjectUrl` unset nothing renders, and the link shows even on a Work
+with no subjects yet (where a suggestion is most useful).
+
 ## Shared facet sidebar (tasks/150, opt-in)
 
 The facet sidebar is page-invariant per language, but by default its HTML is

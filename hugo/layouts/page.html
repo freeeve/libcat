@@ -47,7 +47,15 @@
   </section>
   {{ end }}
 
-  {{ with .Params.subjectList }}
+  {{- /* Optional "suggest a subject" intake (tasks/355): a deployment sets
+         [params.suggest] subjectUrl to its own form / endpoint. {workID} and {title}
+         placeholders are substituted (URL-encoded) so the intake knows the context.
+         Opt-in -- unset, nothing renders and the Subjects section is unchanged. */ -}}
+  {{- $suggestURL := "" -}}
+  {{- with site.Params.suggest -}}{{- with .subjectUrl -}}
+    {{- $suggestURL = replace (replace . "{workID}" ($.Params.workID | urlquery)) "{title}" ($.Title | urlquery) -}}
+  {{- end -}}{{- end -}}
+  {{ if or .Params.subjectList $suggestURL }}
   {{- /* Subjects (tasks/354). Homosaurus subjects are grouped under their
          skos:broader parent -- the parent's label (resolved by the content adapter
          into .Params.broaderLabels) is a small-caps subheading, its narrower
@@ -57,10 +65,10 @@
          The chip markup is shared via lcat-subject-chip.html so both paths link and
          facet identically. */ -}}
   {{- $lang := site.Language.Lang -}}
-  {{- $broaderLabels := $.Params.broaderLabels -}}
+  {{- $broaderLabels := .Params.broaderLabels -}}
   {{- $groups := newScratch -}}
   {{- $flat := slice -}}
-  {{- range . -}}
+  {{- range .Params.subjectList -}}
     {{- $subj := . -}}
     {{- $placed := false -}}
     {{- if eq .scheme "homosaurus" -}}
@@ -84,6 +92,9 @@
         {{- range $subs }}{{ partial "lcat-subject-chip.html" (dict "subject" . "lang" $lang) }}{{ end }}
       </ul>
     </div>
+    {{- end }}
+    {{- with $suggestURL }}
+    <p class="lcat-suggest"><a class="lcat-suggest-link" href="{{ . }}" rel="external">{{ i18n "suggestSubject" }}</a></p>
     {{- end }}
   </section>
   {{ end }}
