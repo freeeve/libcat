@@ -150,6 +150,15 @@
       <li class="lcat-edition" data-instance="{{ .id }}"{{ with .format }} data-format="{{ . }}"{{ end }}{{ range .providerIds }}{{ $pid := . }}{{ with index $attrs $pid.source }}{{ if findRE "^data-[a-z0-9-]+$" . }}{{ printf " %s=\"%s\"" . (htmlEscape $pid.value) | safeHTMLAttr }}{{ end }}{{ end }}{{ end }}>
         {{ with .format }}<span class="lcat-format">{{ . }}</span>{{ end }}
         {{ with .isbns }}<span class="lcat-isbn">{{ i18n "isbn" }} {{ index . 0 }}</span>{{ end }}
+        {{- /* Publication statement (tasks/351): publisher, place and date are
+               transcribed per Instance, so they render on the edition line, not the
+               Work-level Details grid -- a Work's editions differ. Present parts join
+               in that order; an absent part drops without leaving a stray comma. */ -}}
+        {{- $imprint := slice -}}
+        {{- with .publisher }}{{ $imprint = $imprint | append . }}{{ end -}}
+        {{- with .place }}{{ $imprint = $imprint | append . }}{{ end -}}
+        {{- with .published }}{{ $imprint = $imprint | append . }}{{ end -}}
+        {{- with $imprint }}<span class="lcat-imprint">{{ delimit . ", " }}</span>{{ end }}
         {{/* Availability is fetched client-side at view time by lcat-availability.js
              (libcat tasks/004), keyed on data-overdrive-reserve above; it fills
              this placeholder in when the site enables [params.availability]. Without

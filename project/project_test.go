@@ -45,6 +45,14 @@ _:src2 <http://www.w3.org/2000/01/rdf-schema#label> "overdrive" <feed:overdrive>
 <#i1Instance> <http://id.loc.gov/ontologies/bibframe/media> _:m1 <feed:overdrive> .
 _:m1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Media> <feed:overdrive> .
 _:m1 <http://www.w3.org/2000/01/rdf-schema#label> "computer" <feed:overdrive> .
+<#i1Instance> <http://id.loc.gov/ontologies/bibframe/provisionActivity> _:prov1 <feed:overdrive> .
+_:prov1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Publication> <feed:overdrive> .
+_:prov1 <http://id.loc.gov/ontologies/bflc/simplePlace> "New York" <feed:overdrive> .
+_:prov1 <http://id.loc.gov/ontologies/bflc/simpleAgent> "Simon & Schuster" <feed:overdrive> .
+_:prov1 <http://id.loc.gov/ontologies/bibframe/date> "2024" <feed:overdrive> .
+<#i1Instance> <http://id.loc.gov/ontologies/bibframe/provisionActivity> _:prov2 <feed:overdrive> .
+_:prov2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://id.loc.gov/ontologies/bibframe/Distribution> <feed:overdrive> .
+_:prov2 <http://id.loc.gov/ontologies/bflc/simpleAgent> "Some Distributor" <feed:overdrive> .
 <https://homosaurus.org/v3/homoit0000669> <http://www.w3.org/2004/02/skos/core#prefLabel> "Transgender people"@en <authority:homosaurus> .
 <https://homosaurus.org/v3/homoit0000669> <http://www.w3.org/2004/02/skos/core#prefLabel> "Personas trans"@es <authority:homosaurus> .
 <https://homosaurus.org/v3/homoit0000669> <http://www.w3.org/2004/02/skos/core#broader> <https://homosaurus.org/v3/homoit0000282> <authority:homosaurus> .
@@ -107,6 +115,13 @@ func TestProject(t *testing.T) {
 	if inst.ID != "i1" || inst.Format != "ebook" || !reflect.DeepEqual(inst.ISBNs, []string{"9781668128251"}) ||
 		!reflect.DeepEqual(inst.ProviderIDs, []ProviderID{{Source: "overdrive", Value: "11682058"}}) {
 		t.Errorf("instance = %+v", inst)
+	}
+	// The publication statement (tasks/351) projects from the bf:Publication
+	// provision only: publisher/place/date are transcribed, and the Distribution
+	// provision's agent must not leak into the publisher.
+	if inst.Publisher != "Simon & Schuster" || inst.Place != "New York" || inst.Published != "2024" {
+		t.Errorf("publication = {publisher:%q place:%q published:%q}, want {Simon & Schuster, New York, 2024}",
+			inst.Publisher, inst.Place, inst.Published)
 	}
 	// The Instance's RDA media type "computer" projects to the ebook format, and the
 	// Work's formats facet is the union of its Instances' formats (tasks/011).

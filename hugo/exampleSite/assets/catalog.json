@@ -70,7 +70,10 @@
               "value": "24760f5d-028e-4749-968f-85a458a79ad2"
             }
           ],
-          "held": true
+          "held": true,
+          "publisher": "Simon & Schuster Audio",
+          "place": "New York",
+          "published": "2024"
         },
         {
           "id": "iexoneebook",
@@ -84,7 +87,10 @@
               "value": "bbbb2222-cccc-3333-dddd-444455556666"
             }
           ],
-          "held": true
+          "held": true,
+          "publisher": "Simon & Schuster",
+          "place": "New York",
+          "published": "2023"
         }
       ],
       "held": true,
@@ -196,7 +202,9 @@
               "barcode": "31234000012345"
             }
           ],
-          "held": true
+          "held": true,
+          "publisher": "Dial Press",
+          "published": "1985"
         }
       ],
       "held": true,

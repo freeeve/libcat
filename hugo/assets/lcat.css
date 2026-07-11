@@ -664,6 +664,13 @@ summary:focus-visible {
   font-family: var(--lcat-mono);
   font-size: 0.85em;
 }
+/* Per-edition publication statement (tasks/351): publisher, place, date. Muted,
+   set apart from the format and ISBN on the same line. */
+.lcat-imprint {
+  color: var(--lcat-muted);
+  font-size: 0.9em;
+  margin-left: 0.5rem;
+}
 /* Live availability (tasks/004): color by resolved data-status; empty (unknown or
    not-yet-fetched) stays invisible so it never shows a misleading state. */
 .lcat-availability {

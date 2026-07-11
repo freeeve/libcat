@@ -46,6 +46,17 @@ const (
 	pHasPart          = bfNS + "hasPart"
 	pPartOf           = bfNS + "partOf"
 	classIsbn         = bfNS + "Isbn"
+	// Publication statement as libcodex emits it (MARC 260/264): one
+	// bf:provisionActivity per field on the Instance, typed bf:Publication,
+	// carrying the transcribed place/agent/date as bflc:simple* literals. Only
+	// the Publication provision is projected -- Distribution/Manufacture nodes
+	// carry the same shape but are not what a reader means by "published".
+	pProvisionActivity = bfNS + "provisionActivity"
+	classPublication   = bfNS + "Publication"
+	pSimplePlace       = bflcNS + "simplePlace"
+	pSimpleAgent       = bflcNS + "simpleAgent"
+	pSimpleDate        = bflcNS + "simpleDate"
+	pDate              = bfNS + "date"
 	// Series as libcodex >= v0.25.0 emits it (tasks/309): one bf:relation per 490
 	// on the Work, discriminated by its bf:relationship IRI, carrying the
 	// enumeration and pointing at a bf:Series through bf:associatedResource.
@@ -294,6 +305,13 @@ type Instance struct {
 	// live-availability identifier whose feed still lists the Work (digital,
 	// unless the reconciliation flagged the Work withdrawn) -- tasks/078.
 	Held bool `json:"held,omitempty"`
+	// Publication statement transcribed from MARC 260/264 (tasks/351): the
+	// agent ($b), the place of publication ($a) and the date. These are
+	// per-Instance -- a Work's 2020 hardback and 2022 ebook differ -- so they
+	// render on the edition line, not the Work-level details.
+	Publisher string `json:"publisher,omitempty"`
+	Place     string `json:"place,omitempty"`
+	Published string `json:"published,omitempty"`
 }
 
 // Item is one holding of an Instance (the minimal bf:Item model, tasks/051).
@@ -1305,6 +1323,7 @@ func (p *projector) instances(w rdf.Term) []Instance {
 			return pids[a].Value < pids[b].Value
 		})
 		i.ISBNs, i.ProviderIDs = isbns, pids
+		i.Publisher, i.Place, i.Published = p.publication(inst)
 		i.Items = p.items(inst)
 		i.Held = len(i.Items) > 0
 		if !i.Held && !withdrawn {
@@ -1319,6 +1338,30 @@ func (p *projector) instances(w rdf.Term) []Instance {
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].ID < out[b].ID })
 	return out
+}
+
+// publication projects the Instance's publication statement (tasks/351) from the
+// first bf:provisionActivity typed bf:Publication: the transcribed publisher
+// (bflc:simpleAgent), place (bflc:simplePlace) and date (bf:date, or
+// bflc:simpleDate when the controlled date is absent). Distribution/Manufacture
+// provisions carry the same shape but are not a "published" statement, so they
+// are skipped. Provision nodes are ordered by node value so the choice is
+// deterministic when a record transcribes more than one Publication field.
+func (p *projector) publication(inst rdf.Term) (publisher, place, date string) {
+	nodes := p.view.Objects(inst, pProvisionActivity)
+	sort.Slice(nodes, func(a, b int) bool { return nodes[a].Value < nodes[b].Value })
+	for _, node := range nodes {
+		if !p.view.HasType(node, classPublication) {
+			continue
+		}
+		publisher, _ = p.view.Literal(node, pSimpleAgent)
+		place, _ = p.view.Literal(node, pSimplePlace)
+		if date, _ = p.view.Literal(node, pDate); date == "" {
+			date, _ = p.view.Literal(node, pSimpleDate)
+		}
+		return publisher, place, date
+	}
+	return "", "", ""
 }
 
 // items projects an Instance's holdings (tasks/051), ordered by item node.
