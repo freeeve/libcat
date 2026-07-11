@@ -63,7 +63,7 @@ func Run(prov Provider, out string) (Result, error) {
 	}
 	res.Stats = stats
 
-	retired, err := removeRetiredGrains(out, prior.Merges)
+	retired, err := removeRetiredGrains(out, r.Merges())
 	if err != nil {
 		return res, err
 	}

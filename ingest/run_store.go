@@ -67,7 +67,7 @@ func RunStore(ctx context.Context, prov Provider, st blob.Store, prefix string) 
 		changed = append(changed, path)
 	}
 
-	for _, id := range bibframe.RetiredWorks(prior.Merges) {
+	for _, id := range bibframe.RetiredWorks(r.Merges()) {
 		path := prefix + bibframe.GrainPath(id)
 		err := st.Delete(ctx, path)
 		if errors.Is(err, blob.ErrNotFound) {

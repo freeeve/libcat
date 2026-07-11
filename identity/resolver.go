@@ -1,6 +1,10 @@
 package identity
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // Record is the identity-relevant projection of one incoming provider record:
 // the keys it can be resolved by and the fields of its computed clustering key.
@@ -198,16 +202,65 @@ func (r *Resolver) resolveInstance(keys []string) (string, bool) {
 // nothing (false) otherwise. It has no side effects, unlike Resolve. Used to
 // translate a feed's cluster-merge statement, which names records by provider id,
 // into the Work-id space SeedMerge operates on (tasks/363).
+//
+// When the exact key is not indexed, it falls back to the cluster's format
+// buckets (tasks/370): a single-format cluster's grain indexes only the
+// format-suffixed instance key (e.g. "id:coll:51812:ebook"), never the bare
+// cluster key ("id:coll:51812") a feed merge names, so the exact lookup misses
+// and the merge is skipped. Every instance of a cluster resolves to the same
+// Work, so the bare key is resolved through any indexed key that extends it with
+// a ":<suffix>". The trailing colon keeps "id:coll:5181" from matching
+// "id:coll:51812:..."; agreement across all matching buckets is required, so a
+// cluster already split across Works resolves to nothing rather than guessing.
 func (r *Resolver) WorkForProviderKey(key string) (string, bool) {
-	inst, ok := r.instByProvider[key]
-	if !ok {
+	if inst, ok := r.instByProvider[key]; ok {
+		work, ok := r.workByInst[inst]
+		if !ok {
+			return "", false
+		}
+		return r.canonical(work), true
+	}
+	prefix := key + ":"
+	found := ""
+	for k, inst := range r.instByProvider {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		work, ok := r.workByInst[inst]
+		if !ok {
+			continue
+		}
+		switch c := r.canonical(work); {
+		case found == "":
+			found = c
+		case found != c:
+			return "", false // cluster split across Works: ambiguous, do not guess
+		}
+	}
+	if found == "" {
 		return "", false
 	}
-	work, ok := r.workByInst[inst]
-	if !ok {
-		return "", false
+	return found, true
+}
+
+// Merges returns every merge the resolver is applying -- editorial merges seeded
+// from prior grains and feed cluster-merges (tasks/363/370) alike -- as From->To
+// pairs in deterministic order. The retirement pass diffs on this so a Work folded
+// away by a feed's isReplacedBy has its stale grain removed, not just its records
+// re-homed: without it the retired cluster's grain lingers and keeps duplicating
+// the survivor's identifiers (tasks/370).
+func (r *Resolver) Merges() []Merge {
+	out := make([]Merge, 0, len(r.mergedInto))
+	for from, to := range r.mergedInto {
+		out = append(out, Merge{From: from, To: to})
 	}
-	return r.canonical(work), true
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].From != out[j].From {
+			return out[i].From < out[j].From
+		}
+		return out[i].To < out[j].To
+	})
+	return out
 }
 
 // canonical follows the editorial merge chain to the surviving Work id.

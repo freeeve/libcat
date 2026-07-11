@@ -31,6 +31,71 @@ func TestWorkForProviderKeyFollowsMerge(t *testing.T) {
 	}
 }
 
+// TestWorkForProviderKeyFormatBucketFallback is the tasks/370 fix: a feed merge
+// names the bare cluster key "coll:N", but a single-format cluster's grain indexes
+// only the format-suffixed instance key "coll:N:ebook". The bare key must resolve
+// through its format bucket so the merge fires instead of being skipped.
+func TestWorkForProviderKeyFormatBucketFallback(t *testing.T) {
+	r := NewResolver()
+	// Retired single-format cluster: only the suffixed key is indexed.
+	r.SeedInstance("i-ebook", "wretired", []string{"id:coll:51812:ebook"})
+	// Survivor multi-format cluster: bare + suffixed (has the bare key already).
+	r.SeedInstance("i-multi", "wsurv", []string{"id:coll:14", "id:coll:14:ebook", "id:coll:14:physical"})
+
+	// The bare key of the single-format cluster now resolves via its bucket.
+	if w, ok := r.WorkForProviderKey("id:coll:51812"); !ok || w != "wretired" {
+		t.Fatalf("bare key of a single-format cluster = %q,%v; want wretired,true", w, ok)
+	}
+	// The survivor's bare key still resolves exactly.
+	if w, ok := r.WorkForProviderKey("id:coll:14"); !ok || w != "wsurv" {
+		t.Fatalf("survivor bare key = %q,%v; want wsurv,true", w, ok)
+	}
+	// A numeric-prefix sibling must NOT match via the fallback (the trailing colon
+	// guards it): coll:5181 has no bucket of its own.
+	if _, ok := r.WorkForProviderKey("id:coll:5181"); ok {
+		t.Fatal("id:coll:5181 must not match id:coll:51812:ebook via prefix")
+	}
+
+	// End to end: the feed folds the retired cluster into the survivor by bare key.
+	from, okF := r.WorkForProviderKey("id:coll:51812")
+	to, okT := r.WorkForProviderKey("id:coll:14")
+	if !okF || !okT {
+		t.Fatal("both sides of the merge should now resolve")
+	}
+	r.SeedMerge(from, to)
+	if w, _ := r.WorkForProviderKey("id:coll:51812"); w != "wsurv" {
+		t.Errorf("after merge the retired cluster resolves to %q; want the survivor wsurv", w)
+	}
+}
+
+// TestWorkForProviderKeyAmbiguousBucketsSkip checks the safety guard: if a bare
+// key's format buckets resolve to different Works (a cluster already split across
+// Works), the fallback returns nothing rather than guessing.
+func TestWorkForProviderKeyAmbiguousBucketsSkip(t *testing.T) {
+	r := NewResolver()
+	r.SeedInstance("i-a", "wA", []string{"id:coll:9:ebook"})
+	r.SeedInstance("i-b", "wB", []string{"id:coll:9:physical"})
+	if w, ok := r.WorkForProviderKey("id:coll:9"); ok {
+		t.Fatalf("ambiguous buckets must not resolve, got %q", w)
+	}
+}
+
+// TestMergesReturnsAllApplied checks that Merges() surfaces every applied merge
+// (editorial and feed-seeded alike) in deterministic order -- the set the
+// retirement pass diffs on (tasks/370).
+func TestMergesReturnsAllApplied(t *testing.T) {
+	r := NewResolver()
+	r.SeedMerge("wc", "wd")
+	r.SeedMerge("wa", "wb")
+	ms := r.Merges()
+	if len(ms) != 2 {
+		t.Fatalf("Merges() = %+v, want 2", ms)
+	}
+	if ms[0].From != "wa" || ms[0].To != "wb" || ms[1].From != "wc" || ms[1].To != "wd" {
+		t.Errorf("Merges() not sorted by From: %+v", ms)
+	}
+}
+
 func TestResolveMintsThenClusters(t *testing.T) {
 	r := NewResolver()
 

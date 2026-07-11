@@ -19,6 +19,10 @@ import (
 // proving the pipeline is provider-agnostic.
 type stubRecord struct {
 	id, author, title, lang, isbn string
+	// localID persists the durable id as a bf:Local identifier so a re-ingest
+	// recovers its provider key from the grain (as the coll feed does); off by
+	// default so existing tests keep their grain bytes.
+	localID bool
 }
 
 func (r stubRecord) Identity() identity.Record {
@@ -44,7 +48,10 @@ func (r stubRecord) Work() codexbf.Work {
 func (r stubRecord) Instance() codexbf.Instance {
 	inst := codexbf.Instance{Titles: []codexbf.Title{{MainTitle: r.title}}}
 	if r.isbn != "" {
-		inst.Identifiers = []codexbf.Identifier{{Class: "Isbn", Value: r.isbn}}
+		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Isbn", Value: r.isbn})
+	}
+	if r.localID {
+		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Local", Value: r.id})
 	}
 	return inst
 }
@@ -64,6 +71,70 @@ func stubFactory(recs []ingest.Record) ingest.Factory {
 	return func(cfg ingest.Config) (ingest.Provider, error) {
 		return stubProvider{feed: cfg.Feed, role: ingest.RoleIngest, recs: recs}, nil
 	}
+}
+
+// stubMergeProvider is a stubProvider that also declares feed cluster-merges
+// (ingest.MergeSeeder), standing in for a coll feed's dcterms:isReplacedBy.
+type stubMergeProvider struct {
+	stubProvider
+	merges []ingest.MergeSeed
+}
+
+func (p stubMergeProvider) MergeSeeds() []ingest.MergeSeed { return p.merges }
+
+// TestFeedMergeRetiresBareCluster is the tasks/370 regression: a coll feed folds a
+// single-format cluster (coll:5, indexed only as its format bucket coll:5:ebook)
+// into another (coll:9). The bare cluster keys the merge names must resolve through
+// their format buckets (the WorkForProviderKey fix), and the folded cluster's stale
+// grain must then be retired (the resolver-merge retirement fix) -- so its
+// identifiers stop duplicating the survivor's.
+func TestFeedMergeRetiresBareCluster(t *testing.T) {
+	out := t.TempDir()
+	v1 := []ingest.Record{
+		stubRecord{id: "coll:5:ebook", author: "Stevenson", title: "Nimona", lang: "eng", isbn: "9780062278241", localID: true},
+		stubRecord{id: "coll:9:physical", author: "Other", title: "Other Book", lang: "eng", localID: true},
+	}
+	if _, err := ingest.Run(stubProvider{feed: "coll", role: ingest.RoleIngest, recs: v1}, out); err != nil {
+		t.Fatalf("v1 ingest: %v", err)
+	}
+	if n := countGrains(t, out); n != 2 {
+		t.Fatalf("after v1: %d grains, want 2", n)
+	}
+
+	// v2: the feed folds coll:5 into coll:9 and no longer carries coll:5's records.
+	prov := stubMergeProvider{
+		stubProvider: stubProvider{feed: "coll", role: ingest.RoleIngest, recs: []ingest.Record{v1[1]}},
+		merges:       []ingest.MergeSeed{{FromKey: "id:coll:5", ToKey: "id:coll:9"}},
+	}
+	res, err := ingest.Run(prov, out)
+	if err != nil {
+		t.Fatalf("v2 ingest: %v", err)
+	}
+	if res.Retired != 1 {
+		t.Errorf("Retired = %d, want 1 (the folded coll:5 cluster's grain)", res.Retired)
+	}
+	if n := countGrains(t, out); n != 1 {
+		t.Errorf("after v2: %d grains, want 1 (coll:5 folded into coll:9)", n)
+	}
+}
+
+// countGrains counts .nq grain files under a projected out dir.
+func countGrains(t *testing.T, out string) int {
+	t.Helper()
+	n := 0
+	err := filepath.WalkDir(filepath.Join(out, "data", "works"), func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".nq") {
+			n++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk grains: %v", err)
+	}
+	return n
 }
 
 // TestRegistryComposition covers registration: a first-party factory (OverDrive) and
