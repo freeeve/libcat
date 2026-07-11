@@ -72,6 +72,10 @@ var ErrValidation = errors.New("copycat: invalid request")
 // ErrNotFound reports a missing target or batch.
 var ErrNotFound = errors.New("copycat: not found")
 
+// ErrConflict reports a request that conflicts with the batch's current state --
+// e.g. deleting a COMMITTED batch whose revert-set is still the only undo.
+var ErrConflict = errors.New("copycat: conflicts with batch state")
+
 const (
 	maxBatchRecords = 1000
 	searchLimit     = 20
@@ -460,11 +464,19 @@ func (s *Service) Commit(ctx context.Context, id, actor string) (Batch, error) {
 	return b, nil
 }
 
-// DeleteBatch removes a batch, its records, and its revert set.
+// DeleteBatch removes a batch, its records, and its revert set. A COMMITTED
+// batch is refused: its revert-set is the only pre-commit snapshot Revert can
+// roll the commit back from (tasks/068), and the works it created persist, so
+// deleting it would strand them non-revertable (tasks/340). This is symmetric to
+// the commit-side guard, which refuses re-committing a COMMITTED batch. Revert
+// the batch first (which sets it REVERTED), then it deletes freely.
 func (s *Service) DeleteBatch(ctx context.Context, id string) error {
 	b, records, err := s.GetBatch(ctx, id)
 	if err != nil {
 		return err
+	}
+	if b.Status == StatusCommitted {
+		return fmt.Errorf("%w: batch %s is COMMITTED; revert it before deleting it", ErrConflict, id)
 	}
 	for _, sr := range records {
 		_ = s.DB.Delete(ctx, store.Record{Key: recordKey(id, sr.Index)}, store.CondNone)

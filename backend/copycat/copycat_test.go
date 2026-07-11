@@ -352,6 +352,46 @@ func TestCommitAuditsPerWorkProvenance(t *testing.T) {
 	}
 }
 
+// TestDeleteBatchRefusesCommittedUntilReverted pins the tasks/340 guard: a
+// COMMITTED batch cannot be deleted, because its revert-set is the only undo for
+// the works it created -- deleting it would strand them non-revertable. Reverting
+// first (which sets REVERTED) frees it. STAGED batches delete freely.
+func TestDeleteBatchRefusesCommittedUntilReverted(t *testing.T) {
+	svc, _, _ := newService(t)
+	ctx := t.Context()
+	mrc := sampleMRC(t)
+
+	// A COMMITTED batch is refused, and the refusal is a conflict (409-mapped).
+	batch, _, err := svc.StageMARC(ctx, "commit me", mrc, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Commit(ctx, batch.ID, "lib@example.org"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteBatch(ctx, batch.ID); !errors.Is(err, copycat.ErrConflict) {
+		t.Fatalf("delete of a COMMITTED batch = %v, want ErrConflict", err)
+	}
+	// The guard must not have been a delete-then-fail: the batch and its revert
+	// path survive, so the commit is still undoable.
+	if _, err := svc.Revert(ctx, batch.ID, "lib@example.org"); err != nil {
+		t.Fatalf("revert after a refused delete: %v", err)
+	}
+	// Once REVERTED, it deletes freely.
+	if err := svc.DeleteBatch(ctx, batch.ID); err != nil {
+		t.Fatalf("delete of a REVERTED batch: %v", err)
+	}
+
+	// A STAGED batch is freely deletable -- the guard is specific to COMMITTED.
+	staged, _, err := svc.StageMARC(ctx, "just staged", mrc, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DeleteBatch(ctx, staged.ID); err != nil {
+		t.Fatalf("delete of a STAGED batch: %v", err)
+	}
+}
+
 func TestPoliciesAndDecisions(t *testing.T) {
 	svc, _, _ := newService(t)
 	ctx := t.Context()

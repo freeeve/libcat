@@ -271,6 +271,8 @@ func writeCopycatError(w http.ResponseWriter, err error) bool {
 		return false
 	case errors.Is(err, copycat.ErrValidation):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, copycat.ErrConflict):
+		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, copycat.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
 	default:

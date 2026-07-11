@@ -354,8 +354,10 @@
       await deleteCopycatBatch(id);
       if (st.openBatch?.id === id) closeBatch();
       await loadBatches();
-    } catch {
-      error = "deleting the batch failed";
+    } catch (e) {
+      // A COMMITTED batch is refused server-side (409): its revert-set is the
+      // only undo for the works it created (tasks/340). Surface that reason.
+      error = humanApiMessage(e, "deleting the batch failed");
     }
   }
 </script>
@@ -528,7 +530,11 @@
               <span class="badge" data-status={b.status}>{b.status}</span>
             </button>
             {#if !readOnly}
-              <button class="button button--quiet mini" onclick={() => void removeBatch(b.id)}>Delete</button>
+              <button
+                class="button button--quiet mini"
+                disabled={b.status === "COMMITTED"}
+                title={b.status === "COMMITTED" ? "Revert this batch before deleting it -- its revert history is the only undo for the works it imported" : "Delete this batch"}
+                onclick={() => void removeBatch(b.id)}>Delete</button>
             {/if}
           </li>
         {:else}
