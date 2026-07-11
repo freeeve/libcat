@@ -114,6 +114,26 @@ type TermDescriber interface {
 	DescribedTerms() []AuthoritySubject
 }
 
+// MergeSeed names one feed cluster-merge as a pair of provider keys the resolver
+// indexes records under (identity.ProviderKey values in the provider's id scheme):
+// FromKey is the retired cluster, ToKey the survivor.
+type MergeSeed struct {
+	FromKey string
+	ToKey   string
+}
+
+// MergeSeeder is an optional Provider capability declaring cluster-merge provenance
+// from a feed (tasks/363): a source that folds one cluster into another -- a coll
+// feed's dcterms:isReplacedBy, say -- reports each merge here, and Run, after seeding
+// the resolver from the prior grains, merges the retired Work onto the survivor.
+// Without it a re-clustered record whose two prior clusters folded resolves
+// ambiguously (to whichever prior key the resolver hits first) and orphans the other
+// prior grain -- a false withdrawal. A merge whose ids the resolver does not know
+// (no prior grain) is skipped, so a first-time feed is unaffected.
+type MergeSeeder interface {
+	MergeSeeds() []MergeSeed
+}
+
 // Config carries a provider's build-time configuration into its Factory. Feed
 // overrides the provenance graph name (default: the registry key); Source is the
 // primary input (a cache directory, a file, a URL); Params holds provider-specific

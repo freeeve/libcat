@@ -21,12 +21,17 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/freeeve/libcat/identity"
 	"github.com/freeeve/libcat/ingest"
 	"github.com/freeeve/libcodex/rdf"
 )
 
 // ProviderName is the registry key and default provenance feed (feed:nquads).
 const ProviderName = "nquads"
+
+// dctermsIsReplacedBy is the cluster-merge predicate a coll feed emits when dedupe
+// folds one work cluster into another (tasks/363): <retired> isReplacedBy <survivor>.
+const dctermsIsReplacedBy = "http://purl.org/dc/terms/isReplacedBy"
 
 // Provider streams a catalog .nq file into ingest records, one per work IRI.
 type Provider struct {
@@ -35,6 +40,19 @@ type Provider struct {
 	m             *Mapping
 	idScheme      string
 	dropTentative bool
+	// merges are the feed's dcterms:isReplacedBy cluster-merges, collected during
+	// Records and returned via MergeSeeds so the pipeline seeds the resolver.
+	merges []ingest.MergeSeed
+}
+
+// MergeSeeds implements ingest.MergeSeeder: the feed's cluster-merge statements as
+// resolver provider keys. Populated by Records (call it first).
+func (p *Provider) MergeSeeds() []ingest.MergeSeed { return p.merges }
+
+// mergeKey renders a work id (WorkPrefix already stripped) as the resolver provider
+// key its records carry: the durable id under SchemeID (matching record.providerID).
+func (p *Provider) mergeKey(id string) string {
+	return identity.ProviderKey(identity.SchemeID, p.idScheme+":"+id)
 }
 
 // New builds the provider from an ingest.Config: Source is the .nq path,
@@ -126,6 +144,7 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 		tentative[iri] = true
 	}
 	works := map[string]*work{}
+	var mergeSeeds []ingest.MergeSeed
 	tm := &terms{labels: map[string]map[string]string{}, broader: map[string][]string{}}
 	get := func(iri string) *work {
 		id := strings.TrimPrefix(iri, p.m.WorkPrefix)
@@ -150,6 +169,13 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 			return nil, fmt.Errorf("nquads: parse %s: %w", p.path, err)
 		}
 		field := fieldFor[q.P.Value]
+		if q.P.Value == dctermsIsReplacedBy && strings.HasPrefix(q.S.Value, p.m.WorkPrefix) && strings.HasPrefix(q.O.Value, p.m.WorkPrefix) {
+			mergeSeeds = append(mergeSeeds, ingest.MergeSeed{
+				FromKey: p.mergeKey(strings.TrimPrefix(q.S.Value, p.m.WorkPrefix)),
+				ToKey:   p.mergeKey(strings.TrimPrefix(q.O.Value, p.m.WorkPrefix)),
+			})
+			continue
+		}
 		if !strings.HasPrefix(q.S.Value, p.m.WorkPrefix) {
 			// Term descriptions ride on the concept IRI itself, outside the
 			// work prefix: prefLabels per language (untagged = English by
@@ -282,6 +308,7 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 	for _, id := range ids {
 		recs = append(recs, record{w: works[id], terms: tm, m: p.m, idScheme: p.idScheme})
 	}
+	p.merges = mergeSeeds
 	return recs, nil
 }
 

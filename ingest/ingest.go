@@ -51,7 +51,11 @@ func Run(prov Provider, out string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("load prior grains: %w", err)
 	}
-	works, res, r := cluster(recs, prior)
+	var seeds []MergeSeed
+	if ms, ok := prov.(MergeSeeder); ok {
+		seeds = ms.MergeSeeds()
+	}
+	works, res, r := cluster(recs, prior, seeds)
 
 	stats, err := bibframe.BuildWorks(storage.Dir(out), works, feed)
 	if err != nil {
@@ -75,7 +79,7 @@ func Run(prov Provider, out string) (Result, error) {
 // capabilities; duplicate Instances emit once), and carries each Work's
 // preserved editorial statements. Shared by the directory Run and the
 // store-backed RunStore (tasks/050).
-func cluster(recs []Record, prior bibframe.Prior) ([]bibframe.WorkGroup, Result, *identity.Resolver) {
+func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed) ([]bibframe.WorkGroup, Result, *identity.Resolver) {
 	r := identity.NewResolver()
 	identity.SeedResolver(r, prior.Grains)
 	// Seed editorial merges and split pins (tasks/001): a merge resolves a retired
@@ -86,6 +90,18 @@ func cluster(recs []Record, prior bibframe.Prior) ([]bibframe.WorkGroup, Result,
 	}
 	for _, p := range prior.Pins {
 		r.SeedPin(p.Instance, p.Work)
+	}
+	// Seed feed cluster-merges (tasks/363): a source that folded one cluster into
+	// another names the pair by provider id; translate each to Work ids through the
+	// now-seeded resolver and merge the retired Work onto the survivor, so a
+	// re-clustered record resolves to the survivor's prior grain instead of orphaning
+	// one. A merge whose ids the resolver does not know (no prior grain) is skipped.
+	for _, m := range mergeSeeds {
+		from, okF := r.WorkForProviderKey(m.FromKey)
+		to, okT := r.WorkForProviderKey(m.ToKey)
+		if okF && okT && from != to {
+			r.SeedMerge(from, to)
+		}
 	}
 
 	byWork := map[string]*bibframe.WorkGroup{}

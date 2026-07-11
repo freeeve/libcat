@@ -193,6 +193,23 @@ func (r *Resolver) resolveInstance(keys []string) (string, bool) {
 	return instanceID, minted
 }
 
+// WorkForProviderKey returns the Work id a provider key resolves to when the
+// resolver already knows it (seeded from a prior grain), following merges -- and
+// nothing (false) otherwise. It has no side effects, unlike Resolve. Used to
+// translate a feed's cluster-merge statement, which names records by provider id,
+// into the Work-id space SeedMerge operates on (tasks/363).
+func (r *Resolver) WorkForProviderKey(key string) (string, bool) {
+	inst, ok := r.instByProvider[key]
+	if !ok {
+		return "", false
+	}
+	work, ok := r.workByInst[inst]
+	if !ok {
+		return "", false
+	}
+	return r.canonical(work), true
+}
+
 // canonical follows the editorial merge chain to the surviving Work id.
 func (r *Resolver) canonical(workID string) string {
 	seen := map[string]bool{}

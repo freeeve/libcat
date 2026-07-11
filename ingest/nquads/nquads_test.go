@@ -255,6 +255,43 @@ const collNQ = `<urn:coll:work:7:physical> <http://purl.org/dc/terms/isPartOf> <
 <urn:bisac:FIC000000> <http://www.w3.org/2004/02/skos/core#prefLabel> "Fiction / General" .
 `
 
+// TestMergeSeedsFromIsReplacedBy proves the provider surfaces a coll feed's
+// dcterms:isReplacedBy cluster-merges as resolver provider keys (tasks/363), keyed
+// the same way the records are (SchemeID + the durable id-scheme:id).
+func TestMergeSeedsFromIsReplacedBy(t *testing.T) {
+	dir := t.TempDir()
+	mapping := filepath.Join(dir, "m.toml")
+	nq := filepath.Join(dir, "c.nq")
+	if err := os.WriteFile(mapping, []byte(collMapping), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `<urn:coll:work:14> <http://purl.org/dc/terms/title> "Nimona" .
+<urn:coll:work:14> <http://purl.org/dc/terms/identifier> <urn:isbn:9780062278241> .
+<urn:coll:work:51812> <http://purl.org/dc/terms/isReplacedBy> <urn:coll:work:14> .
+`
+	if err := os.WriteFile(nq, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := New(ingest.Config{Feed: "coll", Source: nq, Params: map[string]string{"mapping": mapping}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Records(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ms, ok := p.(ingest.MergeSeeder)
+	if !ok {
+		t.Fatal("the nquads provider must implement ingest.MergeSeeder")
+	}
+	want := ingest.MergeSeed{
+		FromKey: identity.ProviderKey(identity.SchemeID, "coll:51812"),
+		ToKey:   identity.ProviderKey(identity.SchemeID, "coll:14"),
+	}
+	if seeds := ms.MergeSeeds(); len(seeds) != 1 || seeds[0] != want {
+		t.Fatalf("MergeSeeds = %+v, want [%+v]", seeds, want)
+	}
+}
+
 func buildCollProvider(t *testing.T) ingest.Provider {
 	t.Helper()
 	dir := t.TempDir()

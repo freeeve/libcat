@@ -2,6 +2,35 @@ package identity
 
 import "testing"
 
+// TestWorkForProviderKeyFollowsMerge is the tasks/363 seam: a feed cluster-merge is
+// translated to Work ids through the resolver's prior-grain state and folded via
+// SeedMerge, so a record naming the retired cluster resolves to the survivor.
+func TestWorkForProviderKeyFollowsMerge(t *testing.T) {
+	r := NewResolver()
+	// Two prior clusters, as seeded from prior grains (SeedResolver).
+	r.SeedInstance("i1", "w1", []string{"id:coll:1"})
+	r.SeedInstance("i2", "w2", []string{"id:coll:2"})
+
+	if w, ok := r.WorkForProviderKey("id:coll:2"); !ok || w != "w2" {
+		t.Fatalf("WorkForProviderKey(coll:2) = %q,%v; want w2,true", w, ok)
+	}
+	if _, ok := r.WorkForProviderKey("id:coll:unknown"); ok {
+		t.Fatal("an unknown provider key must return false (no prior grain), so its merge is skipped")
+	}
+
+	// The feed folds coll:2 into coll:1: translate + SeedMerge (what cluster() does).
+	from, okF := r.WorkForProviderKey("id:coll:2")
+	to, okT := r.WorkForProviderKey("id:coll:1")
+	if !okF || !okT {
+		t.Fatal("both sides of a real merge should resolve from prior grains")
+	}
+	r.SeedMerge(from, to)
+
+	if w, ok := r.WorkForProviderKey("id:coll:2"); !ok || w != "w1" {
+		t.Fatalf("after merge, coll:2 resolves to %q,%v; want the survivor w1,true", w, ok)
+	}
+}
+
 func TestResolveMintsThenClusters(t *testing.T) {
 	r := NewResolver()
 

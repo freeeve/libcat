@@ -31,7 +31,11 @@ func RunStore(ctx context.Context, prov Provider, st blob.Store, prefix string) 
 	if err != nil {
 		return Result{}, nil, fmt.Errorf("load prior grains: %w", err)
 	}
-	works, res, r := cluster(recs, prior)
+	var seeds []MergeSeed
+	if ms, ok := prov.(MergeSeeder); ok {
+		seeds = ms.MergeSeeds()
+	}
+	works, res, r := cluster(recs, prior, seeds)
 
 	var changed []string
 	for _, wg := range works {
