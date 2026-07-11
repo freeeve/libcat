@@ -110,7 +110,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "              [--allow-empty]   (else projecting 0 works fails rather than publishing an empty catalog)")
 	fmt.Fprintln(os.Stderr, "  lcat export [--in <dir>] [--out <dir>] [--manifest <file>] [--public-sources <a,b,...>] [--public-extras <a,b,...>]")
 	fmt.Fprintln(os.Stderr, "              (downloads: catalog.nq.gz + catalog.mrc.gz + catalog.xml.gz + integrity manifest)")
-	fmt.Fprintln(os.Stderr, "  lcat serialize --dir <grains>   (regenerate catalog.nq from committed grains)")
+	fmt.Fprintln(os.Stderr, "  lcat serialize --dir <grains>   (regenerate catalog.nq from the per-Work grains)")
 	fmt.Fprintln(os.Stderr, "  lcat index --catalog <catalog.json> [--out <dir>]")
 	fmt.Fprintln(os.Stderr, "  lcat serve [--dir public] [--addr 127.0.0.1:8500]   (Range-capable preview of a built site)")
 	fmt.Fprintln(os.Stderr, "  lcat rebuild --store <blob-root> --out <dir> [--index-out <dir>] [--cursor <file>] [--full]")

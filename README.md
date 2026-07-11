@@ -21,9 +21,10 @@ lives in here.
 
 ## What it is
 
-- **Source of truth: BIBFRAME** (RDF) in git -- Work/Instance-native
-  bibliographic data, not flat records. Everything else (HTML, search index,
-  MARC/MODS exports) is a derived build artifact.
+- **Source of truth: BIBFRAME** (RDF) -- Work/Instance-native bibliographic
+  data, not flat records, stored as canonical N-Quads grains in a blob store (a
+  directory or an S3-compatible bucket, not git). Everything else (HTML, search
+  index, MARC/MODS exports) is a derived build artifact.
 - **Static catalog as a Hugo module** -- drop the catalog into a library's
   existing Hugo site; the rest of their web presence stays their own.
 - **Powered by two sibling libraries:**
@@ -35,8 +36,9 @@ lives in here.
     large-corpus / custom-ranking deployments. The recommended static search is
     **Pagefind** over the built HTML (tasks/017); out of the box the module
     falls back to a small client-side filter until a site opts in.
-- **No triplestore, no database for the static tier** -- files in git, files on
-  S3/CloudFront. No paid AI in the default build.
+- **No triplestore, no database for the static tier** -- grain files in a blob
+  store (a directory or an S3-compatible bucket), static output on S3/CloudFront.
+  No paid AI in the default build.
 
 ## Two tiers
 

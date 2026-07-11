@@ -23,8 +23,9 @@ The split is deliberate and load-bearing:
 ## 2. Design principles
 
 - **BIBFRAME is the source of truth.** Records are an RDF graph (Work/Instance
-  native), committed to git. HTML, search index, MARC/MODS exports, and JSON
-  projections are all derived build artifacts.
+  native), stored as canonical N-Quads grains in the catalog's blob store -- a
+  directory or an S3-compatible bucket, **not** git (see 3, 3a). HTML, search
+  index, MARC/MODS exports, and JSON projections are all derived build artifacts.
 - **No lossy intermediary.** No per-record markdown/frontmatter. HTML is
   generated from the graph (via a projection), not from a flattened copy of it.
 - **Few dependencies; own the core.** Go + libcodex + roaringrange. No
@@ -32,13 +33,13 @@ The split is deliberate and load-bearing:
 - **Zero paid-API baseline.** The default build needs no cloud AI. Semantic
   embeddings are opt-in (see 8).
 - **The graph is the contract.** The static tier and the dynamic backend
-  communicate only through the committed BIBFRAME graph, so either can exist
-  without the other.
+  communicate only through the BIBFRAME graph -- the grains in the blob store --
+  so either can exist without the other.
 - **Accessible by default.** The Hugo module ships WCAG-conformant markup --
   semantic HTML, ARIA on the facet/search UI, full keyboard navigation, adequate
   contrast -- as a build-time constraint, not a per-deployment afterthought.
 
-## 3. Source of truth: BIBFRAME in git
+## 3. Source of truth: BIBFRAME grains
 
 - Canonical form: **per-Work files in N-Quads** under
   `data/works/<xx>/<workid>.nq`, sharded by an id prefix so no directory holds
@@ -61,8 +62,9 @@ The split is deliberate and load-bearing:
   formerly URDNA2015), then skolemized to stable IRIs derived from those
   canonical labels, and statements are sorted. Re-serializing an unchanged Work
   is then a no-op diff, and a one-triple edit churns one line. This determinism
-  is the linchpin of the whole git/PR-review story -- a Phase 0 acceptance gate,
-  not a serialization detail.
+  is the linchpin of clean diffs -- the editor's audit diffs, and the optional
+  git/PR-review flow a small static deployment can layer on (see 3a) -- not a
+  serialization detail.
 - The graph holds **stable bibliographic + authority** data only. Volatile
   circulation state is excluded (see 5).
 - Scale: a mid-size collection is a few hundred thousand triples -- trivially
@@ -74,6 +76,86 @@ The split is deliberate and load-bearing:
   point. The search/index stack has been exercised at ~10M media records, 15k
   libraries, and 400M availability records (deeplibby); note availability at that
   scale stays live and out of the graph (see 5).
+
+## 3a. Where the catalog lives -- the blob store, not git
+
+The canonical grains **are** the catalog, and the catalog lives in the blob
+store (`storage/blob.Store`): a local directory (`LCATD_BLOB_DIR`,
+`blob.NewDir`) or any S3-compatible bucket (`LCATD_S3_BUCKET`, `blob.NewS3`).
+Git holds the *code* -- plus the editing profiles, ingest mappings, and
+deployment config that version naturally with it. It does not hold the grains.
+
+That the two ever coincided is a Hugo-era artifact: when the catalog *was* a
+Hugo site's `data/` directory, git was the only store. Nothing in `bibframe`,
+`editor`, `workindex` or `httpapi` depends on git -- the store is the seam, and
+`blob.NewDir`/`blob.NewS3` are peers a deployment picks between. A directory is
+the right default for a small deployment and the whole local-dev loop; it just
+should not be a git *working tree*.
+
+**Why git is the wrong store for the grains:**
+
+- **Size.** A grain is rewritten in full on every cataloger save
+  (`PUT /v1/works/{id}`, `POST /v1/works/{id}/ops`), so the pack grows with
+  *edits*, not records, and nothing prunes it. At 1-4KB/grain a 250k-work
+  checkout is 0.25-1GB before any history; an editing workload's history is
+  unbounded. Cataloging is an editing workload.
+- **Concurrent writes.** The editor, the review queue and the ingest lease all
+  rest on optimistic concurrency -- ETag compare-and-swap through the blob store
+  (`blob.PutOptions.IfMatch`). Git's concurrency primitive is a branch and a
+  merge conflict; it cannot arbitrate two catalogers saving the same record.
+- **The history we want is the audit trail, not a byte log.** libcat already
+  records who changed what, when, and with what intent (tasks/239, 249, 257). A
+  git log of canonical N-Quads rewrites is strictly worse: it stores the bytes,
+  not the actor or the action, and cannot answer "who last changed this record"
+  without a blame over sorted quads.
+- **Deletion must mean deleted.** Git history is append-only in practice, so a
+  cover blob, a patron's suggestion note, or a record withdrawn for a rights
+  complaint would stay in the pack forever. `lcat covers --reap` (tasks/245)
+  exists precisely because "we deleted it" has to be true.
+
+**Projected artifacts are build outputs, not grains.** `catalog.nq`,
+`catalog.json`, `facets.json` and `redirects.json` are deterministic outputs of
+`lcat build`. They are small and a static host wants them served, so committing
+them to the *site* repo (or producing them in CI) is a fine, separate choice --
+they do not share the grain tree's fate and must not live under it.
+
+**"Catalog as a git repo" is supported, not the default.** A one-cataloger
+library that wants `git log` and no server can keep its grain directory under
+version control; the code does not forbid it. It just is not the default,
+because it does not survive an editing workload or a modest collection.
+
+### Backup and restore (not `git clone`)
+
+Git was quietly providing backup; removing it as the store needs a replacement.
+
+- **Object-store deployments:** enable bucket versioning (S3 / MinIO / Garage)
+  for point-in-time recovery of any grain, and take a periodic **`lcat export`**
+  snapshot (`catalog.nq.gz` + MARC/MODS + an integrity manifest) as a portable,
+  store-independent archive. Versioning covers "undo a bad save"; the export
+  covers "rebuild the catalog somewhere else".
+- **Directory deployments:** a filesystem snapshot or a `tar` of the blob root,
+  plus the same periodic `lcat export`.
+
+Restore is: put the grain tree back under the blob root, then `lcat rebuild
+--store <root> --full` (or `lcat build`) to regenerate every derived artifact and
+the search index. The grains are sufficient; nothing else needs restoring.
+
+### Migrating a deployment whose grains are in git
+
+The move is mechanical -- the code already reads a directory:
+
+1. Copy the grain tree out of the working tree to the blob root the deployment
+   will use (a directory, or `lcat export` and load into a bucket).
+2. `.gitignore` the grain path (`data/works/`, `data/authorities/`) so future
+   saves do not re-enter git.
+3. Decide the old history: **rewrite it out** (if it carried anything that must
+   be deletable -- suggestion notes, withdrawn records) or **archive the repo
+   read-only**. This is a privacy decision as much as a size one.
+
+The one deployment with grains under version control today is qllpoc; its
+history is only a few grain commits deep, so this is cheap now and dearer later.
+Migrating it is its owner's call, filed as a cross-repo ask rather than changed
+from here.
 
 ## 4. Identity: two-tier Work / Instance
 
@@ -201,11 +283,11 @@ catalog ships as two distributable artifacts:
 1. **Projector CLI** (`lcat`, Go, over libcodex + roaringrange):
    `BIBFRAME (git) -> catalog data (JSON) + search index`. Also the
    import/export front door (MARC/MODS/BIBFRAME in and out). Its core writes
-   through a storage `Sink` abstraction (local dir / object storage / git), so
+   through a storage `Sink` abstraction (local dir / object storage), so
    the same binary runs as a local build, a container/Fargate task, or a cloud
-   function -- cloud SDKs stay out of the baseline. Grains land in git (the
-   source of truth); derived artifacts (`catalog.nq`, projected JSON, index) in
-   object storage.
+   function -- cloud SDKs stay out of the baseline. Grains land in the blob store
+   (the catalog's home -- a directory or a bucket, not git; see 3a); derived
+   artifacts (`catalog.nq`, projected JSON, index) are build outputs beside them.
 2. **Hugo module** (`hugo mod get github.com/freeeve/libcat/hugo`): catalog
    layouts, partials (facets, vocabulary picker, live-availability + search JS
    assets), and a **content adapter** (`_content.gotmpl`, Hugo >= 0.126) that

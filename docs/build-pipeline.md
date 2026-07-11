@@ -63,7 +63,7 @@ the config file is the orchestration layer, not a different code path.
 ### catalog.nq has more than one writer
 
 Ingest writes `catalog.nq` alongside the grains; `serialize` regenerates it from
-the committed grains, which is what a multi-source deployment needs (after
+the stored per-Work grains, which is what a multi-source deployment needs (after
 several ingests, ingest's copy holds only the last run's works). Both emit the
 **same bytes** for the same grains: each grain's own canonical N-Quads, with its
 blank-node labels namespaced by work id (tasks/291, tasks/298).
