@@ -129,6 +129,29 @@ func TestFieldExtraction(t *testing.T) {
 	}
 }
 
+// TestExternalIdentitySurfaces proves an owl:sameAs written by the identity
+// enrichment pass (tasks/066) materializes as the read-only externalIdentities
+// field, badged with its enrichment provenance, rather than hiding in passthrough.
+func TestExternalIdentitySurfaces(t *testing.T) {
+	m := newMapper(t)
+	const olURI = "https://openlibrary.org/works/OL12345W"
+	for workID, grain := range realGrains(t) {
+		line := "<" + bibframe.WorkIRI(workID) + "> <http://www.w3.org/2002/07/owl#sameAs> <" + olURI + "> <enrichment:openlibrary> .\n"
+		doc, err := m.ToDoc(append(append([]byte{}, grain...), line...), workID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := doc.Work.Fields["externalIdentities"]
+		if len(got) != 1 {
+			t.Fatalf("%s: externalIdentities = %+v, want exactly one value", workID, got)
+		}
+		if got[0].V != olURI || !got[0].IRI || got[0].Prov != "enrichment:openlibrary" {
+			t.Errorf("%s: externalIdentities[0] = %+v, want the OL IRI badged enrichment:openlibrary", workID, got[0])
+		}
+		return // one grain exercises the path
+	}
+}
+
 // TestStructuredFieldsClaimed proves the tasks/083 additions surface values
 // living inside blank structures: the 3-hop contributor chain and the
 // 2-hop label chains (subject headings, notes, extent, publication) that

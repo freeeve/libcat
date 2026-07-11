@@ -52,6 +52,10 @@ export const WORK_FIELDS: FieldSpec[] = [
   { path: "genreForm", label: "Genre / form", kind: "readonly", section: "more" },
   { path: "content", label: "Content type", kind: "iri", options: termOptions(CONTENT_TYPES), section: "more" },
   { path: "classification", label: "Classification", kind: "readonly", section: "more", decode: bisacTerm },
+  // owl:sameAs links written by the identity enrichment pass (tasks/066): read-only
+  // (the enricher's/merge's to write, never a cataloger field); IRI values render as
+  // links with the enrichment provenance badge.
+  { path: "externalIdentities", label: "External identities", kind: "readonly", section: "more" },
 ];
 
 export const INSTANCE_FIELDS: FieldSpec[] = [

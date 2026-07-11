@@ -95,6 +95,15 @@
       "readOnly": true,
       "annotation": ["http://id.loc.gov/ontologies/bibframe/source", "http://www.w3.org/2000/01/rdf-schema#label"],
       "marcHint": "072/084"
+    },
+    {
+      "path": "externalIdentities",
+      "predicates": ["http://www.w3.org/2002/07/owl#sameAs"],
+      "label": "External identities",
+      "help": "Outward links to hub records for the same work (e.g. OpenLibrary), written by the identity enrichment pass (tasks/066)",
+      "valueSource": {"kind": "entity"},
+      "readOnly": true,
+      "marcHint": "024/758"
     }
   ]
 }
