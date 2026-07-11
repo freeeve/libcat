@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/freeeve/libcat/bibframe"
@@ -219,6 +220,26 @@ func (s *Service) Merge(ctx context.Context, loserID string, winner vocab.TermRe
 		return MergeResult{}, err
 	} else if prior.MergedInto != "" && prior.MergedInto != winner.ID {
 		return MergeResult{}, fmt.Errorf("%w: term %s is already merged into %s; it cannot be merged again", ErrValidation, loserID, prior.MergedInto)
+	}
+	// A LOCAL winner must exist: winnerSubject falls back to a bare
+	// URI+label when the lookup misses (right for established external
+	// vocabularies that are not snapshot locally -- the documented promotion
+	// path), but for the local scheme a lookup miss means the term was never
+	// minted, and the merge would retire the loser into a phantom with a
+	// dangling mergedInto and no way back. Accept a term the index knows or
+	// a grain the store holds (the index can trail a just-minted term).
+	if winner.Scheme == LocalScheme {
+		known := false
+		if s.Vocab != nil {
+			_, known = s.Vocab.Lookup(LocalScheme, winner.ID)
+		}
+		if !known {
+			winnerShort := strings.TrimPrefix(winner.ID, bibframe.LocalAuthorityNS)
+			grain, _, err := s.Blob.Get(ctx, s.grainPath(winnerShort))
+			if err != nil || !bibframe.AuthorityGrainDescribes(grain, winner.ID) {
+				return MergeResult{}, fmt.Errorf("%w: merge winner %s does not exist in the local scheme", ErrValidation, winner.ID)
+			}
+		}
 	}
 	subject := s.winnerSubject(winner)
 	summaries, paths, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.Prefix+"data/works/")

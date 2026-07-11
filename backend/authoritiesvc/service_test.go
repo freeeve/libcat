@@ -362,3 +362,46 @@ func TestMergeRefusesNamespaceMismatch(t *testing.T) {
 		t.Fatalf("grain mutated:\n%s", grain)
 	}
 }
+
+// TestMergeRefusesPhantomWinner is the 402 regression: merging into a local
+// winner that was never minted must refuse -- the fallback that serves
+// unloaded EXTERNAL vocabularies (the promotion path) must not let a local
+// typo retire the loser into a phantom with a dangling mergedInto.
+func TestMergeRefusesPhantomWinner(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	id, _, err := svc.Create(t.Context(), bibframe.AuthorityTerm{
+		PrefLabel: map[string]string{"en": "Loser bait"},
+	}, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, winner := range map[string]vocab.TermRef{
+		"short id": {Scheme: authoritiesvc.LocalScheme, ID: "anevermintedid00"},
+		"full IRI": {Scheme: authoritiesvc.LocalScheme, ID: bibframe.LocalAuthorityIRI("anevermintedid00")},
+		"with lbl": {Scheme: authoritiesvc.LocalScheme, ID: "anevermintedid00", Label: "Looks real"},
+	} {
+		if _, err := svc.Merge(t.Context(), id, winner, "lib@example.org"); !errors.Is(err, authoritiesvc.ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
+	}
+	// The loser survives untouched -- no dangling mergedInto.
+	term, _, err := svc.Get(t.Context(), id)
+	if err != nil {
+		t.Fatalf("loser damaged by refused merge: %v", err)
+	}
+	if term.MergedInto != "" {
+		t.Fatalf("dangling mergedInto = %q on refused merge", term.MergedInto)
+	}
+
+	// An external-scheme winner not loaded locally still merges (the
+	// documented promotion path stays open).
+	res, err := svc.Merge(t.Context(), id,
+		vocab.TermRef{Scheme: "lcsh", ID: "http://id.loc.gov/authorities/subjects/sh85000000", Label: "External"}, "lib@example.org")
+	if err != nil {
+		t.Fatalf("external winner refused: %v", err)
+	}
+	if res.Winner != "http://id.loc.gov/authorities/subjects/sh85000000" {
+		t.Fatalf("external merge result: %+v", res)
+	}
+}
