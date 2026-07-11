@@ -2,6 +2,7 @@ package marcview_test
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -80,6 +81,36 @@ func TestViewAnnotatesAndLists(t *testing.T) {
 	}
 	if !have037 || !have245 {
 		t.Fatalf("missing fields: 037=%v 245=%v", have037, have245)
+	}
+}
+
+// TestMalformedLeaderRefused pins tasks/344: a save whose leader is present but
+// not 24 bytes must be refused with ErrValidation and must not mutate the grain,
+// rather than silently reclassifying the record type via codex's read-defensive
+// leader accessors.
+func TestMalformedLeaderRefused(t *testing.T) {
+	grain := grainFixture(t)
+	docs, err := marcview.View(grain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs[0].Leader) != 24 {
+		t.Fatalf("fixture leader not 24 bytes: %q", docs[0].Leader)
+	}
+	edited := docs[0]
+	edited.Leader = "XXX"
+	updated, err := marcview.Save(grain, 0, edited)
+	if !errors.Is(err, marcview.ErrValidation) {
+		t.Fatalf("short leader: err = %v, want ErrValidation", err)
+	}
+	if updated != nil {
+		t.Error("rejected save still returned a grain")
+	}
+	// An empty leader stays permitted (codex defaults it) -- the guard is a
+	// length check, not a presence requirement.
+	edited.Leader = ""
+	if _, err := marcview.Save(grain, 0, edited); errors.Is(err, marcview.ErrValidation) {
+		t.Errorf("empty leader wrongly refused: %v", err)
 	}
 }
 

@@ -71,8 +71,8 @@ func RecordToDoc(rec *codex.Record) RecordDoc {
 // included, lossy or not) -- the inverse of RecordToDoc.
 func DocToRecord(doc RecordDoc) (*codex.Record, error) {
 	rec := codex.NewRecord()
-	if doc.Leader != "" {
-		rec.SetLeader(codex.Leader(doc.Leader))
+	if err := applyLeader(rec, doc.Leader); err != nil {
+		return nil, err
 	}
 	for _, f := range doc.Fields {
 		cf, err := toCodexField(f)
@@ -130,6 +130,23 @@ func fromCodexField(f codex.Field) Field {
 		out.Subfields = append(out.Subfields, Subfield{Code: string(sf.Code), Value: sf.Value})
 	}
 	return out
+}
+
+// applyLeader sets rec's leader from a doc leader string, rejecting a present
+// but malformed one. The MARC leader is a fixed-width 24-byte field; codex's
+// leader accessors are read-defensive (a short leader reads as 0 at every
+// position), so an unvalidated truncated leader would be accepted and silently
+// reclassify the record's type/level/encoding to their defaults instead of
+// being refused (tasks/344). An empty leader is left unset (codex defaults it).
+func applyLeader(rec *codex.Record, leader string) error {
+	if leader == "" {
+		return nil
+	}
+	if len(leader) != 24 {
+		return fmt.Errorf("%w: leader must be 24 characters", ErrValidation)
+	}
+	rec.SetLeader(codex.Leader(leader))
+	return nil
 }
 
 func toCodexField(f Field) (codex.Field, error) {
@@ -203,8 +220,8 @@ func Save(grain []byte, index int, edited RecordDoc) ([]byte, error) {
 // fields) and the sorted verbatim serializations of the lossy ones.
 func splitFields(doc RecordDoc) (*codex.Record, []string, error) {
 	rec := codex.NewRecord()
-	if doc.Leader != "" {
-		rec.SetLeader(codex.Leader(doc.Leader))
+	if err := applyLeader(rec, doc.Leader); err != nil {
+		return nil, nil, err
 	}
 	var verbatim []string
 	for _, f := range doc.Fields {
