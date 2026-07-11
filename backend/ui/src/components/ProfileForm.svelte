@@ -11,78 +11,15 @@
   import TagInput from "./TagInput.svelte";
   import VocabPicker from "./VocabPicker.svelte";
   import { resolveTermURIs } from "../lib/api";
-  import { bisacTerm, type BisacTerm } from "../lib/bisac";
   import { linkInfo } from "../lib/links";
   import { valueKey } from "../lib/ops";
   import { presentIRIs, wouldChange } from "../lib/subjects";
-  import { LANGUAGES, LANG_TAGS, languageTerm } from "../lib/languages";
-  import { CARRIER_TYPES, CONTENT_TYPES, MEDIA_TYPES, rdaTerm, type RdaTerm } from "../lib/rdaterms";
+  import { LANG_TAGS, languageTerm } from "../lib/languages";
+  import { rdaTerm, type RdaTerm } from "../lib/rdaterms";
   import { bestLabel } from "../lib/vocab";
-  import type { FieldValue, Op, OpValue, ResourceDoc, Term } from "../lib/types";
+  import { INSTANCE_FIELDS, WORK_FIELDS, buildFieldSpecs, type FieldSpec } from "./profileSpecs";
+  import type { FieldValue, Op, OpValue, ProfileField, ResourceDoc, Term } from "../lib/types";
 
-  type FieldKind = "single" | "langLiteral" | "iri" | "vocab" | "tag" | "literal" | "readonly";
-
-  interface FieldSpec {
-    path: string;
-    label: string;
-    kind: FieldKind;
-    hint?: string;
-    /** Closed-list IRI fields (RDA media/carrier, MARC languages) get a
-     *  searchable picker and labeled chips instead of raw URLs; the pinned
-     *  "Other IRI…" keeps free entry available. */
-    options?: SearchOption[];
-    /** "more" fields fold into the default-collapsed "Additional details"
-     *  disclosure (tasks/083) -- present, but not competing with the
-     *  primary worksheet. */
-    section?: "more";
-    /** Prose fields (summary) span every worksheet column: paragraph text
-     *  squeezed into one 30rem column reads worse than a full line. */
-    wide?: boolean;
-    /** Decodes a stored literal into a heading + code (BISAC), so coded
-     *  values read like subjects with the raw code demoted. */
-    decode?: (v: string) => BisacTerm | undefined;
-  }
-
-  /** Closed-list terms as searchable-picker entries. */
-  function termOptions(terms: RdaTerm[]): SearchOption[] {
-    return terms.map((t) => ({ value: t.iri, label: t.label, code: t.code, group: t.group }));
-  }
-
-  // The shipped work-monograph and instance-ebook shapes (profiles/defaults).
-  // "readonly" fields surface values living inside typed blank structures
-  // (contributions, notes, publication) -- rendered with provenance, edited
-  // via the MARC tab until the op layer builds structures (tasks/083).
-  const WORK_FIELDS: FieldSpec[] = [
-    { path: "title", label: "Title", kind: "single" },
-    { path: "subtitle", label: "Subtitle", kind: "single" },
-    { path: "contributors", label: "Contributors", kind: "readonly" },
-    { path: "summary", label: "Summary", kind: "langLiteral", wide: true },
-    // Language pairs with the (short) subject-headings list; the tall
-    // subjects block shares a full-width row with tags below (tasks/193).
-    { path: "language", label: "Language", kind: "iri", options: termOptions(LANGUAGES) },
-    { path: "subjectLabels", label: "Subject headings", kind: "readonly" },
-    { path: "subjects", label: "Subjects", kind: "vocab" },
-    { path: "tags", label: "Tags", kind: "tag" },
-    { path: "genreForm", label: "Genre / form", kind: "readonly", section: "more" },
-    { path: "content", label: "Content type", kind: "iri", options: termOptions(CONTENT_TYPES), section: "more" },
-    { path: "classification", label: "Classification", kind: "readonly", section: "more", decode: bisacTerm },
-  ];
-  const INSTANCE_FIELDS: FieldSpec[] = [
-    { path: "isbn", label: "Identifiers", kind: "literal", hint: "9780000000000" },
-    { path: "media", label: "Media type", kind: "iri", options: termOptions(MEDIA_TYPES) },
-    { path: "carrier", label: "Carrier type", kind: "iri", options: termOptions(CARRIER_TYPES) },
-    { path: "links", label: "Links", kind: "iri", hint: "https://…" },
-    { path: "responsibility", label: "Responsibility", kind: "single", section: "more" },
-    { path: "edition", label: "Edition", kind: "single", section: "more" },
-    { path: "publicationPlace", label: "Publication place", kind: "readonly", section: "more" },
-    { path: "publisher", label: "Publisher", kind: "readonly", section: "more" },
-    { path: "publicationDate", label: "Publication date", kind: "readonly", section: "more" },
-    { path: "extent", label: "Extent", kind: "readonly", section: "more" },
-    { path: "duration", label: "Duration", kind: "single", section: "more" },
-    { path: "notes", label: "Notes", kind: "readonly", section: "more" },
-    { path: "format", label: "Digital format", kind: "readonly", section: "more" },
-    { path: "issuance", label: "Issuance", kind: "readonly", section: "more" },
-  ];
 
   const CUSTOM_IRI = "__custom__";
   const OTHER_IRI: SearchOption[] = [{ value: CUSTOM_IRI, label: "Other IRI…" }];
@@ -106,6 +43,7 @@
     onstage,
     onunstage,
     idKinds = {},
+    fields,
   }: {
     res: ResourceDoc;
     resource: string; // op resource: "work" or the instance id
@@ -115,13 +53,24 @@
     onunstage: (op: Op) => void;
     /** Identifier value -> BIBFRAME kind (isbn/issn/id) for badges (tasks/073). */
     idKinds?: Record<string, string>;
+    /** The resource's editing profile fields (tasks/295): when present, the form
+     *  takes its field set, order, labels, and hidden flags from the deployment's
+     *  profile -- the headline promise of the profile mechanism. The presentation
+     *  concerns the server has no vocabulary for (kind, options, decode, section,
+     *  wide) stay in the local table below, merged by path. Absent (a caller that
+     *  has not fetched a profile) falls back to the shipped default shape. */
+    fields?: ProfileField[];
   } = $props();
 
   const ID_KIND_LABELS: Record<string, string> = { isbn: "ISBN", issn: "ISSN", id: "provider id" };
 
-  // kind is fixed for a mounted form (work forms never become instances).
+  // The record editor obeys its editing profile (tasks/295): the profile owns the
+  // field set, order, labels, and hidden flags; the local presentation table owns
+  // kind/options/decode/section/wide, merged by path in buildFieldSpecs. Absent a
+  // profile the shipped shape stands. The mount is stable (the caller renders this
+  // form only once the profile has resolved), so this is a mount-time const.
   // svelte-ignore state_referenced_locally
-  const specs = kind === "work" ? WORK_FIELDS : INSTANCE_FIELDS;
+  const specs: FieldSpec[] = buildFieldSpecs(kind === "work" ? WORK_FIELDS : INSTANCE_FIELDS, fields);
   // svelte-ignore state_referenced_locally
   const heading = kind === "work" ? "h2" : "h4";
   // Subjects and tags render side by side in one full-width row (tasks/193);

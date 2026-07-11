@@ -21,8 +21,8 @@
   import RelationsPanel from "../components/RelationsPanel.svelte";
   import SimilarPanel from "../components/SimilarPanel.svelte";
   import AttachmentsPanel from "../components/AttachmentsPanel.svelte";
-  import { cloneWork, fetchIdentifierKinds, fetchItems, splitWork, humanApiMessage } from "../lib/api";
-  import type { SubjectCandidate } from "../lib/types";
+  import { cloneWork, fetchIdentifierKinds, fetchItems, fetchProfile, splitWork, humanApiMessage } from "../lib/api";
+  import type { ProfileField, SubjectCandidate } from "../lib/types";
   import { isReadOnly } from "../lib/config";
   import { createEditorSession } from "../lib/editor";
   import { EDITOR_CHORDS, bindKeys, popScope, pushScope } from "../lib/keyboard";
@@ -41,6 +41,31 @@
   // and beforeunload arms the browser's native leave prompt while dirty.
   // The background draft autosave usually makes a discard recoverable; the
   // prompt keeps it deliberate.
+  // The record editor obeys its editing profile (tasks/295): fetch the work's
+  // profile by the doc's own profileId and hand its field set/order/labels/hidden
+  // flags to ProfileForm, so a deployment's override of work-monograph reshapes
+  // the editor -- the profile mechanism's headline promise. The form is rendered
+  // only once this has resolved, so ProfileForm builds its field list from a
+  // ready prop; a failed fetch falls the form back to its shipped default shape.
+  let workFields = $state<ProfileField[] | undefined>(undefined);
+  let workProfileLoaded = $state(false);
+  $effect(() => {
+    const pid = $session.doc?.profileId;
+    if (!pid) return;
+    fetchProfile(pid).then(
+      (r) => {
+        // A malformed response falls the form back to its shipped shape rather
+        // than crashing the editor (undefined -> ProfileForm's default).
+        workFields = r?.profile?.fields;
+        workProfileLoaded = true;
+      },
+      () => {
+        workFields = undefined;
+        workProfileLoaded = true;
+      },
+    );
+  });
+
   const dirty = $derived($session.ops.length > 0);
   $effect(() => {
     if (!dirty) return;
@@ -262,14 +287,17 @@
         <div class="cols" class:with-pane={marcPane}>
         <div class="native-col">
         <section aria-label="Work fields">
-          <ProfileForm
-            res={doc.work}
-            resource="work"
-            kind="work"
-            ops={$session.ops}
-            onstage={(op) => session.stage(op)}
-            onunstage={(op) => session.unstage(op)}
-          />
+          {#if workProfileLoaded}
+            <ProfileForm
+              res={doc.work}
+              resource="work"
+              kind="work"
+              fields={workFields}
+              ops={$session.ops}
+              onstage={(op) => session.stage(op)}
+              onunstage={(op) => session.unstage(op)}
+            />
+          {/if}
           <SubjectLookup {workId} onadd={addLookedUpSubject} />
         </section>
 
