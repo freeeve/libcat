@@ -2,6 +2,7 @@ package oaipmh
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -70,6 +71,37 @@ func TestHarvestFollowsResumptionSkipsDeleted(t *testing.T) {
 	}
 	if len(c.calls) != 2 || !strings.Contains(c.calls[1], "resumptionToken=TOKEN2") || strings.Contains(c.calls[1], "metadataPrefix") {
 		t.Errorf("second request should carry only the resumption token: %v", c.calls)
+	}
+}
+
+// flakyClient fails the first failFirst requests with a transient network error
+// (a connection reset, as a recycled plack worker gives mid-harvest), then serves.
+type flakyClient struct {
+	failFirst int
+	attempts  int
+}
+
+func (f *flakyClient) Do(*http.Request) (*http.Response, error) {
+	f.attempts++
+	if f.attempts <= f.failFirst {
+		return nil, fmt.Errorf("read: connection reset by peer")
+	}
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(page2))}, nil
+}
+
+func TestFetchRetriesTransientFailure(t *testing.T) {
+	p, _ := newProvider(t, nil)
+	c := &flakyClient{failFirst: 2}
+	p.SetClient(c)
+	recs, err := p.Records(context.Background())
+	if err != nil {
+		t.Fatalf("harvest should survive transient resets via retry: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Errorf("got %d records, want 1", len(recs))
+	}
+	if c.attempts != 3 {
+		t.Errorf("attempts = %d, want 3 (2 failures + 1 success)", c.attempts)
 	}
 }
 

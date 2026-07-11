@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	codex "github.com/freeeve/libcodex"
 	"github.com/freeeve/libcodex/marcxml"
@@ -40,6 +41,16 @@ const defaultPrefix = "marc21"
 // maxPages bounds resumptionToken following, so a server that loops a token can
 // never spin the harvest forever.
 const maxPages = 1_000_000
+
+// maxRetries is how many extra times a page fetch is attempted after a transient
+// failure (a connection reset, timeout, or 5xx) before giving up. Sustained OAI
+// harvests over thousands of records routinely hit a recycled worker or a brief
+// network blip mid-run, and a whole harvest should not be lost to one; backoff
+// starts at retryBase and doubles.
+const (
+	maxRetries = 5
+	retryBase  = 500 * time.Millisecond
+)
 
 // Doer is the HTTP surface the provider needs; http.Client satisfies it, and a
 // test injects a stub.
@@ -156,10 +167,34 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 	return marc.FromCodexRecords(recs), nil
 }
 
-// fetch issues one ListRecords request and decodes the envelope. The first page
+// fetch issues one page request, retrying a transient failure (a connection reset,
+// timeout, or 5xx) with exponential backoff so a long harvest survives a recycled
+// server worker or a brief blip. Honours ctx between attempts.
+func (p *Provider) fetch(ctx context.Context, token string) (*oaiResponse, error) {
+	var err error
+	var resp *oaiResponse
+	backoff := retryBase
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+			backoff *= 2
+		}
+		resp, err = p.fetchOnce(ctx, token)
+		if err == nil || ctx.Err() != nil {
+			return resp, err
+		}
+	}
+	return nil, fmt.Errorf("oaipmh: after %d retries: %w", maxRetries, err)
+}
+
+// fetchOnce issues one ListRecords request and decodes the envelope. The first page
 // carries the selectors; subsequent pages carry only the resumptionToken (the OAI
 // spec forbids repeating the selectors alongside a token).
-func (p *Provider) fetch(ctx context.Context, token string) (*oaiResponse, error) {
+func (p *Provider) fetchOnce(ctx context.Context, token string) (*oaiResponse, error) {
 	q := url.Values{"verb": {"ListRecords"}}
 	if token != "" {
 		q.Set("resumptionToken", token)
