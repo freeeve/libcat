@@ -50,6 +50,10 @@ export const SCREENS: Screen[] = [
   // lists it for everyone -- the route already refuses a non-admin, and hiding
   // a screen's existence from the palette is what this task is about.
   { route: "profiles", path: "/profiles", label: "Profiles", chord: "f", sidebar: true, adminOnly: true },
+  // The patron-suggestion policy editor (tasks/263): opt-in switch, scheme
+  // allowlist, free-text mode. Admin-only like its config routes; the public
+  // read that hides the discovery affordance needs no screen.
+  { route: "suggestions", path: "/suggestions", label: "Suggestions", paletteLabel: "Suggestion policy", chord: "s", sidebar: true, adminOnly: true },
   // The audit-log reader (tasks/299): the month's entries unfiltered by work, so
   // the system-level actions (users, roles, profiles, imports, batch runs) that
   // carry no workId -- invisible in a work's History tab -- have a screen.

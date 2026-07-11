@@ -656,6 +656,21 @@ export interface DecidePromotionResponse {
   note?: string;
 }
 
+/** suggest.FreeTextMode -- whether patrons may propose folksonomy tags, and
+ *  which (tasks/263): off (none), existing (only tags already in use), any. */
+export type FreeTextMode = "off" | "existing" | "any";
+
+/** suggest.Policy -- the deployment's opt-in patron-suggestion policy
+ *  (tasks/263). enabled gates the whole public intake; schemes is the allowlist
+ *  of controlled vocabularies patrons may propose from (empty = every loaded
+ *  scheme); freeText governs folksonomy tags. It binds patrons only -- a
+ *  cataloger adds any term through the review queue regardless. */
+export interface SuggestionPolicy {
+  enabled: boolean;
+  schemes?: string[];
+  freeText: FreeTextMode;
+}
+
 /** vocabsrc.Source -- one public authority source (tasks/067). */
 export interface VocabSource {
   name: string;

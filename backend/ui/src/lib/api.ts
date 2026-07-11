@@ -51,6 +51,7 @@ import type {
   Term,
   TermRef,
   VocabJob,
+  SuggestionPolicy,
   VocabSource,
   VocabSourceView,
   VocabSuggestion,
@@ -693,6 +694,17 @@ export function deletePromotion(tag: string): Promise<void> {
 /** The authority-source list: registry, install state, latest jobs (librarian). */
 export function fetchVocabSources(): Promise<{ sources: VocabSourceView[] }> {
   return call("GET", "/v1/vocabsources");
+}
+
+/** The patron-suggestion policy (admin, tasks/263). */
+export function fetchSuggestionPolicy(): Promise<SuggestionPolicy> {
+  return call("GET", "/v1/config/suggestions");
+}
+
+/** Stores the patron-suggestion policy; the write is audited (admin, tasks/263).
+ *  Returns the normalized policy the server saved. */
+export function putSuggestionPolicy(policy: SuggestionPolicy): Promise<SuggestionPolicy> {
+  return call("PUT", "/v1/config/suggestions", policy);
 }
 
 /** Queues a vocabulary snapshot download; the worker installs and swaps the
