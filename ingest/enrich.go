@@ -81,10 +81,22 @@ func (s WorkSummary) Matches(q string) bool {
 	return false
 }
 
+// ExternalIdentity is an outward link to a hub resource that identifies the same
+// Work in another system (tasks/066): the hub URI and its short scheme
+// ("openlibrary", "wikidata", "lchub"). Rendered as owl:sameAs; the minted `w…`
+// id stays primary.
+type ExternalIdentity struct {
+	URI    string
+	Scheme string
+}
+
 // Enrichment is one Work's enrichment result: controlled subjects to assert.
 type Enrichment struct {
 	WorkID   string
 	Subjects []AuthoritySubject
+	// Identities are outward links to external hubs (tasks/066), rendered as
+	// owl:sameAs into the enrichment graph alongside any subjects.
+	Identities []ExternalIdentity
 	// Terms carries standalone term descriptions -- typically the
 	// skos:broader ancestor chains of Subjects -- asserted into the
 	// enrichment graph as labels + hierarchy only, with no link to the Work
@@ -165,6 +177,9 @@ func enrichmentQuads(res Enrichment) []rdf.Quad {
 	for _, subj := range res.Subjects {
 		quads = append(quads, bibframe.SubjectQuad(res.WorkID, subj.URI))
 		quads = append(quads, termQuads(subj)...)
+	}
+	for _, id := range res.Identities {
+		quads = append(quads, bibframe.SameAsQuad(res.WorkID, id.URI))
 	}
 	for _, term := range res.Terms {
 		quads = append(quads, termQuads(term)...)

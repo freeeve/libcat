@@ -159,10 +159,11 @@ func TestSummarizeGrainSkolemHeading(t *testing.T) {
 
 // fakeEnricher asserts one subject on every Work it sees.
 type fakeEnricher struct {
-	name    string
-	subject bibframe.AuthoritySubject
-	terms   []bibframe.AuthoritySubject
-	calls   int
+	name       string
+	subject    bibframe.AuthoritySubject
+	terms      []bibframe.AuthoritySubject
+	identities []ingest.ExternalIdentity
+	calls      int
 }
 
 func (f *fakeEnricher) Name() string { return f.name }
@@ -174,6 +175,7 @@ func (f *fakeEnricher) Enrich(ctx context.Context, works []ingest.WorkSummary) (
 		if f.subject.URI != "" {
 			e.Subjects = []bibframe.AuthoritySubject{f.subject}
 			e.Terms = f.terms
+			e.Identities = f.identities
 		}
 		out = append(out, e) // empty Subjects = explicit withdrawal
 	}
@@ -195,6 +197,8 @@ func TestRunEnrichDirect(t *testing.T) {
 			URI:    "http://id.loc.gov/authorities/subjects/sh85045198",
 			Labels: map[string]string{"en": "Fiction"},
 		}},
+		// An external-identity link rides in the same enrichment graph (tasks/066).
+		identities: []ingest.ExternalIdentity{{URI: "https://openlibrary.org/works/OL45804W", Scheme: "openlibrary"}},
 	}
 	n, err := ingest.RunEnrich(t.Context(), st, "data/works/", e)
 	if err != nil || n != 1 {
@@ -207,6 +211,10 @@ func TestRunEnrichDirect(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("grain missing %q:\n%s", want, text)
 		}
+	}
+	// The identity link is an owl:sameAs from the Work to the hub URI (tasks/066).
+	if !strings.Contains(text, "http://www.w3.org/2002/07/owl#sameAs") || !strings.Contains(text, "https://openlibrary.org/works/OL45804W") {
+		t.Fatalf("grain missing owl:sameAs external-identity link:\n%s", text)
 	}
 	// The standalone term's label landed; no bf:subject link points at it.
 	if !strings.Contains(text, `"Fiction"@en`) {

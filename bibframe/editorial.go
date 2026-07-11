@@ -13,7 +13,20 @@ const (
 	bfSubjectIRI     = "http://id.loc.gov/ontologies/bibframe/subject"
 	skosPrefLabelIRI = "http://www.w3.org/2004/02/skos/core#prefLabel"
 	skosBroaderIRI   = "http://www.w3.org/2004/02/skos/core#broader"
+	owlSameAsIRI     = "http://www.w3.org/2002/07/owl#sameAs"
 )
+
+// SameAsQuad links a Work to an external hub resource that identifies the same
+// work (tasks/066): <workURI> owl:sameAs <externalURI>. Minted `w…` ids stay the
+// primary identity -- this is an attached outward link, written into an
+// enrichment:<name> graph, never a re-derivation of the local id.
+func SameAsQuad(workID, externalURI string) rdf.Quad {
+	return rdf.Quad{
+		S: rdf.NewIRI(WorkIRI(workID)),
+		P: rdf.NewIRI(owlSameAsIRI),
+		O: rdf.NewIRI(externalURI),
+	}
+}
 
 // PredTag carries an uncontrolled folksonomy tag as a plain literal on a
 // Work. Feed tags arrive as labeled blank bf:Topic nodes, but editorial-class
