@@ -15,6 +15,7 @@
     fetchCopycatBatches,
     fetchCopycatProfiles,
     fetchCopycatTargets,
+    fetchSuggestedTargets,
     putCopycatProfile,
     putCopycatTarget,
     stageCopycatBatch,
@@ -36,15 +37,17 @@
     CopycatTarget,
   } from "../lib/types";
 
-  /** Well-known open targets an admin can add in one click: the big free
-   *  copy-cataloging sources speak Z39.50/SRU anonymously (subscription
-   *  targets like OCLC need credentials, which targets don't carry yet). */
-  const SUGGESTED_TARGETS: (CopycatTarget & { blurb: string })[] = [
-    { name: "loc", url: "lx2.loc.gov:210/LCDB", protocol: "z3950", blurb: "Library of Congress (Z39.50, anonymous)" },
-    { name: "loc-sru", url: "http://lx2.loc.gov:210/LCDB", protocol: "sru", blurb: "Library of Congress (SRU)" },
-    { name: "k10plus", url: "https://sru.k10plus.de/opac-de-627", protocol: "sru", blurb: "K10plus German union catalogue (SRU)" },
-    { name: "indexdata-test", url: "z3950.indexdata.com:210/marc", protocol: "z3950", blurb: "Index Data public test server (tiny sample set)" },
-  ];
+  /** Blurbs for the one-click presets, keyed by target name. The preset *config*
+   *  (url/protocol/indexes/version/schema) is served from the backend so it
+   *  cannot drift from the seeded defaults -- how the k10plus preset came to lack
+   *  its PICA indexes (tasks/256). These are the human copy the wire config lacks;
+   *  a preset with no blurb falls back to its name. */
+  const SUGGESTED_BLURBS: Record<string, string> = {
+    loc: "Library of Congress (Z39.50, anonymous)",
+    "loc-sru": "Library of Congress (SRU)",
+    k10plus: "K10plus German union catalogue (SRU)",
+    "indexdata-test": "Index Data public test server (tiny sample set)",
+  };
 
   /** The fielded access points shared by both protocols (tasks/074). */
   const FIELD_INDEXES = [
@@ -78,7 +81,12 @@
   }));
 
   let targets = $state<CopycatTarget[]>([]);
+  let suggestedTargets = $state<CopycatTarget[]>([]);
   let newTarget = $state<CopycatTarget>({ name: "", url: "", protocol: "sru" });
+  // The add form's advanced SRU knobs (tasks/256): version/schema bind onto
+  // newTarget; index overrides are a repeatable access-point -> CQL-index list
+  // assembled into newTarget.indexes on submit.
+  let newIndexes = $state<{ index: string; cql: string }[]>([]);
   let profiles = $state<CopycatProfile[]>([]);
   let newProfile = $state<{ name: string; policy: CopycatPolicy; targets: Record<string, boolean> }>({
     name: "",
@@ -112,6 +120,7 @@
       "/": { description: "focus the search box", legend: "search", handler: focusSearch },
     });
     void loadTargets();
+    void loadSuggested();
     void loadBatches();
     void loadProfiles();
     if (batchId) void open(batchId);
@@ -127,6 +136,14 @@
       targets = (await fetchCopycatTargets()).targets ?? [];
     } catch {
       targets = [];
+    }
+  }
+
+  async function loadSuggested(): Promise<void> {
+    try {
+      suggestedTargets = (await fetchSuggestedTargets()).targets ?? [];
+    } catch {
+      suggestedTargets = [];
     }
   }
 
@@ -174,21 +191,35 @@
   async function addTarget(): Promise<void> {
     error = "";
     try {
-      await putCopycatTarget($state.snapshot(newTarget));
+      const t = $state.snapshot(newTarget);
+      const idx = Object.fromEntries(
+        newIndexes.map((r) => [r.index.trim(), r.cql.trim()]).filter(([k, v]) => k && v),
+      );
+      t.indexes = Object.keys(idx).length > 0 ? idx : undefined;
+      await putCopycatTarget(t);
       newTarget = { name: "", url: "", protocol: "sru" };
+      newIndexes = [];
       await loadTargets();
     } catch (e) {
       error = humanApiMessage(e, "saving the target failed");
     }
   }
 
-  /** Suggested targets not yet configured (matched by name). */
-  const suggestions = $derived(SUGGESTED_TARGETS.filter((s) => !targets.some((t) => t.name === s.name)));
+  /** Suggested presets not yet configured -- suppressed when a target already
+   *  has that name OR that URL, so the good seeded k10plus-sru hides the k10plus
+   *  preset that points at the same server (tasks/256). */
+  const suggestions = $derived(
+    suggestedTargets
+      .filter((s) => !targets.some((t) => t.name === s.name || t.url === s.url))
+      .map((s) => ({ ...s, blurb: SUGGESTED_BLURBS[s.name] ?? s.name })),
+  );
 
   async function addSuggested(s: CopycatTarget): Promise<void> {
     error = "";
     try {
-      await putCopycatTarget({ name: s.name, url: s.url, protocol: s.protocol });
+      // Forward the whole target -- version, schema, and indexes included -- so a
+      // preset with SRU knobs keeps them (tasks/256). blurb is UI-only.
+      await putCopycatTarget({ name: s.name, url: s.url, protocol: s.protocol, version: s.version, schema: s.schema, indexes: s.indexes });
       await loadTargets();
     } catch (e) {
       error = humanApiMessage(e, "saving the target failed");
@@ -410,6 +441,27 @@
         </select>
         <button class="button" onclick={() => void addTarget()}>Add target</button>
       </div>
+      {#if newTarget.protocol === "sru"}
+        <details class="advanced-sru">
+          <summary>Advanced (SRU version, schema, index overrides)</summary>
+          <div class="row">
+            <input aria-label="SRU version" bind:value={newTarget.version} placeholder="version (e.g. 1.1)" />
+            <input aria-label="SRU record schema" bind:value={newTarget.schema} placeholder="schema (e.g. MARC21-xml)" />
+          </div>
+          <div class="idx-list">
+            <span class="muted">Index overrides -- access point &rarr; CQL index (e.g. isbn &rarr; pica.isb for K10plus):</span>
+            {#each newIndexes as row, i (i)}
+              <div class="row">
+                <input aria-label="Access point" bind:value={row.index} placeholder="isbn" />
+                <span aria-hidden="true">&rarr;</span>
+                <input aria-label="CQL index" bind:value={row.cql} placeholder="pica.isb" />
+                <button class="button button--quiet mini" aria-label="Remove index override" onclick={() => (newIndexes = newIndexes.filter((_, j) => j !== i))}>&#10005;</button>
+              </div>
+            {/each}
+            <button class="button button--quiet mini" onclick={() => (newIndexes = [...newIndexes, { index: "", cql: "" }])}>+ index override</button>
+          </div>
+        </details>
+      {/if}
       {#if suggestions.length > 0}
         <div class="suggested">
           <span class="muted">Suggested (open, no credentials needed):</span>

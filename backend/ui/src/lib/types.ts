@@ -522,6 +522,12 @@ export interface CopycatTarget {
   name: string;
   url: string;
   protocol: "sru" | "z3950";
+  /** SRU dialect knobs (Z39.50 ignores them): protocol version, requested
+   *  recordSchema, and per-access-point CQL index overrides for servers off the
+   *  Bath mapping, e.g. K10plus {isbn: "pica.isb"} (tasks/256). */
+  version?: string;
+  schema?: string;
+  indexes?: Record<string, string>;
 }
 
 /** copycat.Match -- a staged record's dry-run identity resolution. */

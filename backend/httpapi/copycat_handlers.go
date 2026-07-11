@@ -45,6 +45,13 @@ func registerCopycat(mux *http.ServeMux, svc *copycat.Service, verifier auth.Tok
 		writeJSON(w, http.StatusOK, map[string]any{"targets": targets})
 	})))
 
+	// The one-click preset row: the curated open sources, served from the same Go
+	// table the seeder derives from so the UI cannot keep a copy that drifts
+	// (tasks/256). Blurbs are added UI-side, keyed by name.
+	mux.Handle("GET /v1/copycat/targets/suggested", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"targets": copycat.SuggestedTargets})
+	})))
+
 	mux.Handle("POST /v1/copycat/targets", admin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var t copycat.Target
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&t); err != nil {

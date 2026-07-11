@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -94,6 +95,28 @@ func TestSeedDefaultTargets(t *testing.T) {
 	}
 	if targets, _ = svc2.Targets(ctx); len(targets) != 1 || targets[0].Name != "mine" {
 		t.Fatalf("seed over existing = %+v", targets)
+	}
+}
+
+// TestSuggestedTargetsAgreeWithDefaults is the tasks/256 drift guard: a one-click
+// preset that points at the same URL as a seeded default must carry the same SRU
+// knobs, or the preset speaks different CQL than the seeded target for the same
+// server. It is exactly this that let the k10plus preset ship without the PICA
+// indexes its k10plus-sru twin carries.
+func TestSuggestedTargetsAgreeWithDefaults(t *testing.T) {
+	byURL := map[string]copycat.Target{}
+	for _, d := range copycat.DefaultTargets {
+		byURL[d.URL] = d
+	}
+	for _, s := range copycat.SuggestedTargets {
+		d, ok := byURL[s.URL]
+		if !ok {
+			continue // a preset for a server not among the seeded defaults
+		}
+		if s.Version != d.Version || s.Schema != d.Schema || !maps.Equal(s.Indexes, d.Indexes) {
+			t.Errorf("suggested %q and default %q share URL %s but disagree on SRU knobs:\n suggested: v=%q schema=%q indexes=%v\n default:   v=%q schema=%q indexes=%v",
+				s.Name, d.Name, s.URL, s.Version, s.Schema, s.Indexes, d.Version, d.Schema, d.Indexes)
+		}
 	}
 }
 

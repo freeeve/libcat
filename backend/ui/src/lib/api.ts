@@ -426,6 +426,12 @@ export function fetchCopycatTargets(): Promise<{ targets: CopycatTarget[] }> {
   return call("GET", "/v1/copycat/targets");
 }
 
+/** The curated open presets, served from the same Go table the seeder uses so
+ *  the UI cannot keep a copy that drifts (tasks/256). Blurbs are added UI-side. */
+export function fetchSuggestedTargets(): Promise<{ targets: CopycatTarget[] }> {
+  return call("GET", "/v1/copycat/targets/suggested");
+}
+
 /** Creates or replaces a search target (admin). */
 export function putCopycatTarget(t: CopycatTarget): Promise<CopycatTarget> {
   return call("POST", "/v1/copycat/targets", t);

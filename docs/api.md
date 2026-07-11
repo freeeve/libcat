@@ -580,6 +580,7 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `POST` | `/v1/copycat/search` | librarian | `copycat_handlers.go` |
 | `GET` | `/v1/copycat/targets` | librarian | `copycat_handlers.go` |
 | `POST` | `/v1/copycat/targets` | admin | `copycat_handlers.go` |
+| `GET` | `/v1/copycat/targets/suggested` | librarian | `copycat_handlers.go` |
 | `DELETE` | `/v1/copycat/targets/{name}` | admin | `copycat_handlers.go` |
 | `GET` | `/v1/copycat/templates` | librarian | `copycat_handlers.go` |
 | `POST` | `/v1/covers/batch` | librarian | `cover_batch.go` |

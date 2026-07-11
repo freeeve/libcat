@@ -46,6 +46,22 @@ var DefaultTargets = []Target{
 	{Name: "loc-sru", URL: "http://lx2.loc.gov:210/LCDB", Protocol: ProtocolSRU},
 }
 
+// SuggestedTargets are the open, no-credential sources the copycat UI offers as
+// one-click presets. It is the single source for the preset row: the UI fetches
+// it (GET /v1/copycat/targets/suggested) rather than maintaining its own copy,
+// which is how the k10plus preset came to lack the PICA indexes its seeded twin
+// carries (tasks/256). A preset sharing a URL with a DefaultTargets entry must
+// carry the same SRU knobs, or the one-click target speaks different CQL than the
+// seeded one -- TestSuggestedTargetsAgreeWithDefaults pins that. Blurbs are the
+// UI's to add; the wire config lives here.
+var SuggestedTargets = []Target{
+	{Name: "loc", URL: "lx2.loc.gov:210/LCDB", Protocol: ProtocolZ3950},
+	{Name: "loc-sru", URL: "http://lx2.loc.gov:210/LCDB", Protocol: ProtocolSRU},
+	{Name: "k10plus", URL: "https://sru.k10plus.de/opac-de-627", Protocol: ProtocolSRU,
+		Indexes: map[string]string{"isbn": "pica.isb", "issn": "pica.iss"}},
+	{Name: "indexdata-test", URL: "z3950.indexdata.com:210/marc", Protocol: ProtocolZ3950},
+}
+
 // SeedDefaultTargets installs DefaultTargets so a fresh deployment's subject
 // lookup and copy cataloging work without configuration. It runs once ever
 // per store (a marker record remembers the seeding), so an admin who
