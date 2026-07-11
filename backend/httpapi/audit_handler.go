@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -200,25 +201,24 @@ func (f auditFilterSet) cacheKey() string {
 // Query: filter=key=value (repeatable, ANDed; comma-joined extras match per
 // element) and source=<name>, both matching the summaries' Extras -- the same
 // semantics as `lcat audit --filter/--source`.
-func registerAudit(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenVerifier) {
+// registerAudit returns its compute path so the snapshot recorder reuses the
+// same filters/cache/aggregation (registerAuditSnapshots).
+func registerAudit(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenVerifier) func(*http.Request) (auditResponse, auditFilterSet, int, error) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 	cache := &auditCache{}
 
-	mux.Handle("GET /v1/audit/diversity", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	compute := func(r *http.Request) (auditResponse, auditFilterSet, int, error) {
 		filters, err := auditFilters(r)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
+			return auditResponse{}, nil, http.StatusBadRequest, err
 		}
 		sums, gen, err := ix.SummariesWithGeneration(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "scan failed")
-			return
+			return auditResponse{}, nil, http.StatusInternalServerError, errScanFailed
 		}
 		key := filters.cacheKey()
 		if resp, ok := cache.get(gen, key); ok {
-			writeJSON(w, http.StatusOK, resp)
-			return
+			return resp, filters, http.StatusOK, nil
 		}
 		cw := diversity.Default()
 		a := diversity.NewAuditor(cw)
@@ -239,9 +239,23 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenV
 			Creators: aggregateCreators(sums, include),
 		}
 		cache.put(gen, key, resp)
+		return resp, filters, http.StatusOK, nil
+	}
+
+	mux.Handle("GET /v1/audit/diversity", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp, _, status, err := compute(r)
+		if err != nil {
+			writeError(w, status, err.Error())
+			return
+		}
 		writeJSON(w, http.StatusOK, resp)
 	})))
+	return compute
 }
+
+// errScanFailed keeps the surfaced message stable ("scan failed") without
+// leaking the index error's internals.
+var errScanFailed = errors.New("scan failed")
 
 // auditFilters parses ?filter=k=v (repeatable) and ?source=<name> into the same
 // ANDed filter set the CLI uses.

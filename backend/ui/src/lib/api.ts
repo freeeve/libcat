@@ -23,6 +23,7 @@ import type {
   MarcFieldError,
   DecidePromotionResponse,
   DiversityReport,
+  DiversitySnapshot,
   DuplicateGroup,
   WorkItem,
   WorkVisibility,
@@ -292,6 +293,22 @@ export function fetchDiversityAudit(filters: string[] = [], source?: string): Pr
   if (source) q.set("source", source);
   const qs = q.toString();
   return call("GET", `/v1/audit/diversity${qs ? `?${qs}` : ""}`);
+}
+
+/** The dated audit-snapshot series for a scope (librarian). */
+export function fetchDiversitySnapshots(filters: string[] = []): Promise<{ snapshots: DiversitySnapshot[] }> {
+  const q = new URLSearchParams();
+  for (const f of filters) q.append("filter", f);
+  const qs = q.toString();
+  return call("GET", `/v1/audit/diversity/snapshots${qs ? `?${qs}` : ""}`);
+}
+
+/** Records today's audit for the scope -- one per scope per day (librarian). */
+export function recordDiversitySnapshot(filters: string[] = []): Promise<DiversitySnapshot> {
+  const q = new URLSearchParams();
+  for (const f of filters) q.append("filter", f);
+  const qs = q.toString();
+  return call("POST", `/v1/audit/diversity/snapshots${qs ? `?${qs}` : ""}`);
 }
 
 /** The suggestion review queue, optionally filtered (moderator). */

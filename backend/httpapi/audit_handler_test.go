@@ -262,3 +262,56 @@ func TestAuditCache(t *testing.T) {
 		t.Errorf("cacheKey order-sensitive: %q vs %q", a.cacheKey(), b.cacheKey())
 	}
 }
+
+// TestAuditSnapshots drives the 384/398 history backbone: POST records
+// today's report for the scope (idempotent per day), GET returns the dated
+// series per scope, and scopes do not bleed into each other.
+func TestAuditSnapshots(t *testing.T) {
+	h, bs := newRecordsAPI(t)
+	seedAuditWork(t, bs, "waudit00003a", "", "", "Lesbians", map[string]string{"inQll": "true"})
+	seedAuditWork(t, bs, "waudit00003b", "", "", "Immigrants", nil)
+
+	rec := request(t, h, http.MethodPost, "/v1/audit/diversity/snapshots", "lib-token", "", nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("record snapshot = %d %s", rec.Code, rec.Body.String())
+	}
+	// Same day, same scope: idempotent re-press.
+	if rec := request(t, h, http.MethodPost, "/v1/audit/diversity/snapshots", "lib-token", "", nil); rec.Code != http.StatusCreated {
+		t.Fatalf("re-record = %d", rec.Code)
+	}
+	// A scoped snapshot lands in its own series.
+	if rec := request(t, h, http.MethodPost, "/v1/audit/diversity/snapshots?filter=inQll%3Dtrue", "lib-token", "", nil); rec.Code != http.StatusCreated {
+		t.Fatalf("scoped record = %d %s", rec.Code, rec.Body.String())
+	}
+
+	var list struct {
+		Snapshots []struct {
+			Date         string `json:"date"`
+			TotalWorks   int    `json:"totalWorks"`
+			Multiplicity struct {
+				MatchedOne int `json:"matchedOne"`
+			} `json:"multiplicity"`
+		} `json:"snapshots"`
+	}
+	rec = request(t, h, http.MethodGet, "/v1/audit/diversity/snapshots", "lib-token", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list = %d", rec.Code)
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Snapshots) != 1 {
+		t.Fatalf("unfiltered series = %d snapshots, want 1 (same-day idempotent)", len(list.Snapshots))
+	}
+	if s := list.Snapshots[0]; s.Date == "" || s.TotalWorks != 2 || s.Multiplicity.MatchedOne != 2 {
+		t.Errorf("snapshot = %+v, want dated, 2 works, multiplicity carried", s)
+	}
+
+	rec = request(t, h, http.MethodGet, "/v1/audit/diversity/snapshots?filter=inQll%3Dtrue", "lib-token", "", nil)
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Snapshots) != 1 || list.Snapshots[0].TotalWorks != 1 {
+		t.Fatalf("scoped series = %+v, want its own single 1-work snapshot", list.Snapshots)
+	}
+}

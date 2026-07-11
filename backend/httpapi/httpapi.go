@@ -165,7 +165,8 @@ func New(deps Deps) http.Handler {
 		wl := registerWorksList(mux, ix, deps.Verifier, deps.ExtraFacets, deps.Vocab)
 		registerTags(mux, wl, deps.Verifier)
 		registerWorksSimilar(mux, ix, deps.Verifier, deps.Vocab)
-		registerAudit(mux, ix, deps.Verifier)
+		computeAudit := registerAudit(mux, ix, deps.Verifier)
+		registerAuditSnapshots(mux, deps.Blob, deps.Verifier, computeAudit)
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {
 		registerAuthorities(mux, deps.Authorities, deps.Profiles, deps.Verifier, deps.Logger)

@@ -763,8 +763,14 @@ export interface DiversityReport {
   coveredWorks: number;
   coverage: number;
   categories: DiversityCategory[];
+  /** Exclusive covered-works decomposition -- sums with the uncovered
+   *  remainder to totalWorks, so it stacks honestly. */
+  multiplicity?: { uncategorized: number; matchedOne: number; matchedMulti: number };
   creators?: CreatorAudit;
 }
+
+/** One recorded audit in a scope's dated series. */
+export type DiversitySnapshot = DiversityReport & { date: string };
 
 /** One demographic property's distribution in the creator audit. */
 export interface CreatorProperty {

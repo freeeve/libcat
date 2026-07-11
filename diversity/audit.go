@@ -29,6 +29,20 @@ type Report struct {
 	Coverage float64 `json:"coverage"`
 	// Categories are the diversity categories in the crosswalk's reporting order.
 	Categories []CategoryTally `json:"categories"`
+	// Multiplicity decomposes CoveredWorks exclusively -- how many covered
+	// works matched no category, exactly one, or two or more. Unlike the
+	// per-category tallies (which overlap), these three sum with the
+	// uncovered remainder to TotalWorks, so they stack honestly in a
+	// composition chart; MatchedMulti doubles as the intersectionality
+	// signal.
+	Multiplicity MultiplicityTally `json:"multiplicity"`
+}
+
+// MultiplicityTally is the exclusive covered-works decomposition.
+type MultiplicityTally struct {
+	Uncategorized int `json:"uncategorized"`
+	MatchedOne    int `json:"matchedOne"`
+	MatchedMulti  int `json:"matchedMulti"`
 }
 
 // CategoryTally is one category's representation. Works counts each work once,
@@ -50,6 +64,7 @@ type Auditor struct {
 	cw      *Crosswalk
 	total   int
 	covered int
+	multi   MultiplicityTally
 	perCat  map[string]int
 }
 
@@ -86,6 +101,14 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 	}
 	if covered {
 		a.covered++
+		switch len(cats) {
+		case 0:
+			a.multi.Uncategorized++
+		case 1:
+			a.multi.MatchedOne++
+		default:
+			a.multi.MatchedMulti++
+		}
 	}
 	for id := range cats {
 		a.perCat[id]++
@@ -95,7 +118,7 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 // Report snapshots the tally as a coverage-first Report, with categories in the
 // crosswalk's stable reporting order. Shares are 0 when their denominator is 0.
 func (a *Auditor) Report() Report {
-	r := Report{TotalWorks: a.total, CoveredWorks: a.covered}
+	r := Report{TotalWorks: a.total, CoveredWorks: a.covered, Multiplicity: a.multi}
 	if a.total > 0 {
 		r.Coverage = float64(a.covered) / float64(a.total)
 	}

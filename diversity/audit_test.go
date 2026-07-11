@@ -45,6 +45,9 @@ func TestAuditorCoverageAndCounts(t *testing.T) {
 	if !approx(r.Coverage, 3.0/4.0) {
 		t.Errorf("Coverage = %v, want 0.75", r.Coverage)
 	}
+	if m := r.Multiplicity; m.Uncategorized != 1 || m.MatchedOne != 1 || m.MatchedMulti != 1 {
+		t.Errorf("Multiplicity = %+v, want 1 uncategorized (cooking) / 1 one (lgbtqia-only) / 1 multi (immigrant+women)", m)
+	}
 	if got := tally(r, "lgbtqia").Works; got != 1 {
 		t.Errorf("lgbtqia works = %d, want 1 (two subjects, one work)", got)
 	}
