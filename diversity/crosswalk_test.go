@@ -182,6 +182,25 @@ func TestPluralTolerantKeywords(t *testing.T) {
 	}
 }
 
+// TestSeedIntersectionalURIs: the Homosaurus intersectional identity terms map
+// to their racial/ethnic/indigenous/religious category AND to lgbtqia via the
+// scheme -- one subject, both dimensions.
+func TestSeedIntersectionalURIs(t *testing.T) {
+	cw := Default()
+	got := cw.Categorize("https://homosaurus.org/v5/homoit0000208", "Black LGBTQ+ people", "homosaurus")
+	if !reflect.DeepEqual(got, []string{"bipoc", "lgbtqia"}) {
+		t.Errorf("Black LGBTQ+ people = %v, want [bipoc lgbtqia]", got)
+	}
+	got = cw.Categorize("https://homosaurus.org/v5/homoit0001480", "Two-Spirit people", "homosaurus")
+	if !reflect.DeepEqual(got, []string{"indigenous", "lgbtqia"}) {
+		t.Errorf("Two-Spirit people = %v, want [indigenous lgbtqia]", got)
+	}
+	got = cw.Categorize("https://homosaurus.org/v5/homoit0000682", "Jewish LGBTQ+ people", "homosaurus")
+	if !reflect.DeepEqual(got, []string{"lgbtqia", "religious-minorities"}) {
+		t.Errorf("Jewish LGBTQ+ people = %v, want [lgbtqia religious-minorities]", got)
+	}
+}
+
 // TestSchemeMatching is the Homosaurus ask: a subject in a
 // category-relevant vocabulary counts by scheme code alone, whatever its label,
 // and overrides can add schemes to a category.

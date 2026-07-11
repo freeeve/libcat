@@ -38,7 +38,21 @@ keywords = [
   "japanese american", "korean american", "arab american", "race relations",
   "racism", "ethnic minorities", "minorities",
 ]
-uris = []
+uris = [
+  # Homosaurus v5 intersectional identity terms (from the queerbooks/QLL
+  # review): the homosaurus SCHEME maps these to lgbtqia; the URI rows below
+  # assert their racial/ethnic dimension too.
+  "https://homosaurus.org/v5/homoit0000208", # Black LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0000074", # Asian LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0000253", # Latino/a/x LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0001101", # LGBTQ+ people of color
+  "https://homosaurus.org/v5/homoit0002009", # Arab LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0002052", # Indian LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0000820", # Biracial LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0002044", # South Asian LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0000903", # Multiracial LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0000019", # Afro-Latin American LGBTQ+ people
+]
 
 [[category]]
 id = "indigenous"
@@ -48,7 +62,12 @@ keywords = [
   "aboriginal", "aboriginal australians", "indians of north america", "inuit",
   "maori", "two-spirit", "tribal", "first peoples",
 ]
-uris = []
+uris = [
+  # Homosaurus v5 intersectional terms (queerbooks/QLL review).
+  "https://homosaurus.org/v5/homoit0001480", # Two-Spirit people
+  "https://homosaurus.org/v5/homoit0000886", # Indigenous LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0001955", # Kanaka Maoli LGBTQ+ people
+]
 
 [[category]]
 id = "lgbtqia"
@@ -94,7 +113,14 @@ keywords = [
   "sikh", "sikhism", "buddhist", "buddhism", "jain", "jainism", "bahai",
   "religious minorities",
 ]
-uris = []
+uris = [
+  # Homosaurus v5 intersectional terms matching this category's existing
+  # keyword scope (non-Christian traditions + Jewish). Denomination-level
+  # terms (LGBTQ+ Anglicans etc.) stay an operator-override choice.
+  "https://homosaurus.org/v5/homoit0000682", # Jewish LGBTQ+ people
+  "https://homosaurus.org/v5/homoit0000225", # LGBTQ+ Buddhists
+  "https://homosaurus.org/v5/homoit0000633", # LGBTQ+ Hindus
+]
 
 [[category]]
 id = "immigrant-diaspora"
