@@ -125,6 +125,12 @@ The rules, in order:
    moderation-queue mode because these are entity statements, not subject
    candidates -- hence `direct` is the only mode.
 
+Once claims are cached, the **Diversity** screen (and the
+`/v1/audit/diversity` response's `creators` block) reports the aggregate:
+match rate first, then each property's value distribution over distinct
+resolved creators with the not-stated remainder alongside. No person is ever
+named in the report.
+
 Expect low match rates and read them first. Wikidata's book coverage is
 thin and skewed: most editions have no ISBN item at all, ~82% of humans with
 a gender claim are "male", and non-Western and Indigenous creators are

@@ -763,4 +763,24 @@ export interface DiversityReport {
   coveredWorks: number;
   coverage: number;
   categories: DiversityCategory[];
+  creators?: CreatorAudit;
+}
+
+/** One demographic property's distribution in the creator audit. */
+export interface CreatorProperty {
+  property: string;
+  label: string;
+  known: number;
+  unknown: number;
+  values?: { label: string; qid: string; creators: number }[];
+}
+
+/** The aggregate creator-demographics block: match rate first, distinct
+ *  creators only, never names. Absent when the opt-in source has no data. */
+export interface CreatorAudit {
+  totalWorks: number;
+  matchedWorks: number;
+  matchRate: number;
+  resolvedCreators: number;
+  properties: CreatorProperty[];
 }

@@ -73,4 +73,40 @@ describe("Diversity audit screen", () => {
     expect(document.querySelector(".error")).not.toBeNull();
     expect(document.querySelector("table.cats")).toBeNull();
   });
+
+  it("renders the creator audit match-rate-first with not-stated rows", async () => {
+    fetchDiversityAudit.mockResolvedValue({
+      ...REPORT,
+      creators: {
+        totalWorks: 1000,
+        matchedWorks: 30,
+        matchRate: 0.03,
+        resolvedCreators: 25,
+        properties: [
+          {
+            property: "P21",
+            label: "Sex or gender",
+            known: 10,
+            unknown: 15,
+            values: [{ label: "non-binary", qid: "Q48270", creators: 6 }],
+          },
+        ],
+      },
+    });
+    await render();
+    const section = document.querySelector(".creators");
+    expect(section?.textContent).toContain("3.0%");
+    expect(section?.textContent).toContain("25");
+    expect(section?.textContent).toContain("Not stated");
+    expect(section?.textContent).toContain("non-binary");
+    expect(section?.textContent).toContain("No person is named");
+  });
+
+  it("says the creator audit is not enabled when the block is absent", async () => {
+    fetchDiversityAudit.mockResolvedValue(REPORT);
+    await render();
+    const section = document.querySelector(".creators");
+    expect(section?.textContent).toContain("not enabled");
+    expect(section?.textContent).toContain("LCATD_ENRICH_WIKIDATA");
+  });
 });

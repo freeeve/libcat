@@ -83,6 +83,54 @@
       </tbody>
     </table>
 
+    <section class="creators" aria-label="Creator audit">
+      <h3>Creators</h3>
+      {#if report.creators}
+        <div class="coverage" role="status">
+          <div class="stat">
+            <span class="num">{(report.creators.matchRate * 100).toFixed(1)}%</span>
+            <span class="lbl">
+              works matched ({report.creators.matchedWorks.toLocaleString()} of
+              {report.creators.totalWorks.toLocaleString()})
+            </span>
+          </div>
+          <div class="stat">
+            <span class="num">{report.creators.resolvedCreators.toLocaleString()}</span>
+            <span class="lbl">distinct creators resolved</span>
+          </div>
+        </div>
+        <p class="scopeline muted">
+          Distributions are over distinct resolved creators. Only claims Wikidata
+          states explicitly are counted; "not stated" is the honest remainder,
+          never backfilled. No person is named here.
+        </p>
+        {#each report.creators.properties as prop (prop.property)}
+          <h4>{prop.label}</h4>
+          <table class="cats">
+            <tbody>
+              <tr class="muted">
+                <th scope="row">Not stated</th>
+                <td class="n">{prop.unknown.toLocaleString()}</td>
+              </tr>
+              {#each prop.values ?? [] as v (v.qid)}
+                <tr>
+                  <th scope="row">{v.label}</th>
+                  <td class="n">{v.creators.toLocaleString()}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/each}
+      {:else}
+        <p class="muted">
+          Creator audit not enabled: no cached creator claims in this corpus.
+          Configure <code>LCATD_ENRICH_WIKIDATA=direct</code> and run the
+          wikidata enrichment source; resolution uses cataloged identifiers
+          only -- never names.
+        </p>
+      {/if}
+    </section>
+
     <section class="method" aria-label="Methodology and limits">
       <h3>How to read this</h3>
       <ul>
@@ -162,6 +210,16 @@
   }
   .cats tbody th {
     font-weight: 500;
+  }
+  .creators {
+    margin-top: 1.75rem;
+  }
+  .creators h4 {
+    margin: 1rem 0 0.25rem;
+    font-size: 0.95rem;
+  }
+  .creators table.cats {
+    max-width: 28rem;
   }
   .method {
     margin-top: 1.5rem;

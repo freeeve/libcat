@@ -34,6 +34,11 @@ type WorkSummary struct {
 	// paired with Subjects: the audit unions per-work category hits, so
 	// pairing carries no extra signal.
 	Headings []string `json:",omitempty"`
+	// Creators are the Work's creators as resolved by the wikidata
+	// enrichment (lcat:creatorIdentity in the grain): entity id + cached
+	// explicit claims. Deliberately no display label -- the creator audit is
+	// aggregate-only and never lists people.
+	Creators []CreatorSummary `json:",omitempty"`
 	// Series and Languages are the similarity scorer's two strongest signals
 	//: two books in one series are related whatever else they
 	// share, and a reader of one language is rarely served a book in another.
@@ -151,6 +156,14 @@ type DemographicClaim struct {
 	Property   string
 	ValueQID   string
 	ValueLabel string
+}
+
+// CreatorSummary is a resolved creator as the work index carries it: the
+// entity id and its cached claims, with no display label -- the creator audit
+// aggregates distributions and never lists people.
+type CreatorSummary struct {
+	QID    string
+	Claims []DemographicClaim `json:",omitempty"`
 }
 
 // Enricher produces enrichments for batches of Works. This executes the
@@ -582,6 +595,32 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 			if tag.IsLiteral() {
 				s.Tags = append(s.Tags, tag.Value)
 			}
+		}
+		for _, ent := range merged.Objects(work, bibframe.PredCreatorIdentity) {
+			if !ent.IsIRI() {
+				continue
+			}
+			const wdEntity = "http://www.wikidata.org/entity/"
+			const wdtDirect = "http://www.wikidata.org/prop/direct/"
+			qid := strings.TrimPrefix(ent.Value, wdEntity)
+			if qid == ent.Value {
+				continue
+			}
+			cs := CreatorSummary{QID: qid}
+			for _, prop := range []string{"P21", "P27", "P91", "P172"} {
+				for _, v := range merged.Objects(ent, wdtDirect+prop) {
+					if !v.IsIRI() {
+						continue
+					}
+					label, _ := merged.Literal(v, rdfsLabel)
+					cs.Claims = append(cs.Claims, DemographicClaim{
+						Property:   prop,
+						ValueQID:   strings.TrimPrefix(v.Value, wdEntity),
+						ValueLabel: label,
+					})
+				}
+			}
+			s.Creators = append(s.Creators, cs)
 		}
 		for _, lang := range merged.Objects(work, bfNS+"language") {
 			if code := rdf.LocalName(lang.Value); code != "" {

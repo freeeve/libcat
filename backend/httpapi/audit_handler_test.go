@@ -64,6 +64,21 @@ type auditPage struct {
 		ID    string `json:"id"`
 		Works int    `json:"works"`
 	} `json:"categories"`
+	Creators *struct {
+		TotalWorks       int     `json:"totalWorks"`
+		MatchedWorks     int     `json:"matchedWorks"`
+		MatchRate        float64 `json:"matchRate"`
+		ResolvedCreators int     `json:"resolvedCreators"`
+		Properties       []struct {
+			Property string `json:"property"`
+			Known    int    `json:"known"`
+			Unknown  int    `json:"unknown"`
+			Values   []struct {
+				Label    string `json:"label"`
+				Creators int    `json:"creators"`
+			} `json:"values"`
+		} `json:"properties"`
+	} `json:"creators"`
 }
 
 func getAudit(t *testing.T, h http.Handler, query string) auditPage {
@@ -117,6 +132,11 @@ func TestAuditDiversity(t *testing.T) {
 	if p.Input == "" {
 		t.Error("response should name its input")
 	}
+	// No cached creator claims in this corpus: the creators block is absent
+	// (opt-in source not run), which must read differently from a 0% match.
+	if p.Creators != nil {
+		t.Errorf("creators block should be absent with no cached claims: %+v", p.Creators)
+	}
 
 	// ?filter scopes by extras and is named in the response.
 	p = getAudit(t, h, "filter=inQll%3Dtrue")
@@ -131,5 +151,80 @@ func TestAuditDiversity(t *testing.T) {
 	rec := request(t, h, http.MethodGet, "/v1/audit/diversity?filter=nokey", "lib-token", "", nil)
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("bad filter = %d, want 400", rec.Code)
+	}
+}
+
+// seedCreatorClaims adds an enrichment:wikidata graph to a work's grain: the
+// creator-identity link plus one explicit P21 claim, the shape the wikidata
+// enricher writes.
+func seedCreatorClaims(t *testing.T, bs blob.Store, workID, qid, valueQID, valueLabel string) {
+	t.Helper()
+	path := bibframe.GrainPath(workID)
+	grain, etag, err := bs.Get(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		wd  = "http://www.wikidata.org/entity/"
+		wdt = "http://www.wikidata.org/prop/direct/"
+		lbl = "http://www.w3.org/2000/01/rdf-schema#label"
+	)
+	ds, err := rdf.ParseNQuads(grain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := rdf.NewIRI("enrichment:wikidata")
+	ent := rdf.NewIRI(wd + qid)
+	ds.Add(rdf.NewIRI(bibframe.WorkIRI(workID)), rdf.NewIRI(bibframe.PredCreatorIdentity), ent, g)
+	ds.Add(ent, rdf.NewIRI(wdt+"P21"), rdf.NewIRI(wd+valueQID), g)
+	ds.Add(rdf.NewIRI(wd+valueQID), rdf.NewIRI(lbl), rdf.NewLiteral(valueLabel, "en", ""), g)
+	nq, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), path, nq, blob.PutOptions{IfMatch: etag}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAuditDiversityCreators: cached wikidata claims aggregate into the
+// creators block -- match rate against the same scope, distinct-creator value
+// distributions with unknowns, no names anywhere. Absent entirely when the
+// corpus carries no creator data.
+func TestAuditDiversityCreators(t *testing.T) {
+	h, bs := newRecordsAPI(t)
+	seedAuditWork(t, bs, "waudit00002a", "", "", "Lesbians", nil)
+	seedAuditWork(t, bs, "waudit00002b", "", "", "Gay men", nil)
+	seedAuditWork(t, bs, "waudit00002c", "", "", "", nil)
+	// Two works share one resolved creator; a third work stays unmatched.
+	// Seeded before the first request: a direct blob write bypasses the
+	// index's update hooks, so it must be present at the initial scan.
+	seedCreatorClaims(t, bs, "waudit00002a", "Q42", "Q6581097", "male")
+	seedCreatorClaims(t, bs, "waudit00002b", "Q42", "Q6581097", "male")
+
+	p := getAudit(t, h, "")
+	ca := p.Creators
+	if ca == nil {
+		t.Fatal("creators block missing")
+	}
+	if ca.TotalWorks != 3 || ca.MatchedWorks != 2 {
+		t.Errorf("matched = %d/%d, want 2/3", ca.MatchedWorks, ca.TotalWorks)
+	}
+	if ca.ResolvedCreators != 1 {
+		t.Errorf("resolvedCreators = %d, want 1 (Q42 deduped across works)", ca.ResolvedCreators)
+	}
+	if len(ca.Properties) != 4 {
+		t.Fatalf("properties = %d, want the 4 audited", len(ca.Properties))
+	}
+	p21 := ca.Properties[0]
+	if p21.Property != "P21" || p21.Known != 1 || p21.Unknown != 0 {
+		t.Errorf("P21 = %+v, want known 1 / unknown 0", p21)
+	}
+	if len(p21.Values) != 1 || p21.Values[0].Label != "male" || p21.Values[0].Creators != 1 {
+		t.Errorf("P21 values = %+v", p21.Values)
+	}
+	// The un-stated properties report the resolved creator as unknown.
+	if p27 := ca.Properties[1]; p27.Known != 0 || p27.Unknown != 1 {
+		t.Errorf("P27 = %+v, want known 0 / unknown 1", p27)
 	}
 }
