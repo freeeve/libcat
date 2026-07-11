@@ -32,6 +32,10 @@ after each completed task (post-commit):
 6. The server loads vocabularies for a few seconds before listening --
    poll `curl -s localhost:8481/` for 200 rather than assuming 2s is
    enough
+7. `~/libcat-playground/opac/refresh.sh` -- the playground OPAC
+   (:8482) is a COPIED projection, not a live read, so it drifts
+   until this reruns (serialize -> project -> hugo; the :8482 serve
+   process reads files per request and needs no restart)
 
 ### Throwaway verify instance (port 8491)
 
