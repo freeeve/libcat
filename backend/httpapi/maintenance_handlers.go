@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -163,6 +164,27 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		// Corpus-wide barcode uniqueness (tasks/347): reject a barcode already
+		// held by a live item on a different instance -- a barcode names one
+		// physical copy. The within-request duplicate check is SetItems' job
+		// (tasks/343); this catches a collision with another record. The instance
+		// being edited is excluded, so re-saving its own items is not a
+		// self-collision. Best-effort against the index (not a transactional lock),
+		// which is the corpus-wide primitive available here.
+		for _, it := range req.Items {
+			if it.Barcode == "" {
+				continue
+			}
+			held, by, herr := ix.BarcodeHeldByOther(r.Context(), it.Barcode, workID, req.InstanceID)
+			if herr != nil {
+				writeError(w, http.StatusInternalServerError, "barcode check failed")
+				return
+			}
+			if held {
+				writeError(w, http.StatusConflict, fmt.Sprintf("barcode %q is already assigned to another item (work %s)", it.Barcode, by.WorkID))
+				return
+			}
 		}
 		path := bibframe.GrainPath(workID)
 		newTag, err := bs.Put(r.Context(), path, updated, blob.PutOptions{

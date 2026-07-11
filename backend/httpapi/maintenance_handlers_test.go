@@ -174,6 +174,40 @@ func TestDuplicateBarcodesReport(t *testing.T) {
 	}
 }
 
+// TestItemPutRejectsBarcodeHeldByAnother is the tasks/347 constraint: a PUT that
+// assigns a barcode already held by a live item on a different instance is
+// refused (409); re-saving the instance's own barcode is not a collision.
+func TestItemPutRejectsBarcodeHeldByAnother(t *testing.T) {
+	bs := blob.NewMem()
+	seedBarcodeWork(t, bs, "wone00000001", "SHARED-BC")
+	seedBarcodeWork(t, bs, "wtwo00000002", "OWN-BC")
+	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Verifier: verifier})
+
+	rec := request(t, h, http.MethodGet, "/v1/works/wtwo00000002/items", "lib-token", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get items = %d %s", rec.Code, rec.Body)
+	}
+	var got struct {
+		Etag string `json:"etag"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+
+	// Assigning SHARED-BC (held by wone's item) to wtwo's instance -> 409.
+	body := map[string]any{"instanceId": "wtwo00000002i", "items": []map[string]string{{"barcode": "SHARED-BC"}}}
+	rec = request(t, h, http.MethodPut, "/v1/works/wtwo00000002/items", "lib-token", got.Etag, body)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "wone00000001") {
+		t.Fatalf("put with a taken barcode = %d %s, want 409 naming wone", rec.Code, rec.Body)
+	}
+
+	// Control: re-saving wtwo's own barcode on its own instance is not a collision.
+	body2 := map[string]any{"instanceId": "wtwo00000002i", "items": []map[string]string{{"barcode": "OWN-BC"}}}
+	rec = request(t, h, http.MethodPut, "/v1/works/wtwo00000002/items", "lib-token", got.Etag, body2)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("re-saving the instance's own barcode = %d %s, want 200", rec.Code, rec.Body)
+	}
+}
+
 // TestTombstoneRejectsSelfRedirect pins the tasks/342 guard: a tombstone whose
 // redirectTo is the work being tombstoned would republish a permalink that loops
 // (the successor IS the retired page), so it is refused -- symmetric to the

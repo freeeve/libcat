@@ -172,6 +172,43 @@ func TestDuplicateBarcodes(t *testing.T) {
 	}
 }
 
+// TestBarcodeHeldByOther is the tasks/347 write-time check: a barcode on a live
+// item of another instance is a collision; the holding instance itself is not
+// (a re-save); and a suppressed work's barcode is not live, so it frees up.
+func TestBarcodeHeldByOther(t *testing.T) {
+	ctx := t.Context()
+	cs := &countingStore{Store: blob.NewMem()}
+	seed(t, cs, "w1", grain("w1", "A", "X", "111", "SHARED")) // barcode on instance w1i
+	ix := New(cs, "data/works/")
+
+	held, by, err := ix.BarcodeHeldByOther(ctx, "SHARED", "w2", "w2i")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !held || by.WorkID != "w1" {
+		t.Fatalf("held=%v by=%+v, want held by w1", held, by)
+	}
+	// The instance already holding it is excluded -- re-saving is not a collision.
+	if h, _, _ := ix.BarcodeHeldByOther(ctx, "SHARED", "w1", "w1i"); h {
+		t.Fatal("re-saving the holding instance flagged as a collision")
+	}
+	// An unheld barcode is free.
+	if h, _, _ := ix.BarcodeHeldByOther(ctx, "UNHELD", "w2", "w2i"); h {
+		t.Fatal("an unheld barcode reported as held")
+	}
+
+	// Suppressing w1 makes its barcode non-live, so it no longer blocks.
+	suppressed, err := bibframe.SetSuppressed(grain("w1", "A", "X", "111", "SHARED"), "w1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	etag := seed(t, cs, "w1", suppressed)
+	ix.Apply(bibframe.GrainPath("w1"), etag, suppressed)
+	if h, _, _ := ix.BarcodeHeldByOther(ctx, "SHARED", "w2", "w2i"); h {
+		t.Fatal("a suppressed work's barcode still blocked a new assignment")
+	}
+}
+
 func TestRefreshDiffsByETag(t *testing.T) {
 	ctx := t.Context()
 	cs := &countingStore{Store: blob.NewMem()}

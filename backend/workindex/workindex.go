@@ -40,11 +40,23 @@ type Ref struct {
 
 // grainEntry is everything the index keeps for one scanned grain.
 type grainEntry struct {
-	etag      string
-	identity  identity.GrainIdentity
-	merges    []identity.Merge
-	barcodes  []string
+	etag     string
+	identity identity.GrainIdentity
+	merges   []identity.Merge
+	barcodes []string
+	items    []itemBarcode
+	// hidden is true when the grain's Work is suppressed or tombstoned; its
+	// barcodes are then not "live" for uniqueness (tasks/347).
+	hidden    bool
 	summaries []ingest.WorkSummary
+}
+
+// itemBarcode is one item's barcode and the instance it hangs off, so barcode
+// uniqueness can tell a re-save of an instance's own items from a collision with
+// a different instance (tasks/347).
+type itemBarcode struct {
+	barcode    string
+	instanceID string
 }
 
 // Index is the shared corpus index. All methods are safe for concurrent use;
@@ -84,13 +96,13 @@ type Index struct {
 	byProvider map[string][]Ref
 	byCluster  map[string][]Ref
 	barcodes   map[string]bool
-	// barcodeWorks maps a barcode to the work id of every item holding it, one
-	// entry per item occurrence (so a barcode on two items of one work appears
-	// twice). The read-only report of corpus-wide duplicates derives from it
-	// (tasks/270); the write-time constraint is a separate follow-on.
-	barcodeWorks map[string][]string
-	summaries    []ingest.WorkSummary
-	paths        map[string]string
+	// barcodeHolders maps a barcode to every item holding it, one entry per item
+	// occurrence, each tagged with its work, instance, and whether the work is
+	// live (not suppressed/tombstoned). The duplicate report (tasks/270) and the
+	// write-time uniqueness constraint (tasks/347) both derive from it.
+	barcodeHolders map[string][]BarcodeHolder
+	summaries      []ingest.WorkSummary
+	paths          map[string]string
 	// generation counts derived-view rebuilds. A consumer that caches something
 	// expensive keyed on the corpus (the similarity index, tasks/284) reads it
 	// together with the summaries and rebuilds only when it moves.
@@ -367,21 +379,29 @@ func (ix *Index) Barcodes(ctx context.Context) (map[string]bool, error) {
 	return taken, nil
 }
 
-// DuplicateBarcode is one barcode held by more than one item in the corpus, with
-// the works that hold it. A barcode names one physical copy, so a duplicate is a
-// data-quality defect a librarian needs to find before uniqueness can be enforced
-// on writes (tasks/270).
+// BarcodeHolder is one item that holds a barcode: its work, its instance, and
+// whether that work is live (not suppressed/tombstoned). Uniqueness is judged
+// among live holders only -- a withdrawn copy's barcode may be reused (tasks/347).
+type BarcodeHolder struct {
+	WorkID     string
+	InstanceID string
+	Live       bool
+}
+
+// DuplicateBarcode is one barcode held by more than one live item in the corpus,
+// with the works that hold it. A barcode names one physical copy, so a duplicate
+// is a data-quality defect a librarian needs to find before uniqueness can be
+// enforced on writes (tasks/270).
 type DuplicateBarcode struct {
 	Barcode string   `json:"barcode"`
-	Count   int      `json:"count"`   // number of items holding it
+	Count   int      `json:"count"`   // number of live items holding it
 	WorkIDs []string `json:"workIds"` // the works that hold it, sorted and unique
 }
 
-// DuplicateBarcodes reports every barcode held by more than one item across the
-// corpus, sorted by barcode. Count is the number of item occurrences (so a
-// barcode on two items of one work counts twice and is reported); WorkIDs is the
-// sorted, de-duplicated set of works holding it. This is the read-only report
-// half of tasks/270; the write-time uniqueness constraint is a follow-on.
+// DuplicateBarcodes reports every barcode held by more than one live item across
+// the corpus, sorted by barcode. Count is the number of live item occurrences (so
+// a barcode on two items of one work counts twice and is reported); WorkIDs is the
+// sorted, de-duplicated set of works holding it (tasks/270).
 func (ix *Index) DuplicateBarcodes(ctx context.Context) ([]DuplicateBarcode, error) {
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
@@ -389,23 +409,47 @@ func (ix *Index) DuplicateBarcodes(ctx context.Context) ([]DuplicateBarcode, err
 		return nil, err
 	}
 	var out []DuplicateBarcode
-	for bc, works := range ix.barcodeWorks {
-		if len(works) < 2 {
-			continue
-		}
+	for bc, holders := range ix.barcodeHolders {
+		count := 0
 		seen := map[string]bool{}
-		uniq := make([]string, 0, len(works))
-		for _, w := range works {
-			if !seen[w] {
-				seen[w] = true
-				uniq = append(uniq, w)
+		var works []string
+		for _, h := range holders {
+			if !h.Live {
+				continue
+			}
+			count++
+			if !seen[h.WorkID] {
+				seen[h.WorkID] = true
+				works = append(works, h.WorkID)
 			}
 		}
-		sort.Strings(uniq)
-		out = append(out, DuplicateBarcode{Barcode: bc, Count: len(works), WorkIDs: uniq})
+		if count < 2 {
+			continue
+		}
+		sort.Strings(works)
+		out = append(out, DuplicateBarcode{Barcode: bc, Count: count, WorkIDs: works})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Barcode < out[j].Barcode })
 	return out, nil
+}
+
+// BarcodeHeldByOther reports whether barcode is already held by a live item on a
+// different instance than (workID, instanceID) -- the write-time uniqueness check
+// (tasks/347). It excludes the given instance so re-saving that instance's own
+// items is not a self-collision. Answers from the in-memory holders map under the
+// index lock, with no whole-corpus copy (tasks/085 sizing).
+func (ix *Index) BarcodeHeldByOther(ctx context.Context, barcode, workID, instanceID string) (bool, BarcodeHolder, error) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	if err := ix.freshenLocked(ctx); err != nil {
+		return false, BarcodeHolder{}, err
+	}
+	for _, h := range ix.barcodeHolders[barcode] {
+		if h.Live && !(h.WorkID == workID && h.InstanceID == instanceID) {
+			return true, h, nil
+		}
+	}
+	return false, BarcodeHolder{}, nil
 }
 
 // freshenLocked refreshes on TTL lapse and rebuilds the derived views if any
@@ -495,7 +539,7 @@ func (ix *Index) rebuildLocked() {
 	byProvider := map[string][]Ref{}
 	byCluster := map[string][]Ref{}
 	barcodes := map[string]bool{}
-	barcodeWorks := map[string][]string{}
+	barcodeHolders := map[string][]BarcodeHolder{}
 	summaries := make([]ingest.WorkSummary, 0, len(paths))
 	workPaths := make(map[string]string, len(paths))
 	for _, p := range paths {
@@ -517,9 +561,13 @@ func (ix *Index) rebuildLocked() {
 		}
 		for _, bc := range entry.barcodes {
 			barcodes[bc] = true
-			if bc != "" {
-				barcodeWorks[bc] = append(barcodeWorks[bc], workID)
+		}
+		for _, it := range entry.items {
+			if it.barcode == "" {
+				continue
 			}
+			barcodeHolders[it.barcode] = append(barcodeHolders[it.barcode],
+				BarcodeHolder{WorkID: workID, InstanceID: it.instanceID, Live: !entry.hidden})
 		}
 		for _, s := range entry.summaries {
 			workPaths[s.WorkID] = p
@@ -528,7 +576,7 @@ func (ix *Index) rebuildLocked() {
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].WorkID < summaries[j].WorkID })
 	ix.byProvider, ix.byCluster, ix.barcodes, ix.summaries, ix.paths = byProvider, byCluster, barcodes, summaries, workPaths
-	ix.barcodeWorks = barcodeWorks
+	ix.barcodeHolders = barcodeHolders
 	ix.dirty = false
 	ix.generation++
 }
@@ -546,9 +594,27 @@ func scanEntry(etag string, grain []byte) (*grainEntry, error) {
 		merges:    bibframe.ScanMergesDataset(ds),
 		summaries: ingest.SummarizeDataset(ds),
 	}
+	// item IRI -> instance id, from the bf:hasItem edges, so each barcode can be
+	// attributed to its instance (tasks/347). Works for both IRI and blank-node
+	// item nodes, unlike parsing the item IRI shape.
+	itemInst := map[string]string{}
+	for _, q := range ds.Quads {
+		if q.P.Value == bibframe.PredHasItem && q.S.IsIRI() {
+			itemInst[q.O.Value] = bibframe.FragInstance(q.S.Value)
+		}
+	}
+	ed := bibframe.EditorialGraph()
 	for _, q := range ds.Quads {
 		if q.P.Value == bibframe.PredBarcode && q.O.IsLiteral() {
 			entry.barcodes = append(entry.barcodes, q.O.Value)
+			entry.items = append(entry.items, itemBarcode{barcode: q.O.Value, instanceID: itemInst[q.S.Value]})
+		}
+		// The grain's Work being suppressed or tombstoned makes its items
+		// non-live for uniqueness: a withdrawn copy's barcode may be reused.
+		if q.G == ed {
+			if q.P.Value == bibframe.PredTombstoned || (q.P.Value == bibframe.PredSuppressed && q.O.Value == "true") {
+				entry.hidden = true
+			}
 		}
 	}
 	return entry, nil

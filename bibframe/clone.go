@@ -30,7 +30,7 @@ func cloneDropsSubgraph(q *rdf.Quad) bool {
 	switch q.P.Value {
 	case "http://id.loc.gov/ontologies/bibframe/identifiedBy",
 		"http://id.loc.gov/ontologies/bibframe/adminMetadata",
-		predHasItem:
+		PredHasItem:
 		return true
 	case PredHasPart, PredPartOf:
 		// Work-to-work links are stored in both grains (tasks/221); a clone

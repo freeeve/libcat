@@ -119,7 +119,7 @@ func scanPinsDataset(ds *rdf.Dataset) []identity.Pin {
 	var out []identity.Pin
 	for _, q := range ds.Quads {
 		if q.G == ed && q.P.Value == PredWorkAssignment && q.S.IsIRI() && q.O.IsIRI() {
-			out = append(out, identity.Pin{Instance: fragInstance(q.S.Value), Work: fragWork(q.O.Value)})
+			out = append(out, identity.Pin{Instance: FragInstance(q.S.Value), Work: fragWork(q.O.Value)})
 		}
 	}
 	return out
@@ -247,8 +247,8 @@ func fragWork(iri string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(iri, "#"), "Work")
 }
 
-// fragInstance strips the "#" prefix and "Instance" suffix from an Instance node
+// FragInstance strips the "#" prefix and "Instance" suffix from an Instance node
 // IRI, the inverse of InstanceIRI.
-func fragInstance(iri string) string {
+func FragInstance(iri string) string {
 	return strings.TrimSuffix(strings.TrimPrefix(iri, "#"), "Instance")
 }

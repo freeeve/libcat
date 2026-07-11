@@ -15,7 +15,7 @@ import (
 // editorial statements on skolem nodes under their Instance, so they
 // survive re-ingest and edit like everything else.
 const (
-	predHasItem          = "http://id.loc.gov/ontologies/bibframe/hasItem"
+	PredHasItem          = "http://id.loc.gov/ontologies/bibframe/hasItem"
 	classItem            = "http://id.loc.gov/ontologies/bibframe/Item"
 	predShelfMark        = "http://id.loc.gov/ontologies/bibframe/shelfMark"
 	predPhysicalLocation = "http://id.loc.gov/ontologies/bibframe/physicalLocation"
@@ -148,7 +148,7 @@ func SetItems(grainNQ []byte, instanceID string, items []Item) ([]byte, error) {
 	for n, item := range items {
 		node := rdf.NewIRI(itemIRI(instanceID, n))
 		patch.Add = append(patch.Add,
-			rdf.Quad{S: inst, P: rdf.NewIRI(predHasItem), O: node},
+			rdf.Quad{S: inst, P: rdf.NewIRI(PredHasItem), O: node},
 			rdf.Quad{S: node, P: rdf.NewIRI(rdfTypeIRI), O: rdf.NewIRI(classItem)},
 		)
 		add := func(pred, v string) {
