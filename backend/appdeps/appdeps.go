@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/freeeve/libcat/ingest/locsh"
+	"github.com/freeeve/libcat/ingest/openlibrary"
 	"github.com/freeeve/libcat/storage/blob"
 
 	"github.com/freeeve/libcat/backend/auth"
@@ -345,6 +346,26 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	if cfg.EnrichLocsh != "" {
 		enrichSources[locsh.Name] = enrich.Source{
 			Enricher: locsh.New(), Mode: enrich.Mode(cfg.EnrichLocsh), Scheme: "lcsh",
+		}
+	}
+	// OpenLibrary external-identity enrichment (tasks/066): build the ISBN -> work
+	// index from the configured offline dump once at boot, then link Works by exact
+	// ISBN. Direct mode writes the owl:sameAs; queue-mode moderation of identity
+	// links is a later concern (the queue path handles subject candidates, not
+	// sameAs), so identities only surface under direct today.
+	if cfg.EnrichOpenLibrary != "" {
+		f, err := os.Open(cfg.EnrichOpenLibraryDump)
+		if err != nil {
+			return httpapi.Deps{}, fmt.Errorf("open OpenLibrary dump: %w", err)
+		}
+		index, err := openlibrary.ReadEditionsDump(f)
+		f.Close()
+		if err != nil {
+			return httpapi.Deps{}, fmt.Errorf("read OpenLibrary dump: %w", err)
+		}
+		logger.Info("openlibrary enrichment index built", "isbns", len(index), "mode", cfg.EnrichOpenLibrary)
+		enrichSources[openlibrary.Name] = enrich.Source{
+			Enricher: openlibrary.New(index), Mode: enrich.Mode(cfg.EnrichOpenLibrary), Scheme: openlibrary.Scheme,
 		}
 	}
 	// Every registered suggest-capable authority source doubles as a

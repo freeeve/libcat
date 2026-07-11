@@ -98,6 +98,19 @@ tags against it. The legacy `LCATD_ENRICH_LOCSH=queue|direct` variable still
 controls the original locsh reconciler and is the only direct-mode path.
 Sources registered after boot join the enrichment list at the next restart.
 
+### External work identities (OpenLibrary, tasks/066)
+
+`LCATD_ENRICH_OPENLIBRARY=direct` plus `LCATD_ENRICH_OPENLIBRARY_DUMP=<path>`
+registers the OpenLibrary source. At boot it builds an ISBN -> OpenLibrary work
+index from the offline editions dump (public bulk TSV; no live API on the
+ingest path), then a run links each Work whose ISBNs resolve to exactly one
+OpenLibrary work with `<work> owl:sameAs <openlibrary URI>` in the
+`enrichment:openlibrary` graph -- so the link rides into N-Quads/JSON-LD
+exports. A Work whose ISBNs map to conflicting works is left unlinked (never
+guessed); the minted `w…` id stays primary. Direct mode is the meaningful one:
+an exact ISBN match is deterministic, and the queue path moderates subject
+candidates, not identity links.
+
 ## Scheme filtering
 
 `LCATD_VOCAB_SCHEMES` (when set) filters which authority graphs load.

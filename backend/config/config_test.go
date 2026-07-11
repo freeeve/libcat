@@ -16,6 +16,36 @@ func TestStoreSelectionDefaults(t *testing.T) {
 	}
 }
 
+// TestEnrichOpenLibraryConfig locks the OpenLibrary enrichment knobs (tasks/066):
+// a mode must be queue/direct, and enabling it requires the dump path.
+func TestEnrichOpenLibraryConfig(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		t.Setenv("LCATD_ENRICH_OPENLIBRARY", "direct")
+		t.Setenv("LCATD_ENRICH_OPENLIBRARY_DUMP", "/data/ol_editions.txt")
+		cfg, err := FromEnv()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.EnrichOpenLibrary != "direct" || cfg.EnrichOpenLibraryDump != "/data/ol_editions.txt" {
+			t.Errorf("cfg = %+v", cfg)
+		}
+	})
+	t.Run("bad mode rejected", func(t *testing.T) {
+		t.Setenv("LCATD_ENRICH_OPENLIBRARY", "auto")
+		t.Setenv("LCATD_ENRICH_OPENLIBRARY_DUMP", "/data/ol.txt")
+		if _, err := FromEnv(); err == nil {
+			t.Error("expected an error for a mode that is not queue/direct")
+		}
+	})
+	t.Run("enabled without a dump rejected", func(t *testing.T) {
+		t.Setenv("LCATD_ENRICH_OPENLIBRARY", "direct")
+		t.Setenv("LCATD_ENRICH_OPENLIBRARY_DUMP", "")
+		if _, err := FromEnv(); err == nil {
+			t.Error("expected an error: the source needs a dump path")
+		}
+	})
+}
+
 // TestStoreSelectionFromEnv locks the env-var names that opt into the
 // persistent stores.
 func TestStoreSelectionFromEnv(t *testing.T) {

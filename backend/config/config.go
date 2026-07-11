@@ -154,47 +154,63 @@ type Config struct {
 	// EnrichLocsh enables the id.loc.gov LCSH reconciliation source when set
 	// to "queue" (moderated) or "direct" (auto-approve).
 	EnrichLocsh string
+
+	// EnrichOpenLibrary enables the OpenLibrary external-identity source
+	// (tasks/066) when set to "queue" or "direct". It needs
+	// EnrichOpenLibraryDump; without it the source stays off.
+	EnrichOpenLibrary string
+	// EnrichOpenLibraryDump is the path to an OpenLibrary editions dump the
+	// source builds its ISBN -> work index from at boot (offline, no live API).
+	EnrichOpenLibraryDump string
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
 func FromEnv() (Config, error) {
 	cfg := Config{
-		ListenAddr:        envOr("LCATD_LISTEN_ADDR", ":8080"),
-		BlobDir:           os.Getenv("LCATD_BLOB_DIR"),
-		S3Bucket:          os.Getenv("LCATD_S3_BUCKET"),
-		DynamoTable:       os.Getenv("LCATD_DYNAMO_TABLE"),
-		AWSEndpoint:       os.Getenv("LCATD_AWS_ENDPOINT"),
-		S3Endpoint:        os.Getenv("LCATD_S3_ENDPOINT"),
-		DynamoEndpoint:    os.Getenv("LCATD_DYNAMO_ENDPOINT"),
-		ReadOnly:          os.Getenv("LCATD_READ_ONLY") == "1" || os.Getenv("LCATD_READ_ONLY") == "true",
-		Sandbox:           os.Getenv("LCATD_SANDBOX") == "1" || os.Getenv("LCATD_SANDBOX") == "true",
-		LocalAuth:         os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
-		LocalIssuer:       envOr("LCATD_LOCAL_ISSUER", "lcatd-local"),
-		LocalSigningKey:   os.Getenv("LCATD_LOCAL_SIGNING_KEY"),
-		BootstrapAdmin:    os.Getenv("LCATD_BOOTSTRAP_ADMIN"),
-		OIDCIssuer:        os.Getenv("LCATD_OIDC_ISSUER"),
-		OIDCAudience:      os.Getenv("LCATD_OIDC_AUDIENCE"),
-		OIDCRoleClaim:     envOr("LCATD_OIDC_ROLE_CLAIM", "role"),
-		OIDCClientID:      os.Getenv("LCATD_OIDC_CLIENT_ID"),
-		OIDCClientSecret:  os.Getenv("LCATD_OIDC_CLIENT_SECRET"),
-		AuthoritiesPrefix: envOr("LCATD_AUTHORITIES_PREFIX", "data/authorities/"),
-		AbuseSecret:       os.Getenv("LCATD_ABUSE_SECRET"),
-		WebhookURL:        os.Getenv("LCATD_WEBHOOK_URL"),
-		WebhookSecret:     os.Getenv("LCATD_WEBHOOK_SECRET"),
-		BrandCSS:          os.Getenv("LCATD_BRAND_CSS"),
-		RebuildCmd:        os.Getenv("LCATD_REBUILD_CMD"),
-		RebuildDir:        os.Getenv("LCATD_REBUILD_DIR"),
-		TriggerSQSURL:     os.Getenv("LCATD_TRIGGER_SQS_URL"),
-		TriggerEventBus:   os.Getenv("LCATD_TRIGGER_EVENT_BUS"),
-		Provider:          envOr("LCATD_PROVIDER", "overdrive"),
-		OrgCode:           os.Getenv("LCATD_ORG_CODE"),
-		EnrichLocsh:       os.Getenv("LCATD_ENRICH_LOCSH"),
+		ListenAddr:            envOr("LCATD_LISTEN_ADDR", ":8080"),
+		BlobDir:               os.Getenv("LCATD_BLOB_DIR"),
+		S3Bucket:              os.Getenv("LCATD_S3_BUCKET"),
+		DynamoTable:           os.Getenv("LCATD_DYNAMO_TABLE"),
+		AWSEndpoint:           os.Getenv("LCATD_AWS_ENDPOINT"),
+		S3Endpoint:            os.Getenv("LCATD_S3_ENDPOINT"),
+		DynamoEndpoint:        os.Getenv("LCATD_DYNAMO_ENDPOINT"),
+		ReadOnly:              os.Getenv("LCATD_READ_ONLY") == "1" || os.Getenv("LCATD_READ_ONLY") == "true",
+		Sandbox:               os.Getenv("LCATD_SANDBOX") == "1" || os.Getenv("LCATD_SANDBOX") == "true",
+		LocalAuth:             os.Getenv("LCATD_LOCAL_AUTH") == "1" || os.Getenv("LCATD_LOCAL_AUTH") == "true",
+		LocalIssuer:           envOr("LCATD_LOCAL_ISSUER", "lcatd-local"),
+		LocalSigningKey:       os.Getenv("LCATD_LOCAL_SIGNING_KEY"),
+		BootstrapAdmin:        os.Getenv("LCATD_BOOTSTRAP_ADMIN"),
+		OIDCIssuer:            os.Getenv("LCATD_OIDC_ISSUER"),
+		OIDCAudience:          os.Getenv("LCATD_OIDC_AUDIENCE"),
+		OIDCRoleClaim:         envOr("LCATD_OIDC_ROLE_CLAIM", "role"),
+		OIDCClientID:          os.Getenv("LCATD_OIDC_CLIENT_ID"),
+		OIDCClientSecret:      os.Getenv("LCATD_OIDC_CLIENT_SECRET"),
+		AuthoritiesPrefix:     envOr("LCATD_AUTHORITIES_PREFIX", "data/authorities/"),
+		AbuseSecret:           os.Getenv("LCATD_ABUSE_SECRET"),
+		WebhookURL:            os.Getenv("LCATD_WEBHOOK_URL"),
+		WebhookSecret:         os.Getenv("LCATD_WEBHOOK_SECRET"),
+		BrandCSS:              os.Getenv("LCATD_BRAND_CSS"),
+		RebuildCmd:            os.Getenv("LCATD_REBUILD_CMD"),
+		RebuildDir:            os.Getenv("LCATD_REBUILD_DIR"),
+		TriggerSQSURL:         os.Getenv("LCATD_TRIGGER_SQS_URL"),
+		TriggerEventBus:       os.Getenv("LCATD_TRIGGER_EVENT_BUS"),
+		Provider:              envOr("LCATD_PROVIDER", "overdrive"),
+		OrgCode:               os.Getenv("LCATD_ORG_CODE"),
+		EnrichLocsh:           os.Getenv("LCATD_ENRICH_LOCSH"),
+		EnrichOpenLibrary:     os.Getenv("LCATD_ENRICH_OPENLIBRARY"),
+		EnrichOpenLibraryDump: os.Getenv("LCATD_ENRICH_OPENLIBRARY_DUMP"),
 	}
 	if cfg.Sandbox {
 		cfg.ReadOnly = true // sandbox never persists
 	}
 	if cfg.EnrichLocsh != "" && cfg.EnrichLocsh != "queue" && cfg.EnrichLocsh != "direct" {
 		return Config{}, fmt.Errorf("config: LCATD_ENRICH_LOCSH must be queue or direct")
+	}
+	if cfg.EnrichOpenLibrary != "" && cfg.EnrichOpenLibrary != "queue" && cfg.EnrichOpenLibrary != "direct" {
+		return Config{}, fmt.Errorf("config: LCATD_ENRICH_OPENLIBRARY must be queue or direct")
+	}
+	if cfg.EnrichOpenLibrary != "" && cfg.EnrichOpenLibraryDump == "" {
+		return Config{}, fmt.Errorf("config: LCATD_ENRICH_OPENLIBRARY needs LCATD_ENRICH_OPENLIBRARY_DUMP (the editions dump path)")
 	}
 	if raw := os.Getenv("LCATD_VOCAB_UPLOAD_CAP_MB"); raw != "" {
 		n, err := strconv.Atoi(raw)
