@@ -3,6 +3,7 @@ package vocabsrc
 import (
 	"context"
 	"slices"
+	"sort"
 
 	"github.com/freeeve/libcat/bibframe"
 	"github.com/freeeve/libcat/ingest"
@@ -14,12 +15,13 @@ import (
 // identity, closeMatch (how homosaurus links most LCSH headings) is
 // near-equivalence, and a pivot (two terms linking the same intermediate
 // URI -- the FAST -> LCSH <- Homosaurus shape) is only as good as its
-// weakest hop.
+// weakest hop -- and pivot-close sits well below pivot-exact so a guard
+// demotion is VISIBLE in the queue, not folded into a near-identical number.
 const (
 	confExactMatch = 1.0
 	confCloseMatch = 0.85
 	confPivotExact = 0.8
-	confPivotClose = 0.7
+	confPivotClose = 0.6
 )
 
 // strengthConfidence maps an equivalent's strength to its suggestion
@@ -61,8 +63,22 @@ func (e *CrosswalkEnricher) Name() string { return "crosswalk-" + e.Target }
 func (e *CrosswalkEnricher) Enrich(_ context.Context, works []ingest.WorkSummary) ([]ingest.Enrichment, error) {
 	var out []ingest.Enrichment
 	for _, work := range works {
-		enrichment := ingest.Enrichment{WorkID: work.WorkID, Confidence: 1}
+		// One enrichment PER CONFIDENCE TIER, not per work: an Enrichment
+		// carries a single confidence, and folding a work's candidates into
+		// one (the old min) erased exactly the distinction the pivot guards
+		// compute -- a demoted "Womyn" queued at the same number as its
+		// matched "Women" counterpart. Tiers keep each candidate's own
+		// strength visible in the moderation queue.
+		byConf := map[float64]*ingest.Enrichment{}
 		seen := map[string]bool{}
+		tier := func(confidence float64) *ingest.Enrichment {
+			enr := byConf[confidence]
+			if enr == nil {
+				enr = &ingest.Enrichment{WorkID: work.WorkID, Confidence: confidence}
+				byConf[confidence] = enr
+			}
+			return enr
+		}
 		for _, uri := range work.Subjects {
 			if term, ok := e.Index.Resolve(uri); !ok || term.Scheme == e.Target {
 				continue
@@ -87,7 +103,8 @@ func (e *CrosswalkEnricher) Enrich(_ context.Context, works []ingest.WorkSummary
 					continue
 				}
 				seen[eq.ID] = true
-				enrichment.Subjects = append(enrichment.Subjects, bibframe.AuthoritySubject{
+				enr := tier(confidence)
+				enr.Subjects = append(enr.Subjects, bibframe.AuthoritySubject{
 					URI: target.ID, Labels: target.Labels, Broader: target.Broader,
 				})
 				for _, a := range e.Index.Ancestors(e.Target, target.ID) {
@@ -95,17 +112,20 @@ func (e *CrosswalkEnricher) Enrich(_ context.Context, works []ingest.WorkSummary
 						continue
 					}
 					seen[a.ID] = true
-					enrichment.Terms = append(enrichment.Terms, bibframe.AuthoritySubject{
+					enr.Terms = append(enr.Terms, bibframe.AuthoritySubject{
 						URI: a.ID, Labels: a.Labels, Broader: a.Broader,
 					})
 				}
-				if confidence < enrichment.Confidence {
-					enrichment.Confidence = confidence
-				}
 			}
 		}
-		if len(enrichment.Subjects) > 0 {
-			out = append(out, enrichment)
+		// Strongest tier first, deterministically.
+		confs := make([]float64, 0, len(byConf))
+		for c := range byConf {
+			confs = append(confs, c)
+		}
+		sort.Sort(sort.Reverse(sort.Float64Slice(confs)))
+		for _, c := range confs {
+			out = append(out, *byConf[c])
 		}
 	}
 	return out, nil

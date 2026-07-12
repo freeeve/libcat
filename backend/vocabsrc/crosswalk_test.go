@@ -186,3 +186,59 @@ func TestCrosswalkPivotReachesHomosaurusFromFAST(t *testing.T) {
 		t.Fatalf("confidence = %v, want pivot-close %v", got.Confidence, confPivotClose)
 	}
 }
+
+// TestCrosswalkTiersKeepDemotionVisible pins task 428 on queerbooks' exact
+// Homosaurus v5 shape: "Women" and "Womyn" are skos:related (NOT
+// broader/narrower, so the ancestor drop cannot fire) and BOTH exactMatch
+// the bare LCSH "Women" node. The guard demotes the non-matching
+// co-claimant -- and that demotion must survive into the emitted
+// confidences: one enrichment per tier, Women at pivot-exact, Womyn
+// materially below it, never folded into one per-work number.
+func TestCrosswalkTiersKeepDemotionVisible(t *testing.T) {
+	const relatedNT = `<urn:fast:women> <http://www.w3.org/2004/02/skos/core#prefLabel> "Women"@en <authority:fast> .
+<urn:fast:women> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:women> <authority:fast> .
+<urn:homo:women> <http://www.w3.org/2004/02/skos/core#prefLabel> "Women"@en <authority:homosaurus> .
+<urn:homo:women> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:women> <authority:homosaurus> .
+<urn:homo:womyn> <http://www.w3.org/2004/02/skos/core#prefLabel> "Womyn"@en <authority:homosaurus> .
+<urn:homo:womyn> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:women> <authority:homosaurus> .
+<urn:homo:womyn> <http://www.w3.org/2004/02/skos/core#related> <urn:homo:women> <authority:homosaurus> .
+<urn:homo:women> <http://www.w3.org/2004/02/skos/core#related> <urn:homo:womyn> <authority:homosaurus> .
+`
+	bs := blob.NewMem()
+	if _, err := bs.Put(t.Context(), "data/authorities/rel/vocab.nq", []byte(relatedNT), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := vocab.Load(t.Context(), bs, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewCrosswalk(ix, "homosaurus")
+	out, err := e.Enrich(t.Context(), []ingest.WorkSummary{
+		{WorkID: "w428a", Subjects: []string{"urn:fast:women"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("enrichments = %+v, want two tiers", out)
+	}
+	byURI := map[string]float64{}
+	for _, enr := range out {
+		for _, s := range enr.Subjects {
+			byURI[s.URI] = enr.Confidence
+		}
+	}
+	if byURI["urn:homo:women"] != confPivotExact {
+		t.Errorf("Women confidence = %v, want pivot-exact %v", byURI["urn:homo:women"], confPivotExact)
+	}
+	if byURI["urn:homo:womyn"] != confPivotClose {
+		t.Errorf("Womyn confidence = %v, want demoted pivot-close %v", byURI["urn:homo:womyn"], confPivotClose)
+	}
+	if byURI["urn:homo:womyn"] >= byURI["urn:homo:women"] {
+		t.Errorf("demotion invisible: Womyn %v >= Women %v", byURI["urn:homo:womyn"], byURI["urn:homo:women"])
+	}
+	// Strongest tier emits first.
+	if out[0].Confidence < out[1].Confidence {
+		t.Errorf("tier order = %v then %v, want strongest first", out[0].Confidence, out[1].Confidence)
+	}
+}

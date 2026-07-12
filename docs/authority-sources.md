@@ -103,8 +103,10 @@ equivalents into their target scheme: direct skos exact/close links in
 either direction AND one-hop pivots through a shared intermediate URI --
 the FAST -> LCSH <- Homosaurus shape, where neither LCSH nor any direct
 FAST-Homosaurus edge is loaded. Pivot suggestions carry lower confidence
-(exact 1.0, close 0.85, pivot-exact 0.8, pivot-close 0.7); the weakest hop
-grades the chain.
+(exact 1.0, close 0.85, pivot-exact 0.8, pivot-close 0.6); the weakest hop
+grades the chain, and each candidate keeps its OWN confidence in the queue
+(one suggestion batch per tier), so a guard demotion is visible next to its
+matched counterpart.
 
 Match links are not transitive, so pivots are guarded against the broad-
 heading trap (a node like LCSH "Women" collects both its true counterpart
