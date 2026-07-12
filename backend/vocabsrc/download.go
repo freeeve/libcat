@@ -47,9 +47,22 @@ type Job struct {
 	Error      string    `json:"error,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 	FinishedAt time.Time `json:"finishedAt,omitzero"`
+	// HeartbeatAt is the worker's liveness signal while RUNNING; a stale
+	// heartbeat marks an orphan (its process died mid-install) for the
+	// drain's reaper. Absent on records written before reaping existed.
+	HeartbeatAt time.Time `json:"heartbeatAt,omitzero"`
 }
 
 const jobTTL = 7 * 24 * time.Hour
+
+// heartbeatInterval is the RUNNING record's liveness cadence; staleAfter is
+// how long without a beat before the drain declares the worker dead. A claim
+// persists RUNNING, so a process that dies mid-install otherwise leaves a
+// record no drain would ever touch.
+const (
+	heartbeatInterval = 3 * time.Second
+	staleAfter        = 60 * time.Second
+)
 
 func jobKey(id string) store.Key { return store.Key{PK: "JOB#VOCAB", SK: id} }
 
@@ -123,7 +136,9 @@ func (s *Service) Jobs(ctx context.Context) ([]Job, error) {
 	return out, nil
 }
 
-// RunQueued drains QUEUED jobs once -- the worker-loop body.
+// RunQueued drains QUEUED jobs once -- the worker-loop body. It also reaps
+// orphans: a RUNNING record whose heartbeat has gone stale belongs to a dead
+// process, and nothing else would ever finish it.
 func (s *Service) RunQueued(ctx context.Context) (int, error) {
 	ran := 0
 	for rec, err := range s.DB.Query(ctx, "JOB#VOCAB", "", store.QueryOpt{}) {
@@ -131,7 +146,16 @@ func (s *Service) RunQueued(ctx context.Context) (int, error) {
 			return ran, err
 		}
 		var job Job
-		if json.Unmarshal(rec.Data, &job) != nil || job.Status != StatusQueued {
+		if json.Unmarshal(rec.Data, &job) != nil {
+			continue
+		}
+		if job.Status == StatusRunning && s.staleRunning(job) {
+			if err := s.reap(ctx, rec, job); err != nil {
+				return ran, err
+			}
+			continue
+		}
+		if job.Status != StatusQueued {
 			continue
 		}
 		if err := s.RunDownload(ctx, job.ID); err != nil {
@@ -140,6 +164,34 @@ func (s *Service) RunQueued(ctx context.Context) (int, error) {
 		ran++
 	}
 	return ran, nil
+}
+
+// staleRunning reports whether a RUNNING job's worker is presumed dead.
+// Records written before heartbeats existed fall back to CreatedAt.
+func (s *Service) staleRunning(job Job) bool {
+	hb := job.HeartbeatAt
+	if hb.IsZero() {
+		hb = job.CreatedAt
+	}
+	return !hb.IsZero() && s.clock().Sub(hb) > staleAfter
+}
+
+// reap fails an orphaned RUNNING record under its version, so a worker that
+// is in fact alive (and about to heartbeat) wins the race instead.
+func (s *Service) reap(ctx context.Context, rec store.Record, job Job) error {
+	job.Status = StatusFailed
+	job.Error = "interrupted by a restart"
+	job.FinishedAt = s.clock().UTC()
+	data, err := json.Marshal(job)
+	if err != nil {
+		return err
+	}
+	rec.Data = data
+	rec.ExpireAt = s.clock().Add(jobTTL)
+	if _, err := s.DB.Put(ctx, rec, store.CondIfVersion); err != nil && !errors.Is(err, store.ErrConditionFailed) {
+		return err
+	}
+	return nil
 }
 
 // RunDownload executes a QUEUED job (claiming it RUNNING first, so concurrent
@@ -153,7 +205,30 @@ func (s *Service) RunDownload(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	// Heartbeat while the install runs, so the drain's orphan reaper can
+	// tell a live multi-minute download from one whose process died.
+	// Stopped (and awaited) before the terminal write touches the record.
+	stopBeat := make(chan struct{})
+	beatDone := make(chan struct{})
+	go func() {
+		defer close(beatDone)
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopBeat:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				job.HeartbeatAt = s.clock().UTC()
+				_ = s.putJob(ctx, job, store.CondNone)
+			}
+		}
+	}()
 	terms, runErr := s.install(ctx, *job)
+	close(stopBeat)
+	<-beatDone
 	job.FinishedAt = s.clock().UTC()
 	if runErr != nil {
 		job.Status = StatusFailed
@@ -188,6 +263,7 @@ func (s *Service) claim(ctx context.Context, id string) (*Job, error) {
 		return nil, errAlreadyClaimed
 	}
 	job.Status = StatusRunning
+	job.HeartbeatAt = s.clock().UTC()
 	data, err := json.Marshal(job)
 	if err != nil {
 		return nil, err

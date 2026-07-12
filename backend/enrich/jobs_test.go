@@ -74,6 +74,62 @@ func TestJobLifecycle(t *testing.T) {
 	}
 }
 
+// TestOrphanedRunningJobIsReaped pins the restart-orphan fix (task 440): a
+// claim persists RUNNING, so a process that dies mid-run leaves a record no
+// drain would touch -- not QUEUED, never finished, badged RUNNING until the
+// TTL. The drain now fails a RUNNING record whose heartbeat has gone stale,
+// and leaves one with a fresh heartbeat (a live worker) alone.
+func TestOrphanedRunningJobIsReaped(t *testing.T) {
+	svc := jobService(t)
+	now := time.Now().UTC()
+	svc.Now = func() time.Time { return now }
+
+	orphan, err := svc.CreateJob(t.Context(), "admin@example.org", "stats", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.claimJob(t.Context(), orphan.ID); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	live, err := svc.CreateJob(t.Context(), "admin@example.org", "stub", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.claimJob(t.Context(), live.ID); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	// The orphan's worker died 2 minutes ago; the live one heartbeat since.
+	now = now.Add(2 * time.Minute)
+	got, err := svc.GetJob(t.Context(), live.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got.HeartbeatAt = now
+	if err := svc.putJob(t.Context(), got, store.CondNone); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.RunQueuedJobs(t.Context()); err != nil {
+		t.Fatalf("drain: %v", err)
+	}
+
+	reaped, err := svc.GetJob(t.Context(), orphan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reaped.Status != JobFailed || reaped.Error != "interrupted by a restart" || reaped.FinishedAt.IsZero() {
+		t.Fatalf("orphan after drain = %+v, want FAILED interrupted-by-restart with finishedAt", reaped)
+	}
+	alive, err := svc.GetJob(t.Context(), live.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alive.Status != JobRunning {
+		t.Fatalf("live job after drain = %+v, want still RUNNING (fresh heartbeat)", alive)
+	}
+}
+
 // TestJobFailureClassified proves a failed run lands FAILED with the same
 // generic client-facing classification the synchronous endpoint uses -- no
 // raw upstream detail in the record.

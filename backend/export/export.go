@@ -120,6 +120,10 @@ type Job struct {
 	// ExpiresAt bounds the download's availability (bucket lifecycle rules
 	// enforce the object side).
 	ExpiresAt time.Time `json:"expiresAt,omitzero"`
+	// HeartbeatAt is the worker's liveness signal while RUNNING; a stale
+	// heartbeat marks an orphan (its process died mid-run) for the drain's
+	// reaper. Absent on records written before reaping existed.
+	HeartbeatAt time.Time `json:"heartbeatAt,omitzero"`
 }
 
 // ErrNotFound reports an unknown job (or one the requester may not see).

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	codexbf "github.com/freeeve/libcodex/bibframe"
 	"github.com/freeeve/libcodex/iso2709"
@@ -41,6 +42,27 @@ func (s *Service) Run(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	// Heartbeat while the emit runs, so the drain's orphan reaper can tell a
+	// live long export from one whose process died mid-run. Stopped (and
+	// awaited) before the terminal write below touches the record.
+	stopBeat := make(chan struct{})
+	beatDone := make(chan struct{})
+	go func() {
+		defer close(beatDone)
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopBeat:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				job.HeartbeatAt = s.now().UTC()
+				_ = s.put(ctx, job, store.CondNone)
+			}
+		}
+	}()
 	del := DeliveryFor(job.ID, job.Format)
 	pr, pw := io.Pipe()
 	var records int
@@ -64,6 +86,8 @@ func (s *Service) Run(ctx context.Context, id string) error {
 		ContentType:     del.ContentType,
 		ContentEncoding: del.ContentEncoding,
 	})
+	close(stopBeat)
+	<-beatDone
 	now := s.now().UTC()
 	job.FinishedAt = now
 	if runErr != nil {
@@ -82,6 +106,15 @@ func (s *Service) Run(ctx context.Context, id string) error {
 
 var errAlreadyClaimed = errors.New("export: already claimed")
 
+// heartbeatInterval is the RUNNING record's liveness cadence; staleAfter is
+// how long without a beat before the drain declares the worker dead. A claim
+// persists RUNNING, so a process that dies mid-run otherwise leaves a record
+// no drain would ever touch.
+const (
+	heartbeatInterval = 3 * time.Second
+	staleAfter        = 60 * time.Second
+)
+
 // claim flips QUEUED -> RUNNING under the job record's version.
 func (s *Service) claim(ctx context.Context, id string) (*Job, error) {
 	rec, err := s.db.Get(ctx, jobKey(id))
@@ -99,6 +132,7 @@ func (s *Service) claim(ctx context.Context, id string) (*Job, error) {
 		return nil, errAlreadyClaimed
 	}
 	job.Status = StatusRunning
+	job.HeartbeatAt = s.now().UTC()
 	data, err := json.Marshal(job)
 	if err != nil {
 		return nil, err
@@ -403,7 +437,9 @@ func (s *Service) emitCSV(ctx context.Context, w io.Writer, paths []string) (int
 
 // RunQueued drains QUEUED jobs once -- the worker-loop body for container
 // deployments (lcatd runs it on a ticker; a Lambda deployment invokes it
-// asynchronously).
+// asynchronously). It also reaps orphans: a RUNNING record whose heartbeat
+// has gone stale belongs to a dead process, and nothing else would ever
+// finish it.
 func (s *Service) RunQueued(ctx context.Context) (int, error) {
 	ran := 0
 	for rec, err := range s.db.Query(ctx, "JOB#EXPORT", "", store.QueryOpt{}) {
@@ -411,7 +447,16 @@ func (s *Service) RunQueued(ctx context.Context) (int, error) {
 			return ran, err
 		}
 		var job Job
-		if json.Unmarshal(rec.Data, &job) != nil || job.Status != StatusQueued {
+		if json.Unmarshal(rec.Data, &job) != nil {
+			continue
+		}
+		if job.Status == StatusRunning && s.staleRunning(job) {
+			if err := s.reap(ctx, rec, job); err != nil {
+				return ran, err
+			}
+			continue
+		}
+		if job.Status != StatusQueued {
 			continue
 		}
 		if err := s.Run(ctx, job.ID); err != nil {
@@ -420,4 +465,32 @@ func (s *Service) RunQueued(ctx context.Context) (int, error) {
 		ran++
 	}
 	return ran, nil
+}
+
+// staleRunning reports whether a RUNNING job's worker is presumed dead.
+// Records written before heartbeats existed fall back to CreatedAt.
+func (s *Service) staleRunning(job Job) bool {
+	hb := job.HeartbeatAt
+	if hb.IsZero() {
+		hb = job.CreatedAt
+	}
+	return !hb.IsZero() && s.now().Sub(hb) > staleAfter
+}
+
+// reap fails an orphaned RUNNING record under its version, so a worker that
+// is in fact alive (and about to heartbeat) wins the race instead.
+func (s *Service) reap(ctx context.Context, rec store.Record, job Job) error {
+	job.Status = StatusFailed
+	job.Error = "interrupted by a restart"
+	job.FinishedAt = s.now().UTC()
+	data, err := json.Marshal(job)
+	if err != nil {
+		return err
+	}
+	rec.Data = data
+	rec.ExpireAt = s.now().Add(jobTTL)
+	if _, err := s.db.Put(ctx, rec, store.CondIfVersion); err != nil && !errors.Is(err, store.ErrConditionFailed) {
+		return err
+	}
+	return nil
 }

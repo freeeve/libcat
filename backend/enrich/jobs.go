@@ -32,6 +32,13 @@ const jobTTL = 7 * 24 * time.Hour
 // enricher's live counters.
 const statsInterval = 3 * time.Second
 
+// staleAfter is how long a RUNNING record may go without a heartbeat before
+// the drain declares its worker dead -- twenty missed statsInterval beats.
+// A claim persists RUNNING, so a process that dies mid-run (restart, deploy,
+// crash) leaves a record no drain would ever touch: not QUEUED, never
+// finished, badged RUNNING until the TTL.
+const staleAfter = 60 * time.Second
+
 // Job is one asynchronous enrichment run: kicked with a source and scope,
 // drained by the worker, its record carrying live batch counters while it
 // runs so a poller can show progress on an hours-long corpus pass.
@@ -54,6 +61,11 @@ type Job struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	StartedAt  time.Time `json:"startedAt,omitzero"`
 	FinishedAt time.Time `json:"finishedAt,omitzero"`
+	// HeartbeatAt is the worker's liveness signal, rewritten on every stats
+	// tick while the run is in flight; a RUNNING record whose heartbeat goes
+	// stale is an orphan (its process died mid-run) and the next drain
+	// fails it rather than leaving it RUNNING forever.
+	HeartbeatAt time.Time `json:"heartbeatAt,omitzero"`
 }
 
 // ErrJobNotFound reports an unknown job id.
@@ -131,6 +143,10 @@ func (s *Service) ListJobs(ctx context.Context) ([]Job, error) {
 // RunQueuedJobs drains QUEUED jobs once -- the worker-loop body for container
 // deployments (a ticker) and scheduled serverless drains alike. Job failures
 // land in the job record; the returned error is store trouble only.
+//
+// The drain also reaps orphans: a RUNNING record whose heartbeat has gone
+// stale belongs to a process that died between claim and completion, and
+// nothing else would ever finish it.
 func (s *Service) RunQueuedJobs(ctx context.Context) (int, error) {
 	if s.DB == nil {
 		return 0, nil
@@ -141,7 +157,16 @@ func (s *Service) RunQueuedJobs(ctx context.Context) (int, error) {
 			return ran, err
 		}
 		var job Job
-		if json.Unmarshal(rec.Data, &job) != nil || job.Status != JobQueued {
+		if json.Unmarshal(rec.Data, &job) != nil {
+			continue
+		}
+		if job.Status == JobRunning && s.staleRunning(job) {
+			if err := s.reapJob(ctx, rec, job); err != nil {
+				return ran, err
+			}
+			continue
+		}
+		if job.Status != JobQueued {
 			continue
 		}
 		if err := s.runJob(ctx, job.ID); errors.Is(err, errJobClaimed) {
@@ -152,6 +177,34 @@ func (s *Service) RunQueuedJobs(ctx context.Context) (int, error) {
 		ran++
 	}
 	return ran, nil
+}
+
+// staleRunning reports whether a RUNNING job's worker is presumed dead.
+// Records written before heartbeats existed fall back to StartedAt.
+func (s *Service) staleRunning(job Job) bool {
+	hb := job.HeartbeatAt
+	if hb.IsZero() {
+		hb = job.StartedAt
+	}
+	return !hb.IsZero() && s.jobNow().Sub(hb) > staleAfter
+}
+
+// reapJob fails an orphaned RUNNING record under its version, so a worker
+// that is in fact alive (and about to heartbeat) wins the race instead.
+func (s *Service) reapJob(ctx context.Context, rec store.Record, job Job) error {
+	job.Status = JobFailed
+	job.Error = "interrupted by a restart"
+	job.FinishedAt = s.jobNow().UTC()
+	data, err := json.Marshal(job)
+	if err != nil {
+		return err
+	}
+	rec.Data = data
+	rec.ExpireAt = s.jobNow().Add(jobTTL)
+	if _, err := s.DB.Put(ctx, rec, store.CondIfVersion); err != nil && !errors.Is(err, store.ErrConditionFailed) {
+		return err
+	}
+	return nil
 }
 
 // runJob claims one QUEUED job and executes it, refreshing the record with
@@ -169,16 +222,15 @@ func (s *Service) runJob(ctx context.Context, id string) error {
 
 	// While Run executes, mirror the source's live counters into the job
 	// record so GET shows batches advancing. Best effort: a lost update is
-	// the next tick's problem.
+	// the next tick's problem. The tick runs even for a source with no
+	// counters to report: each write refreshes the heartbeat that keeps the
+	// drain's orphan reaper off a live run.
 	src := s.Sources[job.Source]
 	reporter, reports := src.Enricher.(ingest.StatsReporter)
 	stopStats := make(chan struct{})
 	statsDone := make(chan struct{})
 	go func() {
 		defer close(statsDone)
-		if !reports {
-			return
-		}
 		ticker := time.NewTicker(statsInterval)
 		defer ticker.Stop()
 		for {
@@ -188,8 +240,11 @@ func (s *Service) runJob(ctx context.Context, id string) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				st := reporter.RunStats()
-				job.Stats = &st
+				if reports {
+					st := reporter.RunStats()
+					job.Stats = &st
+				}
+				job.HeartbeatAt = s.jobNow().UTC()
 				_ = s.putJob(ctx, *job, store.CondNone)
 			}
 		}
@@ -247,6 +302,7 @@ func (s *Service) claimJob(ctx context.Context, id string) (*Job, error) {
 	}
 	job.Status = JobRunning
 	job.StartedAt = s.jobNow().UTC()
+	job.HeartbeatAt = job.StartedAt
 	data, err := json.Marshal(job)
 	if err != nil {
 		return nil, err
