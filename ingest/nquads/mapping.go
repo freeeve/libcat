@@ -43,6 +43,14 @@ type Mapping struct {
 	// Bucket-level fields: identifier, publisher, issued, format.
 	// Term-description fields (non-work subjects): prefLabel, broader.
 	// A field may list several IRIs.
+	//
+	// A creator/contributor OBJECT may be a literal name or an agent NODE:
+	// when the feed also describes the node (rdfs:label, plus owl:sameAs /
+	// skos:exactMatch authority links), the label becomes the name and the
+	// authority IRIs ride onto the contribution -- the agent emits as the
+	// preferred IRI (VIAF > LCNAF > ISNI > ORCID > wikidata), the rest as
+	// owl:sameAs, all read into ContributorIDs by the summary scan. No
+	// mapping rule is needed; the description is harvested automatically.
 	Predicates map[string]StringList `toml:"predicates"`
 	// Identifiers maps object URN prefixes to identifier rules. The legacy
 	// string form keeps its meaning: scheme "isbn" clusters cross-feed, any

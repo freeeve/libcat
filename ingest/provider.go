@@ -114,6 +114,24 @@ type TermDescriber interface {
 	DescribedTerms() []AuthoritySubject
 }
 
+// AgentIdentity is one contributor's authority identity: the IRI the
+// contribution's bf:agent node is emitted as, plus the agent's other
+// authority IRIs, which ride as owl:sameAs on that node. Together they are
+// what the summary scan folds into ContributorIDs -- the creator-resolution
+// keys the demographics enricher hops from.
+type AgentIdentity struct {
+	Authority string
+	SameAs    []string
+}
+
+// AgentIdentifier is an optional capability a Record may implement to carry
+// its contributors' authority identities (a feed whose creators are agent
+// nodes with owl:sameAs links to VIAF/LCNAF/ISNI/wikidata). For a clustered
+// Work the first record's identities win, matching ControlledSubjects.
+type AgentIdentifier interface {
+	AgentIdentities() []AgentIdentity
+}
+
 // MergeSeed names one feed cluster-merge as a pair of provider keys the resolver
 // indexes records under (identity.ProviderKey values in the provider's id scheme):
 // FromKey is the retired cluster, ToKey the survivor.

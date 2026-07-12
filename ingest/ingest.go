@@ -134,6 +134,13 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed) ([]bib
 			if td, ok := rec.(TermDescriber); ok {
 				wg.Terms = td.DescribedTerms()
 			}
+			// And its contributors' authority identities: the extra
+			// owl:sameAs statements on IRI agent nodes.
+			if ai, ok := rec.(AgentIdentifier); ok {
+				for _, a := range ai.AgentIdentities() {
+					wg.Agents = append(wg.Agents, bibframe.AgentIdentity(a))
+				}
+			}
 			byWork[a.WorkID] = wg
 		}
 		if seenInstance[a.InstanceID] {

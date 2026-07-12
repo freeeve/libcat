@@ -580,3 +580,104 @@ func TestContributionJunkGate(t *testing.T) {
 		t.Fatalf("junk-only record grew contributions: %+v", got)
 	}
 }
+
+// TestAgentNodeCreatorsCarryAuthorityIDs is the task-419 regression, on the
+// exact coll-feed contract: dcterms:creator pointing at an agent NODE whose
+// description carries rdfs:label plus owl:sameAs authority links. The name
+// resolves as if the feed carried a literal, the agent emits as its
+// preferred authority IRI (VIAF over LCNAF over wikidata) with the rest as
+// owl:sameAs, and the summary scan surfaces ALL of them in ContributorIDs --
+// the demographics enricher's pass-1 keys.
+func TestAgentNodeCreatorsCarryAuthorityIDs(t *testing.T) {
+	const (
+		viaf  = "http://viaf.org/viaf/124145003288661300465"
+		lcnaf = "http://id.loc.gov/authorities/names/no2015153219"
+		wd    = "http://www.wikidata.org/entity/Q28588552"
+	)
+	dir := t.TempDir()
+	mapping := filepath.Join(dir, "m.toml")
+	nq := filepath.Join(dir, "export.nq")
+	if err := os.WriteFile(mapping, []byte(`work-prefix = "urn:coll:work:"
+[predicates]
+title = "http://purl.org/dc/terms/title"
+creator = "http://purl.org/dc/terms/creator"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Agent description BEFORE one creator statement and AFTER the other:
+	// harvest order must not matter.
+	if err := os.WriteFile(nq, []byte(`<urn:coll:agent:ellis-grace> <http://www.w3.org/2000/01/rdf-schema#label> "Ellis, Grace" .
+<urn:coll:agent:ellis-grace> <http://www.w3.org/2002/07/owl#sameAs> <`+wd+`> .
+<urn:coll:agent:ellis-grace> <http://www.w3.org/2002/07/owl#sameAs> <`+lcnaf+`> .
+<urn:coll:agent:ellis-grace> <http://www.w3.org/2002/07/owl#sameAs> <`+viaf+`> .
+<urn:coll:work:1> <http://purl.org/dc/terms/title> "Moonstruck" .
+<urn:coll:work:1> <http://purl.org/dc/terms/creator> <urn:coll:agent:ellis-grace> .
+<urn:coll:work:2> <http://purl.org/dc/terms/title> "Named Only" .
+<urn:coll:work:2> <http://purl.org/dc/terms/creator> <urn:coll:agent:label-only> .
+<urn:coll:agent:label-only> <http://www.w3.org/2000/01/rdf-schema#label> "Label, Only" .
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := New(ingest.Config{Source: nq, Params: map[string]string{"mapping": mapping}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	if _, err := ingest.Run(p, out); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var summaries []ingest.WorkSummary
+	err = filepath.WalkDir(filepath.Join(out, "data", "works"), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".nq") {
+			return err
+		}
+		grain, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		text := string(grain)
+		if strings.Contains(text, "Moonstruck") {
+			// The agent IS the preferred authority IRI; the rest are sameAs.
+			if !strings.Contains(text, "<http://id.loc.gov/ontologies/bibframe/agent> <"+viaf+">") {
+				t.Errorf("agent is not the VIAF IRI:\n%s", text)
+			}
+			for _, same := range []string{lcnaf, wd} {
+				if !strings.Contains(text, "<"+viaf+"> <http://www.w3.org/2002/07/owl#sameAs> <"+same+">") {
+					t.Errorf("missing sameAs %s:\n%s", same, text)
+				}
+			}
+			if strings.Contains(text, "urn:coll:agent:") {
+				t.Errorf("raw agent URN leaked into the grain:\n%s", text)
+			}
+		}
+		sums, err := ingest.SummarizeGrain(grain)
+		if err != nil {
+			return err
+		}
+		summaries = append(summaries, sums...)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTitle := map[string]ingest.WorkSummary{}
+	for _, s := range summaries {
+		byTitle[s.Title] = s
+	}
+	got := byTitle["Moonstruck"]
+	if !slices.Contains(got.Contributors, "Ellis, Grace") {
+		t.Fatalf("contributors = %v, want the resolved name", got.Contributors)
+	}
+	for _, id := range []string{viaf, lcnaf, wd} {
+		if !slices.Contains(got.ContributorIDs, id) {
+			t.Errorf("ContributorIDs = %v, missing %s", got.ContributorIDs, id)
+		}
+	}
+	// A described node with a label but no authority links still resolves
+	// the name -- and nothing more.
+	labelOnly := byTitle["Named Only"]
+	if !slices.Contains(labelOnly.Contributors, "Label, Only") || len(labelOnly.ContributorIDs) != 0 {
+		t.Fatalf("label-only agent = %+v, want the name and no ids", labelOnly)
+	}
+}

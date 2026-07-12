@@ -33,6 +33,14 @@ const ProviderName = "nquads"
 // folds one work cluster into another: <retired> isReplacedBy <survivor>.
 const dctermsIsReplacedBy = "http://purl.org/dc/terms/isReplacedBy"
 
+// Agent-node description predicates, harvested unconditionally on non-work
+// subjects so creator agent nodes resolve to names and authority IRIs.
+const (
+	rdfsLabelIRI      = "http://www.w3.org/2000/01/rdf-schema#label"
+	owlSameAsIRI      = "http://www.w3.org/2002/07/owl#sameAs"
+	skosExactMatchIRI = "http://www.w3.org/2004/02/skos/core#exactMatch"
+)
+
 // Provider streams a catalog .nq file into ingest records, one per work IRI.
 type Provider struct {
 	feed          string
@@ -146,6 +154,11 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 	works := map[string]*work{}
 	var mergeSeeds []ingest.MergeSeed
 	tm := &terms{labels: map[string]map[string]string{}, broader: map[string][]string{}}
+	// Agent-node sidecars: labels and authority links keyed by node IRI,
+	// resolved onto creators/contributors after the pass (a feed's agent
+	// description may stream before or after the statements naming it).
+	nodeLabels := map[string]string{}
+	nodeSameAs := map[string][]string{}
 	get := func(iri string) *work {
 		id := strings.TrimPrefix(iri, p.m.WorkPrefix)
 		w := works[id]
@@ -177,6 +190,20 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 			continue
 		}
 		if !strings.HasPrefix(q.S.Value, p.m.WorkPrefix) {
+			// Agent-node descriptions: any non-work subject's rdfs:label
+			// and its owl:sameAs / skos:exactMatch authority links, so a
+			// creator statement whose object is an agent NODE resolves to
+			// a name plus ContributorIDs after the pass.
+			switch q.P.Value {
+			case rdfsLabelIRI:
+				if q.O.IsLiteral() && nodeLabels[q.S.Value] == "" {
+					nodeLabels[q.S.Value] = q.O.Value
+				}
+			case owlSameAsIRI, skosExactMatchIRI:
+				if q.O.IsIRI() && !slices.Contains(nodeSameAs[q.S.Value], q.O.Value) {
+					nodeSameAs[q.S.Value] = append(nodeSameAs[q.S.Value], q.O.Value)
+				}
+			}
 			// Term descriptions ride on the concept IRI itself, outside the
 			// work prefix: prefLabels per language (untagged = English by
 			// the coll-feed convention) and broader edges.
@@ -283,6 +310,7 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 	ids := make([]string, 0, len(works))
 	dropped := 0
 	for id, w := range works {
+		resolveAgentNodes(w, nodeLabels, nodeSameAs)
 		if w.title == "" {
 			dropped++
 			continue
@@ -310,6 +338,72 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 	}
 	p.merges = mergeSeeds
 	return recs, nil
+}
+
+// authorityPrecedence orders which authority IRI becomes THE agent node
+// (codexbf.Contribution.Authority); the rest ride as owl:sameAs. The order
+// matches the demographics enricher's direct-hop passes, wikidata last
+// (resolvable, but not one of its indexed identifier properties).
+var authorityPrecedence = []string{
+	"viaf.org/viaf/",
+	"id.loc.gov/authorities/names/",
+	"isni.org/isni/",
+	"orcid.org/",
+	"wikidata.org/entity/",
+}
+
+// pickAuthority splits an agent's authority IRIs into the node identity and
+// the rest, deterministically.
+func pickAuthority(ids []string) (string, []string) {
+	sorted := dedupeSorted(ids)
+	pick := func(chosen string) (string, []string) {
+		rest := make([]string, 0, len(sorted)-1)
+		for _, id := range sorted {
+			if id != chosen {
+				rest = append(rest, id)
+			}
+		}
+		return chosen, rest
+	}
+	for _, ns := range authorityPrecedence {
+		for _, id := range sorted {
+			if strings.Contains(id, ns) {
+				return pick(id)
+			}
+		}
+	}
+	return pick(sorted[0])
+}
+
+// resolveAgentNodes rewrites creator/contributor entries that name a
+// described agent node: the node's rdfs:label becomes the entry (so names,
+// identity keys, and contributions read as if the feed carried literals),
+// and its authority links become the contribution's identity. An IRI entry
+// without a harvested label stays verbatim -- a name is the floor.
+func resolveAgentNodes(w *work, nodeLabels map[string]string, nodeSameAs map[string][]string) {
+	resolve := func(entries []string) []string {
+		for i, e := range entries {
+			label, ok := nodeLabels[e]
+			if !ok || label == "" {
+				continue
+			}
+			entries[i] = label
+			ids := nodeSameAs[e]
+			if len(ids) == 0 {
+				continue
+			}
+			if w.agents == nil {
+				w.agents = map[string]ingest.AgentIdentity{}
+			}
+			if _, taken := w.agents[label]; !taken {
+				authority, rest := pickAuthority(ids)
+				w.agents[label] = ingest.AgentIdentity{Authority: authority, SameAs: rest}
+			}
+		}
+		return entries
+	}
+	w.creators = resolve(w.creators)
+	w.contributors = resolve(w.contributors)
 }
 
 // mapIdentifier routes one identifier object through the mapping's prefix

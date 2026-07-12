@@ -40,6 +40,9 @@ type work struct {
 	extras       map[string]string
 	sources      []string
 	confident    bool // attested by any non-tentative source
+	// agents are contributors' authority identities keyed by resolved name
+	// (creators that arrived as described agent nodes with owl:sameAs links).
+	agents map[string]ingest.AgentIdentity
 }
 
 // record adapts a work to ingest.Record. One record per work subject; records
@@ -155,10 +158,11 @@ func (r record) contributions() []codexbf.Contribution {
 			role = "author"
 		}
 		out = append(out, codexbf.Contribution{
-			Primary: len(out) == 0,
-			Class:   "Person",
-			Label:   name,
-			Roles:   []codexbf.Role{{Term: role}},
+			Primary:   len(out) == 0,
+			Class:     "Person",
+			Label:     name,
+			Authority: r.w.agents[name].Authority,
+			Roles:     []codexbf.Role{{Term: role}},
 		})
 	}
 	if len(out) > 0 {
@@ -170,11 +174,38 @@ func (r record) contributions() []codexbf.Contribution {
 			continue
 		}
 		out = append(out, codexbf.Contribution{
-			Primary: len(out) == 0,
-			Class:   "Person",
-			Label:   lastFirst(c),
-			Roles:   []codexbf.Role{{Term: "author"}},
+			Primary:   len(out) == 0,
+			Class:     "Person",
+			Label:     lastFirst(c),
+			Authority: r.w.agents[c].Authority,
+			Roles:     []codexbf.Role{{Term: "author"}},
 		})
+	}
+	return out
+}
+
+// AgentIdentities implements ingest.AgentIdentifier: the extra authority
+// IRIs (owl:sameAs) of each contribution that landed with an Authority agent
+// node -- junk-gated entries contribute nothing, so no statement lands on a
+// node the graph does not describe.
+func (r record) AgentIdentities() []ingest.AgentIdentity {
+	if len(r.w.agents) == 0 {
+		return nil
+	}
+	byAuthority := map[string]ingest.AgentIdentity{}
+	for _, a := range r.w.agents {
+		byAuthority[a.Authority] = a
+	}
+	var out []ingest.AgentIdentity
+	seen := map[string]bool{}
+	for _, c := range r.contributions() {
+		if c.Authority == "" || seen[c.Authority] {
+			continue
+		}
+		if a, ok := byAuthority[c.Authority]; ok && len(a.SameAs) > 0 {
+			seen[c.Authority] = true
+			out = append(out, a)
+		}
 	}
 	return out
 }

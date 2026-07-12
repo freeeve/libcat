@@ -40,6 +40,19 @@ type WorkGroup struct {
 	// bf:subject link, so ancestor concepts stay labeled in the projection's
 	// term sideband. Empty when the provider supplies none.
 	Terms []AuthoritySubject
+	// Agents are contributors' authority identities: each Authority IRI is a
+	// bf:agent node the Work's contributions already emit (via
+	// codexbf.Contribution.Authority), and its SameAs IRIs are added as
+	// owl:sameAs statements on that node -- the shape the summary scan folds
+	// into ContributorIDs. Empty when the provider supplies none.
+	Agents []AgentIdentity
+}
+
+// AgentIdentity is one contributor's authority identity for graph emission;
+// mirrors ingest.AgentIdentity.
+type AgentIdentity struct {
+	Authority string
+	SameAs    []string
 }
 
 // AuthoritySubject is one controlled-vocabulary subject a provider asserts for a Work: a
@@ -79,6 +92,33 @@ func addControlledSubjects(g *rdf.Graph, workID string, subs []AuthoritySubject)
 		seen[s.URI] = true
 		g.Add(w, rdf.NewIRI(predSubject), rdf.NewIRI(s.URI))
 		addTermDescription(g, s)
+	}
+}
+
+// addAgentIdentities attaches contributors' extra authority IRIs to their
+// agent nodes: <authority> owl:sameAs <other-id>, deterministic order. The
+// Authority IRI itself is already the contribution's bf:agent node (set via
+// codexbf.Contribution.Authority), so these statements land on a node the
+// graph describes, and the summary scan reads both the node and its sameAs
+// into ContributorIDs.
+func addAgentIdentities(g *rdf.Graph, agents []AgentIdentity) {
+	const predSameAs = "http://www.w3.org/2002/07/owl#sameAs"
+	ordered := append([]AgentIdentity(nil), agents...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Authority < ordered[j].Authority })
+	seen := map[string]bool{}
+	for _, a := range ordered {
+		if a.Authority == "" {
+			continue
+		}
+		same := append([]string(nil), a.SameAs...)
+		sort.Strings(same)
+		for _, s := range same {
+			if s == "" || s == a.Authority || seen[a.Authority+"\x00"+s] {
+				continue
+			}
+			seen[a.Authority+"\x00"+s] = true
+			g.Add(rdf.NewIRI(a.Authority), rdf.NewIRI(predSameAs), rdf.NewIRI(s))
+		}
 	}
 }
 
@@ -188,6 +228,7 @@ func (wg WorkGroup) graph() *rdf.Graph {
 	addWorkExtras(g, wg.WorkID, wg.Extras)
 	addControlledSubjects(g, wg.WorkID, wg.Subjects)
 	addDescribedTerms(g, wg.Terms)
+	addAgentIdentities(g, wg.Agents)
 	for _, gi := range wg.Instances {
 		addInstanceVerbatim(g, gi.InstanceID, gi.Verbatim)
 	}
