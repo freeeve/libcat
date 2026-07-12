@@ -143,3 +143,46 @@ func TestCacheTermResolvesForever(t *testing.T) {
 		t.Fatalf("no scheme err = %v", err)
 	}
 }
+
+// TestCrosswalkPivotReachesHomosaurusFromFAST is the task-418 regression:
+// works cataloged in FAST, homosaurus linking only to LCSH, LCSH itself NOT
+// loaded. The pivot through the shared (unloaded) LCSH URI must suggest the
+// homosaurus term at pivot confidence -- before this, FAST collections got
+// structurally nothing from the crosswalk enricher.
+func TestCrosswalkPivotReachesHomosaurusFromFAST(t *testing.T) {
+	const pivotNT = `<http://id.worldcat.org/fast/995592> <http://www.w3.org/2004/02/skos/core#prefLabel> "Lesbians"@en <authority:fast> .
+<http://id.worldcat.org/fast/995592> <http://www.w3.org/2004/02/skos/core#exactMatch> <http://id.loc.gov/authorities/subjects/sh85076160> <authority:fast> .
+<https://homosaurus.org/v4/homoit1> <http://www.w3.org/2004/02/skos/core#prefLabel> "Lesbian"@en <authority:homosaurus> .
+<https://homosaurus.org/v4/homoit1> <http://www.w3.org/2004/02/skos/core#closeMatch> <http://id.loc.gov/authorities/subjects/sh85076160> <authority:homosaurus> .
+<http://id.worldcat.org/fast/900000> <http://www.w3.org/2004/02/skos/core#prefLabel> "Linkless"@en <authority:fast> .
+`
+	bs := blob.NewMem()
+	if _, err := bs.Put(t.Context(), "data/authorities/p.nq", []byte(pivotNT), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := vocab.Load(t.Context(), bs, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := NewCrosswalk(ix, "homosaurus")
+	out, err := e.Enrich(t.Context(), []ingest.WorkSummary{
+		{WorkID: "wfast000001a", Subjects: []string{"http://id.worldcat.org/fast/995592"}},
+		// A FAST term with no links still reaches nothing: pivots need a
+		// first hop, never a guess.
+		{WorkID: "wfast000001b", Subjects: []string{"http://id.worldcat.org/fast/900000"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("enrichments = %+v, want the pivot hit only", out)
+	}
+	got := out[0]
+	if got.WorkID != "wfast000001a" || len(got.Subjects) != 1 || got.Subjects[0].URI != "https://homosaurus.org/v4/homoit1" {
+		t.Fatalf("pivot enrichment = %+v", got)
+	}
+	// exact (fast->lcsh) + close (homosaurus->lcsh): the weaker hop grades it.
+	if got.Confidence != confPivotClose {
+		t.Fatalf("confidence = %v, want pivot-close %v", got.Confidence, confPivotClose)
+	}
+}

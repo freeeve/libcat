@@ -107,7 +107,8 @@ func Builtins() []Source {
 		{
 			// Suggest-only: the full FAST dump is ~2M concepts --
 			// not resident-index-shaped for small deployments; a corpus subset
-			// snapshot (lcat vocab-subset) supplies display labels instead.
+			// snapshot (lcat vocab-subset) supplies display labels AND each
+			// term's LCSH source edge, the crosswalk pivot's first hop.
 			Name: "fast", Scheme: "fast", Builtin: true,
 			License:       "ODC-BY (OCLC FAST)",
 			Homepage:      "https://fast.oclc.org/",

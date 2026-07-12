@@ -191,6 +191,13 @@ func fetchConcepts(uris []string, concurrency int, suffix string) map[string][]b
 }
 
 func fetchConcept(client *http.Client, uri, suffix string) ([]byte, error) {
+	// FAST publishes no N-Triples endpoint; its per-term linked data is
+	// RDF/XML at the (https) concept URI itself, decoded to the SKOS slice
+	// locally -- including the schema:sameAs -> LCSH edge the crosswalk
+	// pivot needs.
+	if isFASTURI(uri) {
+		return fetchFASTConcept(client, uri)
+	}
 	req, err := http.NewRequest(http.MethodGet, conceptURL(uri, suffix), nil)
 	if err != nil {
 		return nil, err
@@ -206,6 +213,30 @@ func fetchConcept(client *http.Client, uri, suffix string) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+}
+
+// fetchFASTConcept fetches one FAST concept's RDF/XML and converts it to
+// the pipeline's N-Triples shape.
+func fetchFASTConcept(client *http.Client, uri string) ([]byte, error) {
+	req, err := http.NewRequest(http.MethodGet, strings.Replace(uri, "http://", "https://", 1), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/rdf+xml")
+	req.Header.Set("User-Agent", "libcat lcat vocab-subset")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	return fastRDFXMLToNT(uri, body)
 }
 
 // conceptURL is a concept's per-term fetch URL: the URI forced to https plus the
