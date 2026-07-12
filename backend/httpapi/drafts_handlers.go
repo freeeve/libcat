@@ -115,6 +115,17 @@ func registerDrafts(mux *http.ServeMux, db store.Store, librarian func(http.Hand
 			writeError(w, http.StatusInternalServerError, "draft read failed")
 			return
 		}
+		// The slot invariant: the draft's id IS its work id (POST enforces
+		// it; the list links drafts to works through it). A PUT omitting
+		// workId keeps the slot's linkage rather than blanking it -- which
+		// also heals drafts an older build blanked -- and a PUT naming a
+		// DIFFERENT work is a client error, not a re-file.
+		if d.WorkID == "" {
+			d.WorkID = d.ID
+		} else if d.WorkID != d.ID {
+			writeError(w, http.StatusBadRequest, "workId cannot change: a draft's slot is its work")
+			return
+		}
 		data, _ := json.Marshal(d)
 		rec.Data = data
 		rec.ExpireAt = time.Now().Add(draftTTL)

@@ -444,6 +444,54 @@ func TestDraftSlotIsUniquePerWork(t *testing.T) {
 	}
 }
 
+// TestDraftPutReconcilesWorkID covers the PUT side of the slot invariant
+// (the id IS the work id): an update omitting workId keeps the stored
+// linkage instead of blanking it, and an update naming a different work is
+// refused instead of storing a workId that disagrees with its slot key.
+func TestDraftPutReconcilesWorkID(t *testing.T) {
+	h, _ := newRecordsAPI(t)
+	if rec := request(t, h, http.MethodPost, "/v1/drafts", "lib-token", "", map[string]any{
+		"workId": editWorkID, "body": map[string]any{"ops": []any{}},
+	}); rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body)
+	}
+
+	// PUT with no workId: the stored linkage survives.
+	if rec := request(t, h, http.MethodPut, "/v1/drafts/"+editWorkID, "lib-token", "", map[string]any{
+		"body": map[string]any{"ops": []any{"kept"}},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("update without workId: %d %s", rec.Code, rec.Body)
+	}
+	rec := request(t, h, http.MethodGet, "/v1/drafts/"+editWorkID, "lib-token", "", nil)
+	var d draft
+	_ = json.Unmarshal(rec.Body.Bytes(), &d)
+	if d.WorkID != editWorkID {
+		t.Errorf("workId after bodiless-workId PUT = %q, want %q", d.WorkID, editWorkID)
+	}
+	if !strings.Contains(string(d.Body), `"kept"`) {
+		t.Errorf("body = %s, want the updated ops", d.Body)
+	}
+
+	// PUT naming a different work: refused, stored draft untouched.
+	if rec := request(t, h, http.MethodPut, "/v1/drafts/"+editWorkID, "lib-token", "", map[string]any{
+		"workId": "wDIFFERENT", "body": map[string]any{"ops": []any{"rogue"}},
+	}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("update with rival workId = %d, want 400", rec.Code)
+	}
+	rec = request(t, h, http.MethodGet, "/v1/drafts/"+editWorkID, "lib-token", "", nil)
+	_ = json.Unmarshal(rec.Body.Bytes(), &d)
+	if d.WorkID != editWorkID || strings.Contains(string(d.Body), `"rogue"`) {
+		t.Errorf("draft after refused PUT = %s, want it unchanged", rec.Body)
+	}
+
+	// Matching workId stays the ordinary update path.
+	if rec := request(t, h, http.MethodPut, "/v1/drafts/"+editWorkID, "lib-token", "", map[string]any{
+		"workId": editWorkID, "body": map[string]any{"ops": []any{"match"}},
+	}); rec.Code != http.StatusOK {
+		t.Fatalf("update with matching workId: %d %s", rec.Code, rec.Body)
+	}
+}
+
 // TestMergeSplitRejectPhantomIDs covers merge refuses a retiring
 // work that has no grain, and split refuses instances the source grain does
 // not describe -- both markers are permanent identity-resolver instructions
