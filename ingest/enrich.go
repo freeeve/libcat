@@ -212,6 +212,33 @@ const enrichBatchSize = 50
 // retryable upstream condition from an internal fault.
 var ErrEnricher = errors.New("enricher failed")
 
+// MatchExtras reports whether a summary's extras satisfy every [key, value]
+// filter term, ANDed; a comma-joined extra (the sources convention) matches
+// on any element. This is the one scoping semantic shared by the audit
+// endpoints, the CLI's --filter, and enrichment runs.
+func MatchExtras(filters [][2]string, extras map[string]string) bool {
+	for _, p := range filters {
+		got, ok := extras[p[0]]
+		if !ok {
+			return false
+		}
+		if got == p[1] {
+			continue
+		}
+		found := false
+		for _, part := range strings.Split(got, ",") {
+			if strings.TrimSpace(part) == p[1] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 // RunEnrich executes an enricher in direct (auto-approve) mode over every
 // grain under prefix in the store: each returned Work's enrichment:<name>
 // graph is dropped and replaced with the fresh assertions, so a re-run is

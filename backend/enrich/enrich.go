@@ -9,10 +9,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/freeeve/libcat/ingest"
 	"github.com/freeeve/libcat/storage/blob"
 
+	"github.com/freeeve/libcat/backend/store"
 	"github.com/freeeve/libcat/backend/suggest"
 	"github.com/freeeve/libcat/backend/vocab"
 )
@@ -58,6 +60,12 @@ type Service struct {
 	// (workindex) queue-mode runs read instead of a per-run
 	// corpus walk; nil falls back to ScanSummaries.
 	Summaries ingest.SummarySource
+	// DB, when set, enables the async job surface (jobs.go): kick returns a
+	// job id, a worker drains, GET polls live progress. Nil keeps runs
+	// synchronous-only.
+	DB store.Store
+	// Now overrides the job clock (tests).
+	Now func() time.Time
 }
 
 // Result summarizes one run.

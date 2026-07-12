@@ -36,6 +36,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/freeeve/libcat/ingest"
@@ -127,17 +128,32 @@ type Enricher struct {
 	retryBase time.Duration
 	now       func() time.Time
 	log       *slog.Logger
-	// stats accumulates the last Enrich call's run counters.
-	stats ingest.EnrichStats
+	// stats is the run's counters, published at batch boundaries under
+	// statsMu so a concurrent poller (an async job reporting progress) reads
+	// a consistent snapshot while Enrich is still running.
+	statsMu sync.Mutex
+	stats   ingest.EnrichStats
 }
 
 // Skipped reports how many batches the last Enrich call abandoned after
 // retries; their works were left untouched for a re-run to backfill.
-func (e *Enricher) Skipped() int { return e.stats.SkippedBatches }
+func (e *Enricher) Skipped() int { return e.RunStats().SkippedBatches }
 
-// RunStats implements ingest.StatsReporter: the last run's counters, surfaced
-// in the run endpoint's result.
-func (e *Enricher) RunStats() ingest.EnrichStats { return e.stats }
+// RunStats implements ingest.StatsReporter: the run's counters. Safe to call
+// while Enrich runs -- counters advance per batch, which is what makes a
+// polled progress display possible.
+func (e *Enricher) RunStats() ingest.EnrichStats {
+	e.statsMu.Lock()
+	defer e.statsMu.Unlock()
+	return e.stats
+}
+
+// setStats publishes a stats snapshot for concurrent readers.
+func (e *Enricher) setStats(st ingest.EnrichStats) {
+	e.statsMu.Lock()
+	e.stats = st
+	e.statsMu.Unlock()
+}
 
 // Option configures the enricher.
 type Option func(*Enricher)
@@ -220,7 +236,6 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 	}
 
 	retrieved := e.now().UTC().Format("2006-01-02")
-	e.stats = ingest.EnrichStats{}
 	started := e.now()
 	succeeded := 0
 	firstBatch := true
@@ -228,6 +243,16 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 	byWork := map[string]map[string]*ingest.CreatorClaim{} // workID -> QID -> claim
 	creators := map[string]bool{}
 	claimCount := 0
+	// st tallies locally; publish snapshots it for concurrent pollers at
+	// every batch boundary, so progress is visible mid-run.
+	var st ingest.EnrichStats
+	publish := func() {
+		st.ResolvedCreators = len(creators)
+		st.Claims = claimCount
+		st.ElapsedMS = e.now().Sub(started).Milliseconds()
+		e.setStats(st)
+	}
+	publish()
 
 	// runPass batches one matcher over its keys, attributing rows to works.
 	runPass := func(pass, matcher, keyScheme string, order []string, keyToWorks map[string][]string) error {
@@ -244,23 +269,24 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 			end := min(start+e.batch, len(order))
 			batchStart := e.now()
 			rows, err := e.queryRetry(ctx, matcher, order[start:end])
-			e.stats.Batches++
+			st.Batches++
 			if err != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				e.stats.SkippedBatches++
+				st.SkippedBatches++
+				publish()
 				lastErr = err
 				if e.log != nil {
 					e.log.Warn("wikidata batch skipped after retries",
-						"pass", pass, "batch", e.stats.Batches, "of", total, "keys", end-start, "err", err)
+						"pass", pass, "batch", st.Batches, "of", total, "keys", end-start, "err", err)
 				}
 				continue
 			}
 			succeeded++
 			if e.log != nil {
 				e.log.Info("wikidata batch resolved",
-					"pass", pass, "batch", e.stats.Batches, "of", total, "keys", end-start,
+					"pass", pass, "batch", st.Batches, "of", total, "keys", end-start,
 					"rows", len(rows), "creators", len(creators), "claims", claimCount,
 					"batchElapsed", e.now().Sub(batchStart).Round(time.Millisecond),
 					"elapsed", e.now().Sub(started).Round(time.Second))
@@ -304,6 +330,7 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 					}
 				}
 			}
+			publish()
 		}
 		return nil
 	}
@@ -348,13 +375,11 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 		return nil, nil
 	}
 
-	e.stats.ResolvedCreators = len(creators)
-	e.stats.Claims = claimCount
-	e.stats.ElapsedMS = e.now().Sub(started).Milliseconds()
+	publish()
 	if e.log != nil {
 		e.log.Info("wikidata enrichment finished",
-			"batches", e.stats.Batches, "skipped", e.stats.SkippedBatches,
-			"creators", e.stats.ResolvedCreators, "claims", e.stats.Claims,
+			"batches", st.Batches, "skipped", st.SkippedBatches,
+			"creators", st.ResolvedCreators, "claims", st.Claims,
 			"elapsed", e.now().Sub(started).Round(time.Second))
 	}
 	// Every batch failing is configuration-shaped (bad endpoint, outage),

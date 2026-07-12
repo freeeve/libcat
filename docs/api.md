@@ -601,6 +601,9 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `PUT` | `/v1/drafts/{id}` | librarian | `drafts_handlers.go` |
 | `GET` | `/v1/duplicates` | librarian | `maintenance_handlers.go` |
 | `GET` | `/v1/enrich` | admin | `enrich_handlers.go` |
+| `GET` | `/v1/enrich/jobs` | admin | `enrich_handlers.go` |
+| `GET` | `/v1/enrich/jobs/{id}` | admin | `enrich_handlers.go` |
+| `POST` | `/v1/enrich/{source}/jobs` | admin | `enrich_handlers.go` |
 | `POST` | `/v1/enrich/{source}/run` | admin | `enrich_handlers.go` |
 | `GET` | `/v1/exports` | librarian | `export_handlers.go` |
 | `POST` | `/v1/exports` | librarian | `export_handlers.go` |

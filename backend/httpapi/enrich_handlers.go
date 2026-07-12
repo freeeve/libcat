@@ -51,6 +51,50 @@ func registerEnrich(mux *http.ServeMux, svc *enrich.Service, verifier auth.Token
 		result.Scope = filters.String()
 		writeJSON(w, http.StatusOK, result)
 	})))
+
+	// The async path for corpus-scale runs (a synchronous wikidata pass can
+	// hold the request open for tens of minutes): kick returns 202 + a job
+	// id immediately, a worker drains the queue, and GET polls the record --
+	// with the enricher's live batch counters while it runs. Same ?filter/
+	// ?source scoping as the synchronous run.
+	mux.Handle("POST /v1/enrich/{source}/jobs", admin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filters, err := auditFilters(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		id, _ := auth.FromContext(r.Context())
+		job, err := svc.CreateJob(r.Context(), id.Email, r.PathValue("source"), filters)
+		if err != nil {
+			writeEnrichRunError(w, logger, r.PathValue("source"), err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, job)
+	})))
+
+	mux.Handle("GET /v1/enrich/jobs", admin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jobs, err := svc.ListJobs(r.Context())
+		if err != nil {
+			logger.Error("enrichment job list failed", "err", err)
+			writeError(w, http.StatusInternalServerError, "job list failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
+	})))
+
+	mux.Handle("GET /v1/enrich/jobs/{id}", admin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		job, err := svc.GetJob(r.Context(), r.PathValue("id"))
+		if errors.Is(err, enrich.ErrJobNotFound) {
+			writeError(w, http.StatusNotFound, "unknown enrichment job")
+			return
+		}
+		if err != nil {
+			logger.Error("enrichment job read failed", "id", r.PathValue("id"), "err", err)
+			writeError(w, http.StatusInternalServerError, "job read failed")
+			return
+		}
+		writeJSON(w, http.StatusOK, job)
+	})))
 }
 
 // writeEnrichRunError maps a run failure to the status its cause deserves,

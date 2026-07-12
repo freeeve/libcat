@@ -291,28 +291,10 @@ func (f auditFilterSet) String() string {
 }
 
 // match reports whether a summary's extras satisfy every filter; a comma-joined
-// extra (the sources convention) matches on any element.
+// extra (the sources convention) matches on any element. The semantic lives in
+// ingest.MatchExtras so async enrichment jobs scope identically.
 func (f auditFilterSet) match(extra map[string]string) bool {
-	for _, p := range f {
-		got, ok := extra[p[0]]
-		if !ok {
-			return false
-		}
-		if got == p[1] {
-			continue
-		}
-		found := false
-		for _, part := range strings.Split(got, ",") {
-			if strings.TrimSpace(part) == p[1] {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
+	return ingest.MatchExtras(f, extra)
 }
 
 // summaryRefs turns a work summary's aboutness signal into audit refs: controlled

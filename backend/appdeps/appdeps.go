@@ -420,7 +420,27 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		}
 	}
 	if len(enrichSources) > 0 && deps.Blob != nil {
-		deps.Enrich = &enrich.Service{Blob: deps.Blob, Queue: deps.Suggest, Sources: enrichSources, Summaries: deps.WorkIndex}
+		deps.Enrich = &enrich.Service{Blob: deps.Blob, DB: db, Queue: deps.Suggest, Sources: enrichSources, Summaries: deps.WorkIndex}
+		// Container worker: drain queued enrichment jobs on a ticker, like
+		// exports. Serverless entrypoints disable tickers and drain on
+		// schedule.
+		if !cfg.ReadOnly && !cfg.DisableTickers {
+			enrichSvc := deps.Enrich
+			go func() {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						if _, err := enrichSvc.RunQueuedJobs(ctx); err != nil && ctx.Err() == nil {
+							logger.Error("enrichment job worker", "err", err)
+						}
+					}
+				}
+			}()
+		}
 	}
 	if deps.Blob != nil && cfg.AbuseSecret != "" {
 		exports, err := export.New(db, deps.Blob, cfg.Provider, []byte(cfg.AbuseSecret))

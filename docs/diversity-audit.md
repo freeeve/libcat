@@ -128,7 +128,13 @@ LCATD_ENRICH_WIKIDATA=direct   # the only mode; see below
 ```
 
 and trigger a run with `POST /v1/enrich/wikidata/run` (admin role; `GET
-/v1/enrich` lists the configured sources). For each work it
+/v1/enrich` lists the configured sources). A corpus-scale run can hold that
+request open for a long time; the async alternative is
+`POST /v1/enrich/wikidata/jobs` (same `?filter`/`?source` scoping), which
+returns a job id immediately -- a background worker executes it, and
+`GET /v1/enrich/jobs/{id}` polls the record with the run's **live batch
+counters** while it is in flight (`GET /v1/enrich/jobs` lists recent jobs;
+records expire after a week). For each work the run
 resolves creators **through cataloged identifiers only**: ISBN -> Wikidata
 edition (P212/P957) -> work (P629) -> author (P50), then copies the claims
 Wikidata states explicitly -- P21 (sex or gender), P27 (country of
