@@ -320,6 +320,17 @@ summary:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+/* On touch devices every text input computes at least 16px: Mobile Safari
+   auto-zooms the page whenever a focused input's font-size is smaller, so a
+   patron tapping the search box got an unrequested zoom to pinch back from. */
+@media (hover: none) and (pointer: coarse) {
+  input[type="search"],
+  input[type="text"],
+  input[type="email"],
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
 /* Work detail (page.html) defines no sidebar block, so <main> is the layout's only
    child; span it across both tracks instead of stranding it in the 16rem column. */
 .lcat-layout > .lcat-main:only-child {
@@ -428,8 +439,10 @@ summary:focus-visible {
    keeps siblings aligned. */
 .lcat-facet-caret {
   flex: none;
-  width: 1.1rem;
-  height: 1.1rem;
+  /* 1.5rem = the WCAG 2.5.8 24px tap-target floor; the glyph stays small,
+     the hit box does not. The children indent below matches. */
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
   font: inherit;
   font-size: 0.7rem;
@@ -449,7 +462,7 @@ summary:focus-visible {
      min-content width compounded until the group slid under the results
      column -- the same treatment 173 gave flat rows. */
   flex: 1 1 100%;
-  margin: 0 0 0 1.1rem;
+  margin: 0 0 0 1.5rem;
   padding: 0;
   list-style: none;
   min-width: 0;
@@ -514,8 +527,9 @@ summary:focus-visible {
   font: inherit;
   font-size: 0.8rem;
   line-height: 1;
-  width: 1.3rem;
-  height: 1.3rem;
+  /* 24px tap-target floor (WCAG 2.5.8), like the caret. */
+  width: 1.5rem;
+  height: 1.5rem;
   padding: 0;
   color: var(--lcat-muted);
   background: none;
@@ -547,6 +561,8 @@ summary:focus-visible {
 .lcat-excluded li button {
   font: inherit;
   line-height: 1;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
   padding: 0 0.15rem;
   color: inherit;
   background: none;
