@@ -63,8 +63,8 @@ github.com/freeeve/go-stemmers v0.0.0-20260606195828-3c78df9017f5 h1:0wX7Qz3XG3s
 github.com/freeeve/go-stemmers v0.0.0-20260606195828-3c78df9017f5/go.mod h1:dcWXNghdzPDH46QYDvDtDOcXIDhieNz0jNdM7T87MZk=
 github.com/freeeve/libcat v0.202.3 h1:L5Dc6orNjKHjy6qGQo9gDd9XH/YQ1KoF5kwu0v1kTc8=
 github.com/freeeve/libcat v0.202.3/go.mod h1:O7U/ySKfxZnhxVwewVOyXEa2VDoRMBwiTdB6Nk4Z4Lc=
-github.com/freeeve/libcodex v0.31.0 h1:AFh3hrvDMzyupjpPLiXPDM5CRnFLX2A2u02QU23WZhc=
-github.com/freeeve/libcodex v0.31.0/go.mod h1:CfAOUn99dnS35oL3NBI99NOtTcPgltlg1MSbudNgjrA=
+github.com/freeeve/libcodex v0.32.0 h1:WFVcDh+UqfsmdoBR18eZ6ah9V3k9TtK3hJBWjDutwRE=
+github.com/freeeve/libcodex v0.32.0/go.mod h1:CfAOUn99dnS35oL3NBI99NOtTcPgltlg1MSbudNgjrA=
 github.com/freeeve/roaringrange v0.30.0 h1:OMHTiudHck8egR269J89wkHEvtf4i7GwV+72hZz6Fwg=
 github.com/freeeve/roaringrange v0.30.0/go.mod h1:WjFBwhlzBsajVxAeZ3YR+Ys9nbxSIuGp7YQoEMpZDXE=
 github.com/goccy/go-json v0.10.6 h1:p8HrPJzOakx/mn/bQtjgNjdTcN+/S6FcG2CTtQOrHVU=

@@ -272,6 +272,78 @@
     }
   }
 
+  // ---- SIP2 (physical ILS via the lcatd bridge) ----------------------------------
+
+  var SIP2_BATCH = 50; // the bridge caps ids per request
+
+  // sip2Request builds the bridge POST. SIP2 is raw TCP -- no browser can
+  // speak it -- so this adapter is proxied-ONLY: proxyUrl points at the
+  // lcatd bridge (POST /v1/availability/sip2), which holds the ILS
+  // credentials and answers the normalized item table.
+  function sip2Request(ids, cfg) {
+    if (!cfg.proxyUrl) throw configError("sip2.proxyUrl required (the lcatd bridge; SIP2 has no direct transport)");
+    return { url: cfg.proxyUrl, method: "POST", body: { ids: ids } };
+  }
+
+  // sip2Status maps the bridge's rollup onto the model's statuses: a loaned
+  // copy is holdable at the desk, so it renders as the actionable state
+  // rather than a dead "unavailable".
+  function sip2Status(s) {
+    if (s === "available") return "available";
+    if (s === "loaned") return "holdable";
+    if (s === "unavailable") return "unavailable";
+    return "unknown";
+  }
+
+  // normalizeSip2 maps one bridge item to the physical model: a single
+  // location row carrying the branch/shelf, call number, and due date.
+  function normalizeSip2(item, cfg, now) {
+    var status = sip2Status(item.status);
+    return {
+      provider: "sip2",
+      id: item.id,
+      status: status,
+      format: "physical",
+      locations: [{
+        library: item.location || undefined,
+        callNumber: item.callNumber,
+        status: status,
+        dueDate: item.dueDate || undefined,
+      }],
+      fetchedAt: now,
+    };
+  }
+
+  // fetchSip2Batch posts one batch to the bridge and returns an id->model map.
+  async function fetchSip2Batch(ids, cfg, deps) {
+    var fetchFn = (deps && deps.fetch) || (typeof fetch !== "undefined" ? fetch : null);
+    if (!fetchFn) throw new Error("lcat-availability: no fetch available");
+    var now = (deps && deps.now) || Date.now();
+    var req = sip2Request(ids, cfg || {});
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl
+      ? setTimeout(function () { ctrl.abort(); }, (cfg && cfg.timeoutMs) || DEFAULT_TIMEOUT_MS)
+      : null;
+    try {
+      var resp = await fetchFn(req.url, {
+        method: req.method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(req.body),
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (!resp.ok) throw new Error("availability HTTP " + resp.status);
+      var data = await resp.json();
+      var out = {};
+      var items = (data && data.items) || {};
+      Object.keys(items).forEach(function (id) {
+        out[id] = normalizeSip2(items[id], cfg, now);
+      });
+      return out;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   // ---- adapter registry ---------------------------------------------------------
 
   var adapters = {};
@@ -296,6 +368,13 @@
     domAttr: "data-daia-id",
     batchSize: DAIA_BATCH,
     fetchBatch: fetchDaiaBatch,
+  });
+
+  registerAdapter({
+    providerKey: "sip2",
+    domAttr: "data-sip2-id",
+    batchSize: SIP2_BATCH,
+    fetchBatch: fetchSip2Batch,
   });
 
   // ---- batching + cache + in-flight de-dup --------------------------------------
@@ -661,6 +740,9 @@
     normalizeDaia: normalizeDaia,
     daiaRequest: daiaRequest,
     fetchDaiaBatch: fetchDaiaBatch,
+    normalizeSip2: normalizeSip2,
+    sip2Request: sip2Request,
+    fetchSip2Batch: fetchSip2Batch,
     statusText: statusText,
     locationSummary: locationSummary,
     fmtStr: fmtStr,

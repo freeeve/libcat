@@ -22,6 +22,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/freeeve/libcodex/sip2"
+
 	"github.com/freeeve/libcat/ingest/locsh"
 	"github.com/freeeve/libcat/ingest/openlibrary"
 	"github.com/freeeve/libcat/ingest/wikidata"
@@ -461,6 +463,16 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 				}
 			}()
 		}
+	}
+	// The SIP2 availability bridge: mounted whenever an ACS address is
+	// configured; credentials stay server-side, the OPAC posts item ids.
+	if cfg.SIP2Addr != "" {
+		deps.SIP2 = &sip2.Client{
+			Address: cfg.SIP2Addr, User: cfg.SIP2User, Password: cfg.SIP2Pass,
+			Location: cfg.SIP2Location, InstitutionID: cfg.SIP2Institution,
+			ErrorDetection: cfg.SIP2ErrorDetection,
+		}
+		logger.Info("sip2 availability bridge", "addr", cfg.SIP2Addr, "login", cfg.SIP2User != "")
 	}
 	if deps.Blob != nil && cfg.AbuseSecret != "" {
 		exports, err := export.New(db, deps.Blob, cfg.Provider, []byte(cfg.AbuseSecret))

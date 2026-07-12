@@ -156,6 +156,21 @@ type Config struct {
 	// synthesize 040 $a/$c. Empty disables the derivation.
 	OrgCode string
 
+	// SIP2Addr, when set (host:port), mounts the public SIP2 availability
+	// bridge at POST /v1/availability/sip2: the OPAC's proxied transport for
+	// live shelf status, with the ILS credentials held server-side.
+	SIP2Addr string
+	// SIP2User/SIP2Pass, when set, log the session in (SIP2 93/94).
+	SIP2User string
+	SIP2Pass string
+	// SIP2Location is the login location code (CP); optional.
+	SIP2Location string
+	// SIP2Institution rides each item request as AO; optional.
+	SIP2Institution string
+	// SIP2ErrorDetection appends AY/AZ checksums to outbound messages, for
+	// ACS servers that require them.
+	SIP2ErrorDetection bool
+
 	// EnrichLocsh enables the id.loc.gov LCSH reconciliation source when set
 	// to "queue" (moderated) or "direct" (auto-approve).
 	EnrichLocsh string
@@ -189,6 +204,12 @@ func FromEnv() (Config, error) {
 		ListenAddr:             envOr("LCATD_LISTEN_ADDR", ":8080"),
 		BlobDir:                os.Getenv("LCATD_BLOB_DIR"),
 		StoreDir:               os.Getenv("LCATD_STORE_DIR"),
+		SIP2Addr:               os.Getenv("LCATD_SIP2_ADDR"),
+		SIP2User:               os.Getenv("LCATD_SIP2_USER"),
+		SIP2Pass:               os.Getenv("LCATD_SIP2_PASS"),
+		SIP2Location:           os.Getenv("LCATD_SIP2_LOCATION"),
+		SIP2Institution:        os.Getenv("LCATD_SIP2_INSTITUTION"),
+		SIP2ErrorDetection:     os.Getenv("LCATD_SIP2_ERROR_DETECTION") == "1",
 		S3Bucket:               os.Getenv("LCATD_S3_BUCKET"),
 		DynamoTable:            os.Getenv("LCATD_DYNAMO_TABLE"),
 		AWSEndpoint:            os.Getenv("LCATD_AWS_ENDPOINT"),

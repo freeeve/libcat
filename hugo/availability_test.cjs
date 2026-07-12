@@ -347,6 +347,43 @@ test("wireAction: no CTA element in the edition is a no-op, not a throw", () => 
   A.wireAction(null, { status: "available", actionUrl: "https://lib.example/x" });
 });
 
+test("sip2Request: proxied-only -- the bridge POST, and no proxyUrl errors", () => {
+  const req = A.sip2Request(["39001", "39002"], { proxyUrl: "https://lcatd.example/v1/availability/sip2" });
+  assert.equal(req.method, "POST");
+  assert.equal(req.url, "https://lcatd.example/v1/availability/sip2");
+  assert.deepEqual(req.body, { ids: ["39001", "39002"] });
+  assert.throws(() => A.sip2Request(["x"], {}), "sip2 without proxyUrl errors (no direct transport exists)");
+});
+
+test("normalizeSip2: bridge rollup to the physical model; loaned reads holdable", () => {
+  const onShelf = A.normalizeSip2(
+    { id: "39001", status: "available", location: "Main Stacks", callNumber: "PS3552.A45" }, {}, NOW);
+  assert.equal(onShelf.status, "available");
+  assert.equal(onShelf.format, "physical");
+  assert.deepEqual(onShelf.locations, [{ library: "Main Stacks", callNumber: "PS3552.A45", status: "available", dueDate: undefined }]);
+
+  const loaned = A.normalizeSip2({ id: "39002", status: "loaned", dueDate: "20260801" }, {}, NOW);
+  assert.equal(loaned.status, "holdable", "a loaned copy is holdable at the desk, not dead");
+  assert.equal(loaned.locations[0].dueDate, "20260801");
+
+  assert.equal(A.normalizeSip2({ id: "x", status: "unavailable" }, {}, NOW).status, "unavailable");
+  assert.equal(A.normalizeSip2({ id: "x", status: "unknown" }, {}, NOW).status, "unknown");
+});
+
+test("resolve(sip2): the bridge item table renders per id; a missing id degrades to unknown", async () => {
+  const table = {
+    "39001": { id: "39001", status: "available", location: "Main", callNumber: "PZ7" },
+  };
+  const fetchStub = () =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve({ items: table }) });
+  const got = await A.resolve("sip2", ["39001", "39-gone"],
+    { proxyUrl: "https://lcatd.example/v1/availability/sip2" },
+    { fetch: fetchStub, now: NOW, store: A.makeStore(1000) });
+  assert.equal(got["39001"].status, "available");
+  assert.equal(got["39001"].locations[0].library, "Main");
+  assert.equal(got["39-gone"].status, "unknown");
+});
+
 test("daiaRequest: direct GETs repeated id params, proxied POSTs the batch", () => {
   const direct = A.daiaRequest(["d1", "d2"], { baseUrl: "https://ils.example/daia" });
   assert.equal(direct.method, "GET");

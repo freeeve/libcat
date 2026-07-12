@@ -161,6 +161,7 @@ secrets arrive as a `secretRef` and need no file mounts.
 | `LCATD_S3_BUCKET` | an S3-compatible grain store (takes precedence) |
 | `LCATD_DYNAMO_TABLE` | the DynamoDB document store |
 | `LCATD_STORE_DIR` | a persistent local (journal-backed) document store; DynamoDB wins when both are set |
+| `LCATD_SIP2_ADDR` (+ `_USER`, `_PASS`, `_LOCATION`, `_INSTITUTION`, `_ERROR_DETECTION`) | the public SIP2 availability bridge at `POST /v1/availability/sip2` |
 | `LCATD_AWS_ENDPOINT` | redirects every AWS client at once |
 | `LCATD_S3_ENDPOINT` | redirects only S3, overriding the above |
 | `LCATD_DYNAMO_ENDPOINT` | redirects only DynamoDB, overriding the above |

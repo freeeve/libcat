@@ -602,6 +602,32 @@ contract as above: the proxy returns the ILS's **raw** `{ document: [...] }` so 
 client normalizes identically. Live availability stays out of the graph, so the catalog
 still cannot facet or sort by "available now" from the static index (`tasks/004`).
 
+### Physical ILS (SIP2, via the lcatd bridge)
+
+The bundled `sip2` adapter reaches any ILS speaking SIP2 -- the broadest
+single protocol for live item status -- through lcatd's availability bridge.
+SIP2 is raw TCP, so no browser can speak it: the adapter is **proxied-only**,
+and the "proxy" ships with the backend rather than being a deployment
+artifact. Configure lcatd with `LCATD_SIP2_ADDR` (plus `LCATD_SIP2_USER` /
+`LCATD_SIP2_PASS` / `LCATD_SIP2_LOCATION` / `LCATD_SIP2_INSTITUTION` /
+`LCATD_SIP2_ERROR_DETECTION=1` as your ACS requires) and point the adapter at
+it:
+
+```toml
+  [params.availability.sip2]
+    proxyUrl = "https://your-lcatd.example/v1/availability/sip2"
+```
+
+Editions carry `data-sip2-id` when their Instance has a `providerIds` entry
+whose `bf:source` scheme is **`sip2`** -- catalog the ILS item barcode there.
+The bridge answers a normalized item table (SIP2 circulation statuses 01-13
+folded to available / loaned / unavailable / unknown, plus title, due date,
+location, call number, and hold-queue length), and the adapter maps each item
+to the physical model: one `locations[]` row, with a loaned copy rendering
+`holdable` (reservable at the desk) rather than a dead `unavailable`. The
+endpoint is public and CORS-open -- shelf status is what a catalog exists to
+publish -- while the ILS credentials never leave the server.
+
 ### Wiring an edition to an adapter
 
 An adapter only runs on editions that carry its DOM attribute. `page.html` emits one

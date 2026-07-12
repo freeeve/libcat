@@ -13,6 +13,8 @@ import (
 	"github.com/freeeve/libcat/backend/auth"
 	"github.com/freeeve/libcat/backend/auth/local"
 	"github.com/freeeve/libcat/backend/authoritiesvc"
+	"github.com/freeeve/libcodex/sip2"
+
 	"github.com/freeeve/libcat/backend/batch"
 	"github.com/freeeve/libcat/backend/copycat"
 	"github.com/freeeve/libcat/backend/enrich"
@@ -78,6 +80,9 @@ type Deps struct {
 	DB store.Store
 	// Exports, when set, mounts the export-job surface.
 	Exports *export.Service
+	// SIP2, when set, mounts the public availability bridge (the OPAC's
+	// proxied transport for live shelf status over SIP2).
+	SIP2 *sip2.Client
 	// OrgCode is the deployment's MARC organization code; MARC surfaces
 	// derive each record's 040 from graph facts at decode time when set
 	//.
@@ -198,6 +203,9 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Enrich != nil && deps.Verifier != nil {
 		registerEnrich(mux, deps.Enrich, deps.Verifier, deps.Logger)
+	}
+	if deps.SIP2 != nil {
+		registerAvailability(mux, deps.SIP2, deps.Logger)
 	}
 	if deps.VocabSources != nil && deps.Verifier != nil {
 		registerVocabSources(mux, deps.VocabSources, deps.Verifier, deps.VocabUploadCapMB, deps.Suggest)
