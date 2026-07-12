@@ -286,3 +286,113 @@ func TestQueueJoinsWorkTitles(t *testing.T) {
 		t.Fatalf("patron row title = %q, want the stored title kept", got)
 	}
 }
+
+// TestQueueMinConfidence pins task 431: the floor hides PIPELINE rows below
+// it while patron rows (no machine confidence) always pass; the deployment
+// default applies when the request is silent; an explicit ?minConfidence
+// overrides in BOTH directions (including 0 to see everything); and an
+// unparseable value is a 400, never a silent no-op.
+func TestQueueMinConfidence(t *testing.T) {
+	h, bs, queue := newRecordsAPIWithQueue(t)
+	seedAuditWork(t, bs, "wqconf0001a", "", "", "zines", nil)
+	if err := queue.PipelineSuggest(t.Context(), "wqconf0001a",
+		vocab.TermRef{Scheme: "homosaurus", ID: "urn:homo:women431", Label: "Women"}, 0.8); err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.PipelineSuggest(t.Context(), "wqconf0001a",
+		vocab.TermRef{Scheme: "homosaurus", ID: "urn:homo:womyn431", Label: "Womyn"}, 0.6); err != nil {
+		t.Fatal(err)
+	}
+
+	items := func(query string) []string {
+		t.Helper()
+		rec := request(t, h, http.MethodGet, "/v1/queue"+query, "mod-token", "", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("queue%s = %d (%s)", query, rec.Code, rec.Body)
+		}
+		var page struct {
+			Items []struct {
+				Term struct{ ID string }
+			} `json:"items"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &page)
+		out := make([]string, 0, len(page.Items))
+		for _, it := range page.Items {
+			out = append(out, it.Term.ID)
+		}
+		return out
+	}
+
+	// No floor configured, none requested: everything shows.
+	if got := items(""); len(got) != 2 {
+		t.Fatalf("unfiltered = %v, want both", got)
+	}
+	// A request floor hides the see-also tier.
+	got := items("?minConfidence=0.7")
+	if len(got) != 1 || got[0] != "urn:homo:women431" {
+		t.Fatalf("floored = %v, want only the 0.8 row", got)
+	}
+	// Garbage is a 400, not a silent no-op.
+	for _, bad := range []string{"?minConfidence=maybe", "?minConfidence=1.5", "?minConfidence=-0.1"} {
+		if rec := request(t, h, http.MethodGet, "/v1/queue"+bad, "mod-token", "", nil); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d, want 400", bad, rec.Code)
+		}
+	}
+}
+
+// TestQueueMinConfidenceDefaultAndOverride: the deployment floor applies
+// when the request is silent, an explicit 0 overrides it back to
+// everything, and patron rows pass the floor regardless.
+func TestQueueMinConfidenceDefaultAndOverride(t *testing.T) {
+	bs := blob.NewMem()
+	db := store.NewMem()
+	verifier := staffVerifier{
+		"mod-token": {Email: "mod@example.org", Roles: []auth.Role{auth.RoleModerator}},
+	}
+	data, err := os.ReadFile("../vocab/testdata/authorities.nq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = bs.Put(t.Context(), "a/x.nq", data, blob.PutOptions{})
+	ix, err := vocab.Load(t.Context(), bs, "a/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := suggest.New(db, ix, suggest.Caps{})
+	if _, err := queue.PutPolicy(t.Context(), suggest.Policy{Enabled: true, FreeText: suggest.FreeTextAny}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(Deps{Blob: bs, DB: db, Suggest: queue, Vocab: ix, Verifier: verifier, QueueMinConfidence: 0.7})
+
+	if err := queue.PipelineSuggest(t.Context(), "wqconf0002a",
+		vocab.TermRef{Scheme: "homosaurus", ID: "urn:homo:seealso", Label: "See Also"}, 0.6); err != nil {
+		t.Fatal(err)
+	}
+	// A patron row carries no machine confidence; the floor must not eat it.
+	if _, err := queue.Submit(t.Context(), suggest.SubmitInput{
+		WorkID: "wqconf0002a",
+		Term:   vocab.TermRef{Scheme: "homosaurus", ID: transURI, Label: "Patron pick"},
+		Type:   suggest.TypeAdd, SupporterHash: "h", WorkTitle: "T",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	count := func(query string) int {
+		t.Helper()
+		rec := request(t, h, http.MethodGet, "/v1/queue"+query, "mod-token", "", nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("queue%s = %d (%s)", query, rec.Code, rec.Body)
+		}
+		var page struct {
+			Items []struct{ WorkID string } `json:"items"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &page)
+		return len(page.Items)
+	}
+	if got := count(""); got != 1 {
+		t.Fatalf("default floor: %d items, want 1 (patron row only)", got)
+	}
+	if got := count("?minConfidence=0"); got != 2 {
+		t.Fatalf("explicit zero override: %d items, want everything", got)
+	}
+}

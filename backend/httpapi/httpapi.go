@@ -80,6 +80,10 @@ type Deps struct {
 	DB store.Store
 	// Exports, when set, mounts the export-job surface.
 	Exports *export.Service
+	// QueueMinConfidence is the review queue's default confidence floor:
+	// PIPELINE suggestions below it are hidden unless a request sets its
+	// own minConfidence (0 shows everything -- the default).
+	QueueMinConfidence float64
 	// SIP2, when set, mounts the public availability bridge (the OPAC's
 	// proxied transport for live shelf status over SIP2).
 	SIP2 *sip2.Client
@@ -152,7 +156,7 @@ func New(deps Deps) http.Handler {
 		registerSuggestions(mux, deps.Suggest, deps.Abuse)
 	}
 	if deps.Suggest != nil && deps.Verifier != nil {
-		registerReview(mux, deps.Suggest, deps.Verifier, deps.Publisher, deps.WorkIndex)
+		registerReview(mux, deps.Suggest, deps.Verifier, deps.Publisher, deps.WorkIndex, deps.QueueMinConfidence)
 	}
 	// The auto-linker seam stays a nil interface unless a service is
 	// configured (a typed-nil *Service must not masquerade as a hook).

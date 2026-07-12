@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/freeeve/libcat/backend/auth"
@@ -38,7 +39,7 @@ func requestMonth(r *http.Request) (string, bool) {
 // review, manual/folk term governance, publishing, and the audit trail.
 // ix, when set, joins work titles onto queue rows at read time; nil (no
 // work index) leaves rows as stored.
-func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.TokenVerifier, publisher GraphPublisher, ix *workindex.Index) {
+func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.TokenVerifier, publisher GraphPublisher, ix *workindex.Index, minConfidence float64) {
 	moderator := auth.Require(verifier, auth.RoleModerator)
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
@@ -76,6 +77,19 @@ func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.Toke
 			Provenance: suggest.Provenance(r.URL.Query().Get("provenance")),
 			Type:       suggest.SuggType(r.URL.Query().Get("type")),
 			Cursor:     r.URL.Query().Get("cursor"),
+			// The deployment's floor applies unless the request names its
+			// own -- including an explicit 0 to see everything.
+			MinConfidence: minConfidence,
+		}
+		if raw := r.URL.Query().Get("minConfidence"); raw != "" {
+			v, err := strconv.ParseFloat(raw, 64)
+			if err != nil || v < 0 || v > 1 {
+				// A silent no-op filter is worse than a 400: the caller
+				// believes the noise is gone.
+				writeError(w, http.StatusBadRequest, "minConfidence wants a number in [0,1]")
+				return
+			}
+			q.MinConfidence = v
 		}
 		page, err := svc.Queue(r.Context(), q)
 		if err != nil {

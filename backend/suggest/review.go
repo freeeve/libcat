@@ -110,8 +110,13 @@ type QueueQuery struct {
 	Scheme     string
 	Provenance Provenance
 	Type       SuggType
-	Limit      int    // default 50
-	Cursor     string // opaque; from a prior QueuePage
+	// MinConfidence hides PIPELINE suggestions below the floor -- the
+	// see-also-grade noise filter. It never touches rows without a machine
+	// confidence (patron and librarian suggestions carry none), and
+	// filtered rows stay stored, retrievable by lowering the floor.
+	MinConfidence float64
+	Limit         int    // default 50
+	Cursor        string // opaque; from a prior QueuePage
 }
 
 // QueuePage is one page of the review queue, supporter-count-descending.
@@ -161,6 +166,9 @@ func (s *Service) Queue(ctx context.Context, q QueueQuery) (QueuePage, error) {
 		if (q.Scheme != "" && sg.Term.Scheme != q.Scheme) ||
 			(q.Provenance != "" && sg.Provenance != q.Provenance) ||
 			(q.Type != "" && sg.Type != q.Type) {
+			continue
+		}
+		if q.MinConfidence > 0 && sg.Provenance == ProvenancePipeline && sg.Confidence < q.MinConfidence {
 			continue
 		}
 		page.Items = append(page.Items, sg)

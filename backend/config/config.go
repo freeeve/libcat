@@ -156,6 +156,12 @@ type Config struct {
 	// synthesize 040 $a/$c. Empty disables the derivation.
 	OrgCode string
 
+	// QueueMinConfidence is the review queue's default confidence floor
+	// in [0,1]: PIPELINE suggestions below it stay stored but hidden from
+	// the default view (a request may override with ?minConfidence=). 0
+	// (the default) shows everything.
+	QueueMinConfidence float64
+
 	// SIP2Addr, when set (host:port), mounts the public SIP2 availability
 	// bridge at POST /v1/availability/sip2: the OPAC's proxied transport for
 	// live shelf status, with the ILS credentials held server-side.
@@ -260,6 +266,13 @@ func FromEnv() (Config, error) {
 	}
 	if cfg.EnrichOpenLibrary != "" && cfg.EnrichOpenLibraryDump == "" {
 		return Config{}, fmt.Errorf("config: LCATD_ENRICH_OPENLIBRARY needs LCATD_ENRICH_OPENLIBRARY_DUMP (the editions dump path)")
+	}
+	if raw := os.Getenv("LCATD_QUEUE_MIN_CONFIDENCE"); raw != "" {
+		v, err := strconv.ParseFloat(raw, 64)
+		if err != nil || v < 0 || v > 1 {
+			return Config{}, fmt.Errorf("config: LCATD_QUEUE_MIN_CONFIDENCE must be a number in [0,1]")
+		}
+		cfg.QueueMinConfidence = v
 	}
 	if raw := os.Getenv("LCATD_VOCAB_UPLOAD_CAP_MB"); raw != "" {
 		n, err := strconv.Atoi(raw)

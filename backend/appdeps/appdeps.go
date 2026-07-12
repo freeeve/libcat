@@ -58,7 +58,7 @@ import (
 // when LCATD_S3_BUCKET is set; otherwise both fall back to the in-memory /
 // local-directory stores, so a laptop or the demo runs with no AWS at all.
 func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi.Deps, error) {
-	deps := httpapi.Deps{Logger: logger, OrgCode: cfg.OrgCode}
+	deps := httpapi.Deps{Logger: logger, OrgCode: cfg.OrgCode, QueueMinConfidence: cfg.QueueMinConfidence}
 	// A configured scheme filter always admits the local scheme, or a fresh
 	// deployment could never index its first minted authority.
 	vocabSchemes := cfg.VocabSchemes
