@@ -13,6 +13,7 @@ import (
 
 	"github.com/freeeve/libcat/backend/auth"
 	"github.com/freeeve/libcat/backend/copycat"
+	"github.com/freeeve/libcat/backend/sruenrich"
 	"github.com/freeeve/libcat/backend/store"
 	"github.com/freeeve/libcat/backend/vocab"
 )
@@ -80,12 +81,12 @@ func TestSubjectLookupByISBN(t *testing.T) {
 		t.Fatalf("lookup = %d %s", rec.Code, rec.Body)
 	}
 	var res struct {
-		Candidates []subjectCandidate `json:"candidates"`
+		Candidates []sruenrich.Candidate `json:"candidates"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 		t.Fatal(err)
 	}
-	byHeading := map[string]subjectCandidate{}
+	byHeading := map[string]sruenrich.Candidate{}
 	for _, c := range res.Candidates {
 		byHeading[c.Heading] = c
 	}

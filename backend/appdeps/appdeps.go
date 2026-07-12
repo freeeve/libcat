@@ -40,6 +40,7 @@ import (
 	"github.com/freeeve/libcat/backend/httpapi"
 	"github.com/freeeve/libcat/backend/profilesvc"
 	"github.com/freeeve/libcat/backend/publish"
+	"github.com/freeeve/libcat/backend/sruenrich"
 	"github.com/freeeve/libcat/backend/store"
 	"github.com/freeeve/libcat/backend/suggest"
 	"github.com/freeeve/libcat/backend/trigger"
@@ -417,6 +418,17 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 				continue
 			}
 			enrichSources[xw.Name()] = enrich.Source{Enricher: xw, Mode: enrich.ModeQueue, Scheme: scheme}
+		}
+	}
+	// The SRU/Z39.50 subject harvester: asks the copycat targets what a
+	// scoped set of works is about and queues ONLY reconciled controlled
+	// terms for moderation -- external subject cataloging without
+	// whole-record import. Scheme stays empty: harvested terms span
+	// vocabularies, so each derives its scheme from its URI.
+	if deps.Copycat != nil && deps.Vocab != nil && deps.Suggest != nil {
+		enrichSources[sruenrich.Name] = enrich.Source{
+			Enricher: &sruenrich.Enricher{Search: deps.Copycat, Vocab: deps.Vocab, Delay: time.Second, Log: logger},
+			Mode:     enrich.ModeQueue,
 		}
 	}
 	if len(enrichSources) > 0 && deps.Blob != nil {

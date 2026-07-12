@@ -98,6 +98,18 @@ tags against it. The legacy `LCATD_ENRICH_LOCSH=queue|direct` variable still
 controls the original locsh reconciler and is the only direct-mode path.
 Sources registered after boot join the enrichment list at the next restart.
 
+The `crosswalk-<scheme>` sources resolve each work subject's cross-scheme
+equivalents into their target scheme: direct skos exact/close links in
+either direction AND one-hop pivots through a shared intermediate URI --
+the FAST -> LCSH <- Homosaurus shape, where neither LCSH nor any direct
+FAST-Homosaurus edge is loaded. Pivot suggestions carry lower confidence
+(exact 1.0, close 0.85, pivot-exact 0.8, pivot-close 0.7); the weakest hop
+grades the chain. For a FAST-cataloged collection the pivot's first hop is
+the FAST term's own LCSH source edge: `lcat vocab-subset` harvests it
+automatically for FAST-namespace subjects (the per-term linked data's
+`schema:sameAs` to `id.loc.gov`, emitted as `skos:exactMatch`) -- regenerate
+an older label-only FAST snapshot to pick the edges up.
+
 ### External work identities (OpenLibrary, tasks/066)
 
 `LCATD_ENRICH_OPENLIBRARY=direct` plus `LCATD_ENRICH_OPENLIBRARY_DUMP=<path>`
@@ -111,6 +123,22 @@ with the hub URI in `$1` (tasks/359). A Work whose ISBNs map to conflicting work
 guessed); the minted `w…` id stays primary. Direct mode is the meaningful one:
 an exact ISBN match is deterministic, and the queue path moderates subject
 candidates, not identity links.
+
+### SRU/Z39.50 subject harvest (sru-subjects)
+
+When copy cataloging is configured, the `sru-subjects` source registers
+automatically: `POST /v1/enrich/sru-subjects/run?filter=k=v` (or the async
+`/jobs` variant) asks the copycat targets what the scoped works are about --
+ISBN searches, 6XX extraction only (titles/contributors never travel), and
+ONLY headings that reconcile to a loaded vocabulary come back, as moderated
+suggestions. Identifier matches (`$0`) queue at higher confidence than
+whole-heading label matches; a work's existing subjects and tags never
+re-suggest; works without an ISBN are skipped. Quota hygiene: at most two
+ISBNs per work fan out, with a politeness pause between works -- scope runs
+with `?filter` rather than sweeping a large corpus. This complements the
+local crosswalk sources: they walk links the loaded vocabularies already
+hold, while the harvest discovers headings other libraries assigned (e.g.
+Homosaurus 650s at targets that carry them).
 
 ## Scheme filtering
 

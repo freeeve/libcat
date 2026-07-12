@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/freeeve/libcat/ingest"
+	"github.com/freeeve/libcat/project"
 	"github.com/freeeve/libcat/storage/blob"
 
 	"github.com/freeeve/libcat/backend/store"
@@ -147,7 +148,14 @@ func (s *Service) runQueued(ctx context.Context, src Source, keep func(*ingest.W
 			if l := vocab.PickLabel(subj.Labels); l != "" {
 				label = l
 			}
-			term := vocab.TermRef{Scheme: src.Scheme, ID: subj.URI, Label: label}
+			// A single-vocabulary source names its scheme once; a source
+			// spanning vocabularies (SRU subject harvest) leaves it empty
+			// and each term's scheme derives from its URI namespace.
+			scheme := src.Scheme
+			if scheme == "" {
+				scheme = project.SchemeForURI(subj.URI)
+			}
+			term := vocab.TermRef{Scheme: scheme, ID: subj.URI, Label: label}
 			err := s.Queue.PipelineSuggest(ctx, res.WorkID, term, res.Confidence)
 			if err != nil {
 				return queued, err
