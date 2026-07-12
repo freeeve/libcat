@@ -135,9 +135,9 @@
   }
 </script>
 
-<section class="diversity" aria-label="Diversity audit">
+<main class="diversity" id="main" tabindex="-1">
   <header class="head">
-    <h2>Diversity audit</h2>
+    <h1>Diversity audit</h1>
     <p class="muted">
       What the collection is <em>about</em>, from its subject headings and tags --
       not who created it.
@@ -371,7 +371,7 @@
       </ul>
     </section>
   {/if}
-</section>
+</main>
 
 <style>
   .diversity {
