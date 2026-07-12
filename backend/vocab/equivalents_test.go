@@ -206,6 +206,8 @@ func pivotGuardFixture(t *testing.T) *Index {
 <urn:homo:ssm> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:ssm> <authority:homosaurus> .
 <urn:homo:lescouples> <http://www.w3.org/2004/02/skos/core#prefLabel> "Lesbian couples"@en <authority:homosaurus> .
 <urn:homo:lescouples> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:ssm> <authority:homosaurus> .
+<urn:gnd:minderheiten> <http://www.w3.org/2004/02/skos/core#prefLabel> "Minderheiten"@de <authority:gnd> .
+<urn:gnd:minderheiten> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:minorities> <authority:gnd> .
 <urn:fast:masculinity> <http://www.w3.org/2004/02/skos/core#prefLabel> "Masculinity"@en <authority:fast> .
 <urn:fast:masculinity> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:masc> <authority:fast> .
 <urn:homo:masculinities> <http://www.w3.org/2004/02/skos/core#prefLabel> "Masculinities"@en <authority:homosaurus> .
@@ -270,5 +272,44 @@ func TestPivotGuards(t *testing.T) {
 	masc, _ := ix.Equivalents("urn:fast:masculinity")
 	if got := strengthOf(masc, "urn:homo:masculinities"); got != "pivot-exact" {
 		t.Errorf("Masculinity -> Masculinities = %q, want pivot-exact (plural-tolerant match, sole claimant)", got)
+	}
+}
+
+// TestPivotGuardsReverseDirection pins task 423: with the NARROW term as
+// the source, its exactMatch onto a broad hub must not equate it to the
+// hub's counterparts. Homosaurus "Womyn" asserts exactMatch on LCSH
+// "Women" -- a two-hop exactMatch chain that passed 420's target-side
+// guard -- and a high-fan-in node demotes non-matching pivots even when
+// each scheme has only one claimant.
+func TestPivotGuardsReverseDirection(t *testing.T) {
+	ix := pivotGuardFixture(t)
+
+	// Source-narrow: Womyn's own broader ("Women") claims the same node,
+	// so the node equates to the ancestor, not to Womyn -- no pivot
+	// suggests plain "Women" (in any scheme) as Womyn's equivalent.
+	womyn, ok := ix.Equivalents("urn:homo:womyn")
+	if !ok {
+		t.Fatal("homo Womyn unresolved")
+	}
+	if got := strengthOf(womyn, "urn:fast:women"); got != "" {
+		t.Errorf("Womyn -> FAST Women = %q, want dropped (source is the narrow end)", got)
+	}
+	if got := strengthOf(womyn, "urn:homo:women"); got != "" {
+		t.Errorf("Womyn -> homosaurus Women = %q, want dropped (its own broader is not its equivalent)", got)
+	}
+
+	// Cross-scheme fan-in: LCSH "Minorities" carries three claimants across
+	// schemes, so GND's single non-matching claimant demotes even though
+	// its scheme has no sibling there.
+	minorities, _ := ix.Equivalents("urn:fast:minorities")
+	if got := strengthOf(minorities, "urn:gnd:minderheiten"); got != "pivot-close" {
+		t.Errorf("Minorities -> Minderheiten = %q, want demoted pivot-close (hub fan-in)", got)
+	}
+
+	// The clean 1:1 pivot is untouched by the fan-in rule (two terms on the
+	// node, counting the source).
+	masc, _ := ix.Equivalents("urn:fast:masculinity")
+	if got := strengthOf(masc, "urn:homo:masculinities"); got != "pivot-exact" {
+		t.Errorf("Masculinity -> Masculinities = %q, want pivot-exact still", got)
 	}
 }

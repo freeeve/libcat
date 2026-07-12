@@ -113,7 +113,11 @@ counterpart keeps full pivot strength, a claimant whose sibling on the same
 node is its skos:broader ancestor is dropped outright ("Women" never
 suggests "Womyn"), and when several claimants remain the node is treated as
 a hub -- non-matching survivors demote one tier (a demoted pivot-close is
-dropped as coincidence-grade). For a FAST-cataloged collection the pivot's first hop is
+dropped as coincidence-grade). The guards run in both directions: when the
+SOURCE is the narrow end (its own broader claims the same node -- "Womyn"
+asserting exactMatch on LCSH "Women"), nothing non-matching pivots through
+at all, and a node with three or more distinct claimants across every
+loaded scheme counts as a hub even where each scheme holds just one. For a FAST-cataloged collection the pivot's first hop is
 the FAST term's own LCSH source edge: `lcat vocab-subset` harvests it
 automatically for FAST-namespace subjects (the per-term linked data's
 `schema:sameAs` to `id.loc.gov`, emitted as `skos:exactMatch`) -- regenerate

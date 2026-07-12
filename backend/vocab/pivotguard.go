@@ -35,10 +35,17 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 		return cands
 	}
 	srcForms := labelForms(src)
+	srcKey := canonIdentifier(src.ID)
 	type groupKey struct{ via, scheme string }
 	groups := map[groupKey][]int{}
 	terms := make([]*Term, len(cands))
 	for i, c := range cands {
+		// The source shows up among its own node's claimants (emission
+		// excludes it later); it must not count as sibling evidence or
+		// fan-in here.
+		if canonIdentifier(c.id) == srcKey {
+			continue
+		}
 		if t, ok := ix.Resolve(c.id); ok {
 			terms[i] = t
 			k := groupKey{via: c.via, scheme: t.Scheme}
@@ -46,17 +53,18 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 		}
 	}
 
+	matched := map[int]bool{}
+	for i, t := range terms {
+		if t != nil && formsOverlap(srcForms, labelForms(t)) {
+			matched[i] = true
+		}
+	}
+
 	drop := map[int]bool{}
 	demote := map[int]bool{}
 	for _, members := range groups {
 		if len(members) < 2 {
-			continue // no sibling evidence, nothing to judge
-		}
-		matched := map[int]bool{}
-		for _, i := range members {
-			if formsOverlap(srcForms, labelForms(terms[i])) {
-				matched[i] = true
-			}
+			continue // no same-scheme sibling evidence at this node
 		}
 		for _, i := range members {
 			if matched[i] {
@@ -80,6 +88,49 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 		}
 		for _, i := range members {
 			if !drop[i] && !matched[i] {
+				demote[i] = true
+			}
+		}
+	}
+
+	// Cross-scheme rules per pivot node (task 423: the reverse direction --
+	// the SOURCE can be the narrow end, and a node's breadth shows in its
+	// total fan-in, not just one scheme's claimants).
+	srcAncestors := map[string]bool{}
+	for _, a := range ix.Ancestors(src.Scheme, src.ID) {
+		srcAncestors[a.ID] = true
+	}
+	byVia := map[string][]int{}
+	for i, c := range cands {
+		if terms[i] != nil {
+			byVia[c.via] = append(byVia[c.via], i)
+		}
+	}
+	for _, members := range byVia {
+		// Source-narrow: a via-sibling that is the source's OWN ancestor
+		// means the source claims this node from below (homosaurus "Womyn"
+		// exactMatch LCSH "Women" while its broader "Women" claims the same
+		// node) -- the node equates to the ancestor, not to the source, so
+		// nothing non-matching may pivot through it.
+		srcNarrow := false
+		distinct := map[string]bool{}
+		for _, i := range members {
+			distinct[terms[i].ID] = true
+			if terms[i].Scheme == src.Scheme && srcAncestors[terms[i].ID] {
+				srcNarrow = true
+			}
+		}
+		// Fan-in counts the source itself: three or more distinct terms on
+		// one node is a broad heading by evidence, whatever their schemes.
+		hub := len(distinct)+1 >= 3
+		for _, i := range members {
+			if matched[i] {
+				continue
+			}
+			switch {
+			case srcNarrow:
+				drop[i] = true
+			case hub:
 				demote[i] = true
 			}
 		}
