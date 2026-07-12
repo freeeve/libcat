@@ -194,7 +194,7 @@ func New(deps Deps) http.Handler {
 		registerExports(mux, deps.Exports, deps.Batch, deps.Verifier)
 	}
 	if deps.Enrich != nil && deps.Verifier != nil {
-		registerEnrich(mux, deps.Enrich, deps.Verifier)
+		registerEnrich(mux, deps.Enrich, deps.Verifier, deps.Logger)
 	}
 	if deps.VocabSources != nil && deps.Verifier != nil {
 		registerVocabSources(mux, deps.VocabSources, deps.Verifier, deps.VocabUploadCapMB, deps.Suggest)

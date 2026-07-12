@@ -7,6 +7,7 @@ package enrich
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/freeeve/libcat/ingest"
@@ -14,6 +15,18 @@ import (
 
 	"github.com/freeeve/libcat/backend/suggest"
 	"github.com/freeeve/libcat/backend/vocab"
+)
+
+// Run error classes, so the HTTP surface can map failure cause to status:
+// the caller's mistake (ErrUnknownSource), the deployment's mistake
+// (ErrMisconfigured), the upstream service's fault (ingest.ErrEnricher), or
+// -- unwrapped -- a storage fault.
+var (
+	// ErrUnknownSource names a source the deployment has not configured.
+	ErrUnknownSource = errors.New("unknown enrichment source")
+	// ErrMisconfigured marks a source whose configuration cannot run
+	// (invalid mode, queue mode without the suggestion service).
+	ErrMisconfigured = errors.New("enrichment source misconfigured")
 )
 
 // Mode selects how a source's results land.
@@ -68,7 +81,7 @@ type Result struct {
 func (s *Service) Run(ctx context.Context, name string, keep func(*ingest.WorkSummary) bool) (Result, error) {
 	src, ok := s.Sources[name]
 	if !ok {
-		return Result{}, fmt.Errorf("enrich: unknown source %q", name)
+		return Result{}, fmt.Errorf("%w: %q", ErrUnknownSource, name)
 	}
 	stats := func() *ingest.EnrichStats {
 		if sr, ok := src.Enricher.(ingest.StatsReporter); ok {
@@ -85,7 +98,7 @@ func (s *Service) Run(ctx context.Context, name string, keep func(*ingest.WorkSu
 		n, err := s.runQueued(ctx, src, keep)
 		return Result{Source: name, Mode: src.Mode, Works: n, Stats: stats()}, err
 	}
-	return Result{}, fmt.Errorf("enrich: source %q has invalid mode %q", name, src.Mode)
+	return Result{}, fmt.Errorf("%w: source %q has invalid mode %q", ErrMisconfigured, name, src.Mode)
 }
 
 // Names lists the configured sources.
@@ -99,7 +112,7 @@ func (s *Service) Names() []string {
 
 func (s *Service) runQueued(ctx context.Context, src Source, keep func(*ingest.WorkSummary) bool) (int, error) {
 	if s.Queue == nil {
-		return 0, fmt.Errorf("enrich: queue mode needs the suggestion service")
+		return 0, fmt.Errorf("%w: queue mode needs the suggestion service", ErrMisconfigured)
 	}
 	summaries, _, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.GrainPrefix)
 	if err != nil {
@@ -116,7 +129,7 @@ func (s *Service) runQueued(ctx context.Context, src Source, keep func(*ingest.W
 	}
 	results, err := src.Enricher.Enrich(ctx, summaries)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", ingest.ErrEnricher, err)
 	}
 	queued := 0
 	for _, res := range results {

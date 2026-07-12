@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"slices"
@@ -205,6 +206,12 @@ type Enricher interface {
 // enrichBatchSize bounds how many summaries one Enrich call receives.
 const enrichBatchSize = 50
 
+// ErrEnricher marks a failure inside the enricher itself -- typically the
+// external service behind it (rate limit, timeout, DNS) -- as opposed to a
+// storage read/write failure around it. Callers use errors.Is to tell a
+// retryable upstream condition from an internal fault.
+var ErrEnricher = errors.New("enricher failed")
+
 // RunEnrich executes an enricher in direct (auto-approve) mode over every
 // grain under prefix in the store: each returned Work's enrichment:<name>
 // graph is dropped and replaced with the fresh assertions, so a re-run is
@@ -245,7 +252,7 @@ func RunEnrichScoped(ctx context.Context, st blob.Store, prefix string, e Enrich
 		end := min(start+enrichBatchSize, len(summaries))
 		results, err := e.Enrich(ctx, summaries[start:end])
 		if err != nil {
-			return 0, fmt.Errorf("enrich %s: %w", e.Name(), err)
+			return 0, fmt.Errorf("enrich %s: %w: %w", e.Name(), ErrEnricher, err)
 		}
 		for _, res := range results {
 			grainPath, ok := paths[res.WorkID]
