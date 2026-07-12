@@ -150,6 +150,63 @@ func TestMARCProviderClustersAndRoutes(t *testing.T) {
 	}
 }
 
+// TestMARCAuthorityAgentIRIFlowsToContributorIDs locks the cross-module
+// contract the wikidata enricher's author-identifier pass depends on
+// (task 414, libcodex v0.31.0): a 1xx $1 RWO URI makes the bf:agent node
+// an IRI in the grain, and the work summary surfaces it in ContributorIDs.
+func TestMARCAuthorityAgentIRIFlowsToContributorIDs(t *testing.T) {
+	const viaf = "http://viaf.org/viaf/113230702"
+	r := codex.NewRecord()
+	r.SetLeader(codex.Leader([]byte("00000nam a2200000 a 4500")))
+	r.AddField(codex.NewControlField("001", "m1"))
+	r.AddField(codex.NewDataField("100", '1', ' ',
+		codex.NewSubfield('a', "Adams, Douglas"),
+		codex.NewSubfield('1', viaf)))
+	r.AddField(codex.NewDataField("245", '1', '0', codex.NewSubfield('a', "Life, the Universe and Everything")))
+
+	prov, err := New(ingest.Config{Source: writeMARC(t, r)})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	out := t.TempDir()
+	if _, err := ingest.Run(prov, out); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	nq := readNQuads(t, out)
+	if !strings.Contains(nq, "<http://id.loc.gov/ontologies/bibframe/agent> <"+viaf+">") {
+		t.Fatalf("grain does not carry the agent as the $1 IRI:\n%s", nq)
+	}
+
+	var ids []string
+	err = filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".nq") || d.Name() == "catalog.nq" {
+			return err
+		}
+		grain, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		sums, err := ingest.SummarizeGrain(grain)
+		if err != nil {
+			return err
+		}
+		for _, s := range sums {
+			ids = append(ids, s.ContributorIDs...)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("summarize grains: %v", err)
+	}
+	found := false
+	for _, id := range ids {
+		found = found || id == viaf
+	}
+	if !found {
+		t.Errorf("ContributorIDs = %v, want %s", ids, viaf)
+	}
+}
+
 // TestMARCProviderReingestStable proves re-ingesting the same MARC file mints
 // nothing and rewrites byte-identical grains (the no-churn gate, now via
 // the MARC provider).
