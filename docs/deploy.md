@@ -123,8 +123,9 @@ spec:
   terminationGracePeriodSeconds: 30   # > LCATD_SHUTDOWN_DELAY + 10s drain
   containers:
     - name: lcatd
-      # Not published yet (tasks/247) -- build and push to your own registry.
-      image: ghcr.io/freeeve/libcat:v0.98.0
+      # No public image is published, by decision: build the repo's
+      # Dockerfile (see Quick start) and push to your own registry.
+      image: registry.example.org/libcat:v0.207.0
       ports: [{ containerPort: 8080 }]
       env:
         - name: LCATD_SHUTDOWN_DELAY
