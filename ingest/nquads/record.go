@@ -40,9 +40,34 @@ type work struct {
 	extras       map[string]string
 	sources      []string
 	confident    bool // attested by any non-tentative source
-	// agents are contributors' authority identities keyed by resolved name
-	// (creators that arrived as described agent nodes with owl:sameAs links).
+	// agents are contributors' authority identities keyed by every label
+	// form (creators that arrived as described agent nodes with owl:sameAs
+	// links).
 	agents map[string]ingest.AgentIdentity
+	// creatorAgents are the work's agent-resolved creators in feed order:
+	// the post-pass guarantee that each one's authority lands on a
+	// contribution regardless of how the contributor list spells it.
+	creatorAgents []creatorAgent
+}
+
+// creatorAgent is one agent-resolved dct:creator: its display label, every
+// label form it answers to, and its authority identity.
+type creatorAgent struct {
+	display string
+	forms   []string
+	id      ingest.AgentIdentity
+}
+
+// matchesLabel reports whether a contribution label names this agent, under
+// any of its label forms (case-insensitive, whitespace-trimmed).
+func (ca creatorAgent) matchesLabel(label string) bool {
+	label = strings.TrimSpace(label)
+	for _, f := range ca.forms {
+		if strings.EqualFold(f, label) {
+			return true
+		}
+	}
+	return false
 }
 
 // record adapts a work to ingest.Record. One record per work subject; records
@@ -165,21 +190,56 @@ func (r record) contributions() []codexbf.Contribution {
 			Roles:     []codexbf.Role{{Term: role}},
 		})
 	}
-	if len(out) > 0 {
-		return out
+	if len(out) == 0 {
+		for _, c := range r.w.creators {
+			c = strings.TrimSpace(c)
+			if c == "" || isJunkContributor(c, "") {
+				continue
+			}
+			out = append(out, codexbf.Contribution{
+				Primary:   len(out) == 0,
+				Class:     "Person",
+				Label:     lastFirst(c),
+				Authority: r.w.agents[c].Authority,
+				Roles:     []codexbf.Role{{Term: "author"}},
+			})
+		}
 	}
-	for _, c := range r.w.creators {
-		c = strings.TrimSpace(c)
-		if c == "" || isJunkContributor(c, "") {
+	// Post-pass (task 432): every agent-resolved creator's authority must
+	// land, however the contributor list spells the person -- or omits
+	// them. Attach to a label-matching contribution first; append an
+	// authored contribution only when nobody names the creator at all.
+	for _, ca := range r.w.creatorAgents {
+		if ca.id.Authority == "" || isJunkContributor(ca.display, "") {
 			continue
 		}
-		out = append(out, codexbf.Contribution{
-			Primary:   len(out) == 0,
-			Class:     "Person",
-			Label:     lastFirst(c),
-			Authority: r.w.agents[c].Authority,
-			Roles:     []codexbf.Role{{Term: "author"}},
-		})
+		carried := false
+		for i := range out {
+			if out[i].Authority == ca.id.Authority {
+				carried = true
+				break
+			}
+		}
+		if carried {
+			continue
+		}
+		attached := false
+		for i := range out {
+			if out[i].Authority == "" && ca.matchesLabel(out[i].Label) {
+				out[i].Authority = ca.id.Authority
+				attached = true
+				break
+			}
+		}
+		if !attached {
+			out = append(out, codexbf.Contribution{
+				Primary:   len(out) == 0,
+				Class:     "Person",
+				Label:     lastFirst(ca.display),
+				Authority: ca.id.Authority,
+				Roles:     []codexbf.Role{{Term: "author"}},
+			})
+		}
 	}
 	return out
 }

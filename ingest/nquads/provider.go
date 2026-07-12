@@ -157,7 +157,7 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 	// Agent-node sidecars: labels and authority links keyed by node IRI,
 	// resolved onto creators/contributors after the pass (a feed's agent
 	// description may stream before or after the statements naming it).
-	nodeLabels := map[string]string{}
+	nodeLabels := map[string][]string{}
 	nodeSameAs := map[string][]string{}
 	get := func(iri string) *work {
 		id := strings.TrimPrefix(iri, p.m.WorkPrefix)
@@ -196,8 +196,8 @@ func (p *Provider) Records(ctx context.Context) ([]ingest.Record, error) {
 			// a name plus ContributorIDs after the pass.
 			switch q.P.Value {
 			case rdfsLabelIRI:
-				if q.O.IsLiteral() && nodeLabels[q.S.Value] == "" {
-					nodeLabels[q.S.Value] = q.O.Value
+				if q.O.IsLiteral() && !slices.Contains(nodeLabels[q.S.Value], q.O.Value) {
+					nodeLabels[q.S.Value] = append(nodeLabels[q.S.Value], q.O.Value)
 				}
 			case owlSameAsIRI, skosExactMatchIRI:
 				if q.O.IsIRI() && !slices.Contains(nodeSameAs[q.S.Value], q.O.Value) {
@@ -376,34 +376,64 @@ func pickAuthority(ids []string) (string, []string) {
 }
 
 // resolveAgentNodes rewrites creator/contributor entries that name a
-// described agent node: the node's rdfs:label becomes the entry (so names,
-// identity keys, and contributions read as if the feed carried literals),
-// and its authority links become the contribution's identity. An IRI entry
-// without a harvested label stays verbatim -- a name is the floor.
-func resolveAgentNodes(w *work, nodeLabels map[string]string, nodeSameAs map[string][]string) {
-	resolve := func(entries []string) []string {
+// described agent node: the node's first rdfs:label becomes the entry (so
+// names, identity keys, and contributions read as if the feed carried
+// literals), and its authority links become the contribution's identity --
+// registered under EVERY label form the node carries (plus inverted
+// variants), because a work's contributor literal may spell the same person
+// either way ("Alison Bechdel" vs "Bechdel, Alison") and a single-key
+// lookup silently dropped the authority (task 432). Creator agents are
+// additionally tracked so their identity lands even when the contributor
+// list never restates them. An IRI entry without a harvested label stays
+// verbatim -- a name is the floor.
+func resolveAgentNodes(w *work, nodeLabels map[string][]string, nodeSameAs map[string][]string) {
+	resolve := func(entries []string, creator bool) []string {
 		for i, e := range entries {
-			label, ok := nodeLabels[e]
-			if !ok || label == "" {
+			labels := nodeLabels[e]
+			if len(labels) == 0 {
 				continue
 			}
-			entries[i] = label
+			display := labels[0]
+			entries[i] = display
 			ids := nodeSameAs[e]
 			if len(ids) == 0 {
 				continue
 			}
+			authority, rest := pickAuthority(ids)
+			identity := ingest.AgentIdentity{Authority: authority, SameAs: rest}
+			forms := agentForms(labels)
 			if w.agents == nil {
 				w.agents = map[string]ingest.AgentIdentity{}
 			}
-			if _, taken := w.agents[label]; !taken {
-				authority, rest := pickAuthority(ids)
-				w.agents[label] = ingest.AgentIdentity{Authority: authority, SameAs: rest}
+			for _, f := range forms {
+				if _, taken := w.agents[f]; !taken {
+					w.agents[f] = identity
+				}
+			}
+			if creator {
+				w.creatorAgents = append(w.creatorAgents, creatorAgent{display: display, forms: forms, id: identity})
 			}
 		}
 		return entries
 	}
-	w.creators = resolve(w.creators)
-	w.contributors = resolve(w.contributors)
+	w.creators = resolve(w.creators, true)
+	w.contributors = resolve(w.contributors, false)
+}
+
+// agentForms expands a node's labels into the lookup forms a contributor
+// literal might use: each label verbatim plus its inverted form.
+func agentForms(labels []string) []string {
+	var out []string
+	add := func(v string) {
+		if v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	for _, l := range labels {
+		add(strings.TrimSpace(l))
+		add(lastFirst(strings.TrimSpace(l)))
+	}
+	return out
 }
 
 // mapIdentifier routes one identifier object through the mapping's prefix

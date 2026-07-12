@@ -2,6 +2,7 @@ package nquads
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/freeeve/libcat/identity"
 	"github.com/freeeve/libcat/ingest"
+	codexbf "github.com/freeeve/libcodex/bibframe"
 )
 
 const testMapping = `
@@ -679,5 +681,117 @@ creator = "http://purl.org/dc/terms/creator"
 	labelOnly := byTitle["Named Only"]
 	if !slices.Contains(labelOnly.Contributors, "Label, Only") || len(labelOnly.ContributorIDs) != 0 {
 		t.Fatalf("label-only agent = %+v, want the name and no ids", labelOnly)
+	}
+}
+
+// TestCreatorAgentAuthorityLandsWhateverContributorsSay is the task-432
+// regression on the Bechdel shape: the creator is an agent node with TWO
+// label forms and a full sameAs set, and the work ALSO carries contributor
+// literals -- which route contributions() down the contributors branch,
+// where v0.198.0's single-label agent lookup silently dropped the
+// authority. Whatever the contributor list's spelling (either label form,
+// or omitting the creator entirely), the creator's authority must land on
+// exactly one contribution, and every grain must carry the IRI agent.
+func TestCreatorAgentAuthorityLandsWhateverContributorsSay(t *testing.T) {
+	const viaf = "http://viaf.org/viaf/114843374"
+	const lcnaf = "http://id.loc.gov/authorities/names/n86107504"
+	dir := t.TempDir()
+	mapping := filepath.Join(dir, "m.toml")
+	nq := filepath.Join(dir, "export.nq")
+	if err := os.WriteFile(mapping, []byte(`work-prefix = "urn:coll:work:"
+[predicates]
+title = "http://purl.org/dc/terms/title"
+creator = "http://purl.org/dc/terms/creator"
+contributor = "http://purl.org/dc/terms/contributor"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nq, []byte(`<urn:coll:agent:alison-bechdel> <http://www.w3.org/2000/01/rdf-schema#label> "Alison Bechdel" .
+<urn:coll:agent:alison-bechdel> <http://www.w3.org/2000/01/rdf-schema#label> "Bechdel, Alison" .
+<urn:coll:agent:alison-bechdel> <http://www.w3.org/2002/07/owl#sameAs> <`+viaf+`> .
+<urn:coll:agent:alison-bechdel> <http://www.w3.org/2002/07/owl#sameAs> <`+lcnaf+`> .
+<urn:coll:work:1> <http://purl.org/dc/terms/title> "Fun Home" .
+<urn:coll:work:1> <http://purl.org/dc/terms/creator> <urn:coll:agent:alison-bechdel> .
+<urn:coll:work:1> <http://purl.org/dc/terms/contributor> "Bechdel, Alison (author)" .
+<urn:coll:work:1> <http://purl.org/dc/terms/contributor> "Colorist, Casey (artist)" .
+<urn:coll:work:2> <http://purl.org/dc/terms/title> "Dykes to Watch Out For" .
+<urn:coll:work:2> <http://purl.org/dc/terms/creator> <urn:coll:agent:alison-bechdel> .
+<urn:coll:work:2> <http://purl.org/dc/terms/contributor> "Alison Bechdel (author)" .
+<urn:coll:work:3> <http://purl.org/dc/terms/title> "Spent" .
+<urn:coll:work:3> <http://purl.org/dc/terms/creator> <urn:coll:agent:alison-bechdel> .
+<urn:coll:work:3> <http://purl.org/dc/terms/contributor> "Narrator, Nell (narrator)" .
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := New(ingest.Config{Source: nq, Params: map[string]string{"mapping": mapping}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := p.Records(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byTitle := map[string][]codexbf.Contribution{}
+	for _, rec := range recs {
+		w := rec.Work()
+		byTitle[w.Titles[0].MainTitle] = w.Contributions
+	}
+	// Inverted-form contributor: the authority attaches to that entry.
+	assertOne := func(title, wantLabel string, wantContribs int) {
+		t.Helper()
+		contribs := byTitle[title]
+		if len(contribs) != wantContribs {
+			t.Fatalf("%s contributions = %+v, want %d", title, contribs, wantContribs)
+		}
+		carriers := 0
+		for _, c := range contribs {
+			if c.Authority == viaf {
+				carriers++
+				if c.Label != wantLabel {
+					t.Errorf("%s: authority on %q, want %q", title, c.Label, wantLabel)
+				}
+			}
+		}
+		if carriers != 1 {
+			t.Errorf("%s: %d contributions carry the authority, want exactly 1: %+v", title, carriers, contribs)
+		}
+	}
+	assertOne("Fun Home", "Bechdel, Alison", 2)
+	// Natural-order spelling: still attaches, never duplicates.
+	assertOne("Dykes to Watch Out For", "Alison Bechdel", 1)
+	// Contributor list omits the creator: an authored contribution appends.
+	assertOne("Spent", "Bechdel, Alison", 2)
+
+	// End to end: every grain carries the IRI agent and the sameAs ids.
+	out := t.TempDir()
+	if _, err := ingest.Run(p, out); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	grains := 0
+	err = filepath.WalkDir(filepath.Join(out, "data", "works"), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".nq") {
+			return err
+		}
+		grains++
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		sums, err := ingest.SummarizeGrain(data)
+		if err != nil {
+			return err
+		}
+		for _, s := range sums {
+			if !slices.Contains(s.ContributorIDs, viaf) || !slices.Contains(s.ContributorIDs, lcnaf) {
+				return fmt.Errorf("%s: ContributorIDs = %v, missing the creator's ids", path, s.ContributorIDs)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grains != 3 {
+		t.Fatalf("grains = %d, want 3 -- the target is every work, not most", grains)
 	}
 }
