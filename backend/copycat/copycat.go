@@ -54,6 +54,14 @@ const (
 	PolicyNever = "never"
 )
 
+// ValidPolicy reports whether p names a commit policy. Exported so the
+// handler can refuse a bad policy BEFORE staging persists anything -- a 400
+// that leaves an orphaned batch behind teaches clients to retry their way
+// into more orphans.
+func ValidPolicy(p string) bool {
+	return p == PolicyReplaceFeed || p == PolicyFillHoles || p == PolicyNever
+}
+
 // Decisions a reviewer takes per staged record.
 const (
 	DecisionImport = "import"
@@ -192,7 +200,10 @@ func (s *Service) matchRecords(ctx context.Context, docs []marcview.RecordDoc) (
 	for i, doc := range docs {
 		rec, err := marcview.DocToRecord(doc)
 		if err != nil {
-			return nil, fmt.Errorf("record %d: %w", i, err)
+			// A malformed client-supplied doc is THIS service's validation
+			// failure: wrap the copycat sentinel (what the HTTP mapper
+			// speaks) while keeping the marcview chain for detail.
+			return nil, fmt.Errorf("%w: record %d: %w", ErrValidation, i, err)
 		}
 		a := r.Resolve(marc.Identity(rec))
 		sr := StagedRecord{
@@ -323,7 +334,7 @@ func (s *Service) Review(ctx context.Context, id, policy string, decisions map[i
 		return Batch{}, fmt.Errorf("%w: batch %s is %s", ErrValidation, id, b.Status)
 	}
 	if policy != "" {
-		if policy != PolicyReplaceFeed && policy != PolicyFillHoles && policy != PolicyNever {
+		if !ValidPolicy(policy) {
 			return Batch{}, fmt.Errorf("%w: unknown policy %q", ErrValidation, policy)
 		}
 		b.Policy = policy

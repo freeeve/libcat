@@ -174,3 +174,54 @@ func TestOriginalRecordFlow(t *testing.T) {
 		t.Fatalf("stage = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// TestCopycatBatchMalformedDocIs400 is the 407 regression: a malformed
+// record doc in POST /v1/copycat/batches is the client's validation failure
+// (400 with the field detail), not a 500 -- matching what the sibling
+// /v1/copycat/original path already returns for the identical doc.
+func TestCopycatBatchMalformedDocIs400(t *testing.T) {
+	h, _ := newCopycatAPI(t)
+	rec := request(t, h, http.MethodPost, "/v1/copycat/batches", "lib-token", "", map[string]any{
+		"records": []map[string]any{{
+			"leader": "short",
+			"fields": []map[string]any{{"tag": "24", "subfields": []map[string]any{}}},
+		}},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed doc = %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); strings.Contains(body, "copy cataloging failed") {
+		t.Fatalf("still the opaque 500 message: %s", body)
+	}
+}
+
+// TestCopycatBatchBadPolicyLeavesNothing is the 408 regression: an unknown
+// policy is refused BEFORE the batch persists, so the 400 leaves no orphaned
+// STAGED batch for a retrying client to multiply.
+func TestCopycatBatchBadPolicyLeavesNothing(t *testing.T) {
+	h, svc := newCopycatAPI(t)
+	before, err := svc.Batches(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := request(t, h, http.MethodPost, "/v1/copycat/batches", "lib-token", "", map[string]any{
+		"records": []map[string]any{{
+			"leader": "00000nam a2200000 a 4500",
+			"fields": []map[string]any{
+				{"tag": "245", "ind1": "1", "ind2": "0",
+					"subfields": []map[string]any{{"code": "a", "value": "A Valid Title"}}},
+			},
+		}},
+		"policy": "nonsense-policy",
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad policy = %d %s, want 400", rec.Code, rec.Body.String())
+	}
+	after, err := svc.Batches(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("orphaned batch persisted: %d batches before, %d after", len(before), len(after))
+	}
+}
