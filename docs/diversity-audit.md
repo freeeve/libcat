@@ -135,8 +135,11 @@ returns a job id immediately -- a background worker executes it, and
 `GET /v1/enrich/jobs/{id}` polls the record with the run's **live batch
 counters** while it is in flight (`GET /v1/enrich/jobs` lists recent jobs;
 records expire after a week). For each work the run
-resolves creators **through cataloged identifiers only**: ISBN -> Wikidata
-edition (P212/P957) -> work (P629) -> author (P50), then copies the claims
+resolves creators **through cataloged identifiers only**: a Wikidata entity
+URI on the agent binds directly (no hop at all), author authority ids hop
+through their properties (VIAF P214, LCNAF P244, ISNI P213, ORCID P496),
+and only works those passes leave unresolved fall back to ISBN -> Wikidata
+edition (P212/P957) -> work (P629) -> author (P50). It then copies the claims
 Wikidata states explicitly -- P21 (sex or gender), P27 (country of
 citizenship), P91 (sexual orientation), P172 (ethnic group) -- into the
 `enrichment:wikidata` graph with the entity QID, the identifier that matched,

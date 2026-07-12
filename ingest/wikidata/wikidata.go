@@ -66,9 +66,17 @@ const isbnMatcher = `?edition wdt:P212|wdt:P957 ?i .
   FILTER(REPLACE(STR(?i), "-", "") = ?key)
   { ?edition wdt:P629 ?bwork . ?bwork wdt:P50 ?author . } UNION { ?edition wdt:P50 ?author . }`
 
+// qidMatcher resolves a key that IS the entity id: the Q-id binds straight
+// as ?author, no property hop at all -- the shortest path there is, run
+// before every other pass. IRI(CONCAT(...)) keeps the existing string-VALUES
+// plumbing and stays portable (WDQS and QLever alike).
+const qidMatcher = `BIND(IRI(CONCAT("http://www.wikidata.org/entity/", ?key)) AS ?author)`
+
 // authorIDProps maps an author authority-identifier scheme to its Wikidata
-// property: the direct, indexed resolution hops. Order fixes pass order.
+// property: the direct, indexed resolution hops. Order fixes pass order;
+// "wikidata" leads because its key needs no resolution at all.
 var authorIDProps = []struct{ scheme, prop string }{
+	{"wikidata", ""},
 	{"viaf", "P214"},
 	{"lcnaf", "P244"},
 	{"isni", "P213"},
@@ -94,8 +102,28 @@ func classifyAuthorID(iri string) (scheme, value string, ok bool) {
 		return "isni", raw[0:4] + " " + raw[4:8] + " " + raw[8:12] + " " + raw[12:16], true
 	case strings.HasPrefix(u, "orcid.org/"):
 		return "orcid", strings.TrimPrefix(u, "orcid.org/"), true
+	case strings.HasPrefix(u, "www.wikidata.org/entity/"), strings.HasPrefix(u, "www.wikidata.org/wiki/"):
+		// The IRI IS the entity: no property hop to resolve. Entities only
+		// (Q-ids) -- a property or lexeme IRI is never a creator.
+		q := u[strings.LastIndex(u, "/")+1:]
+		if isQID(q) {
+			return "wikidata", q, true
+		}
 	}
 	return "", "", false
+}
+
+// isQID reports a well-formed Wikidata entity id: Q followed by digits.
+func isQID(v string) bool {
+	if len(v) < 2 || v[0] != 'Q' {
+		return false
+	}
+	for i := 1; i < len(v); i++ {
+		if v[i] < '0' || v[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // authorIDMatcher resolves a key that is an identifier value under one
@@ -335,18 +363,38 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 		return nil
 	}
 
-	// Pass 1: author authority ids, per scheme.
+	// Pass 1: author authority ids, per scheme -- the direct Q-id pass
+	// first, then the property hops, each scoped to works the earlier
+	// passes left unresolved (a creator already carrying a Q-id never
+	// falls through to VIAF/LCNAF, let alone ISBN).
 	for _, sp := range authorIDProps {
 		byValue := idKeys[sp.scheme]
 		if len(byValue) == 0 {
 			continue
 		}
-		order := make([]string, 0, len(byValue))
-		for v := range byValue {
-			order = append(order, v)
+		pending := map[string][]string{}
+		var order []string
+		for v, workIDs := range byValue {
+			var unresolved []string
+			for _, id := range workIDs {
+				if len(byWork[id]) == 0 {
+					unresolved = append(unresolved, id)
+				}
+			}
+			if len(unresolved) > 0 {
+				order = append(order, v)
+				pending[v] = unresolved
+			}
+		}
+		if len(order) == 0 {
+			continue
 		}
 		sort.Strings(order)
-		if err := runPass(sp.scheme, authorIDMatcher(sp.prop), sp.scheme, order, byValue); err != nil {
+		matcher := authorIDMatcher(sp.prop)
+		if sp.scheme == "wikidata" {
+			matcher = qidMatcher
+		}
+		if err := runPass(sp.scheme, matcher, sp.scheme, order, pending); err != nil {
 			return nil, err
 		}
 	}

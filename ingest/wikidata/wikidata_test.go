@@ -457,3 +457,62 @@ func TestEnrichAuthorIDPassFirst(t *testing.T) {
 		t.Errorf("the id-resolved work's ISBN leaked into the fallback:\n%s", stub.queries[1])
 	}
 }
+
+// TestEnrichDirectQIDPass pins task 433: a creator whose ContributorIDs
+// carry the Wikidata entity URI resolves through the direct Q-id pass --
+// the key binds straight as the author, before and instead of every
+// property hop. The same work's VIAF id and ISBN never re-query, and the
+// entity/wiki URI forms both classify while property IRIs never do.
+func TestEnrichDirectQIDPass(t *testing.T) {
+	for _, tc := range []struct{ iri, value string }{
+		{"http://www.wikidata.org/entity/Q435032", "Q435032"},
+		{"https://www.wikidata.org/wiki/Q435032", "Q435032"},
+	} {
+		scheme, value, ok := classifyAuthorID(tc.iri)
+		if !ok || scheme != "wikidata" || value != tc.value {
+			t.Errorf("classifyAuthorID(%s) = %s %q %v, want wikidata %q", tc.iri, scheme, value, ok, tc.value)
+		}
+	}
+	for _, bad := range []string{
+		"http://www.wikidata.org/entity/P214", // a property is not a creator
+		"http://www.wikidata.org/entity/L303", // nor a lexeme
+		"http://www.wikidata.org/entity/Qabc", // nor a malformed id
+	} {
+		if _, _, ok := classifyAuthorID(bad); ok {
+			t.Errorf("classifyAuthorID(%s) must not classify", bad)
+		}
+	}
+
+	stub := &stubSPARQL{bindings: []map[string]any{
+		binding("Q435032", "Q435032", "Alison Bechdel", "P91", "Q6636", "homosexuality"),
+	}}
+	e := New(WithClient(stub), WithDelay(0))
+	res, err := e.Enrich(context.Background(), []ingest.WorkSummary{
+		{WorkID: "wqid", ISBNs: []string{"9780618477944"}, ContributorIDs: []string{
+			"http://www.wikidata.org/entity/Q435032",
+			"http://viaf.org/viaf/114843374",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("results = %+v, want the one work", res)
+	}
+	c := res[0].Creators[0]
+	if c.QID != "Q435032" || c.MatchedVia != "wikidata:Q435032" {
+		t.Errorf("creator = %+v, want Q435032 via wikidata:Q435032", c)
+	}
+	// ONE query: the direct pass resolved the work, so viaf and isbn had
+	// nothing pending and never ran.
+	if len(stub.queries) != 1 {
+		t.Fatalf("queries = %d, want 1 (the direct Q-id pass only):\n%s", len(stub.queries), strings.Join(stub.queries, "\n---\n"))
+	}
+	q := stub.queries[0]
+	if !strings.Contains(q, `BIND(IRI(CONCAT("http://www.wikidata.org/entity/", ?key)) AS ?author)`) {
+		t.Errorf("query lacks the direct bind:\n%s", q)
+	}
+	if !strings.Contains(q, `"Q435032"`) || strings.Contains(q, "wdt:P214") || strings.Contains(q, "9780618477944") {
+		t.Errorf("query must carry the Q-id and nothing else:\n%s", q)
+	}
+}
