@@ -467,17 +467,25 @@
   .chip {
     display: inline-block;
   }
+  /* The band palette serves two renderers: the composition strip's divs
+     read `background`, the trend chart's SVG paths read `fill` -- an SVG
+     path ignores background and defaults to black, which once painted the
+     whole chart solid. */
   .b-multi {
     background: var(--accent, #4a7dff);
+    fill: var(--accent, #4a7dff);
   }
   .b-one {
     background: color-mix(in srgb, var(--accent, #4a7dff) 55%, transparent);
+    fill: color-mix(in srgb, var(--accent, #4a7dff) 55%, transparent);
   }
   .b-uncat {
     background: color-mix(in srgb, var(--accent, #4a7dff) 22%, transparent);
+    fill: color-mix(in srgb, var(--accent, #4a7dff) 22%, transparent);
   }
   .b-uncov {
     background: var(--rule, #dde);
+    fill: var(--rule, #dde);
   }
   .legend {
     display: flex;
