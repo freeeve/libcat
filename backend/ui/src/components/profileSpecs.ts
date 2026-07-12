@@ -29,6 +29,9 @@ export interface FieldSpec {
   wide?: boolean;
   /** Decodes a stored literal into a heading + code (BISAC). */
   decode?: (v: string) => BisacTerm | undefined;
+  /** The profile's vocab hint (valueSource.ref): preselects the matching
+   *  scheme or live-source tab when the picker opens from this field. */
+  vocabRef?: string;
 }
 
 /** Closed-list terms as searchable-picker entries. */
@@ -44,6 +47,10 @@ export const WORK_FIELDS: FieldSpec[] = [
   { path: "title", label: "Title", kind: "single" },
   { path: "subtitle", label: "Subtitle", kind: "single" },
   { path: "contributors", label: "Contributors", kind: "readonly" },
+  // Authority URIs for the names above, picked from a live source (LCNAF)
+  // or a loaded vocabulary and staged as an editorial contribution whose
+  // agent IS the IRI -- the shape the creator-audit enricher hops from.
+  { path: "contributorIds", label: "Contributor authorities", kind: "vocab" },
   { path: "summary", label: "Summary", kind: "langLiteral", wide: true },
   { path: "language", label: "Language", kind: "iri", options: termOptions(LANGUAGES) },
   { path: "subjectLabels", label: "Subject headings", kind: "readonly" },
@@ -105,6 +112,8 @@ export function buildFieldSpecs(presentation: FieldSpec[], fields?: ProfileField
     .filter((f) => !f.hidden)
     .map((f) => {
       const base = byPath.get(f.path);
-      return base ? { ...base, label: f.label } : { path: f.path, label: f.label, kind: kindFromValueSource(f.valueSource) };
+      return base
+        ? { ...base, label: f.label, vocabRef: f.valueSource?.ref }
+        : { path: f.path, label: f.label, kind: kindFromValueSource(f.valueSource), vocabRef: f.valueSource?.ref };
     });
 }

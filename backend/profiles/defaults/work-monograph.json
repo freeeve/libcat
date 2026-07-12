@@ -5,103 +5,189 @@
   "fields": [
     {
       "path": "title",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/title", "http://id.loc.gov/ontologies/bibframe/mainTitle"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/title",
+        "http://id.loc.gov/ontologies/bibframe/mainTitle"
+      ],
       "label": "Title",
       "min": 1,
       "max": 1,
-      "valueSource": {"kind": "literal"},
+      "valueSource": {
+        "kind": "literal"
+      },
       "marcHint": "245$a"
     },
     {
       "path": "subtitle",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/title", "http://id.loc.gov/ontologies/bibframe/subtitle"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/title",
+        "http://id.loc.gov/ontologies/bibframe/subtitle"
+      ],
       "label": "Subtitle",
       "max": 1,
-      "valueSource": {"kind": "literal"},
+      "valueSource": {
+        "kind": "literal"
+      },
       "marcHint": "245$b"
     },
     {
       "path": "contributors",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/contribution", "http://id.loc.gov/ontologies/bibframe/agent", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/contribution",
+        "http://id.loc.gov/ontologies/bibframe/agent",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
       "label": "Contributors",
-      "help": "Agent names from the record's contributions; edit via the MARC tab for now",
-      "valueSource": {"kind": "literal"},
+      "help": "Agent names from the record's contributions; attach authority URIs via Contributor authorities below",
+      "valueSource": {
+        "kind": "literal"
+      },
       "readOnly": true,
-      "annotation": ["http://id.loc.gov/ontologies/bibframe/role", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "annotation": [
+        "http://id.loc.gov/ontologies/bibframe/role",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
       "marcHint": "100/700"
     },
     {
+      "path": "contributorIds",
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/contribution",
+        "http://id.loc.gov/ontologies/bibframe/agent"
+      ],
+      "label": "Contributor authorities",
+      "help": "Authority URIs (LCNAF/VIAF) identifying this work's contributors; pick via the lookup",
+      "valueSource": {
+        "kind": "vocab",
+        "ref": "lcnaf"
+      },
+      "annotation": [
+        "http://id.loc.gov/ontologies/bibframe/role",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
+      "marcHint": "100/700 $0/$1"
+    },
+    {
       "path": "summary",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/summary", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/summary",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
       "label": "Summary",
-      "valueSource": {"kind": "langLiteral"},
+      "valueSource": {
+        "kind": "langLiteral"
+      },
       "marcHint": "520"
     },
     {
       "path": "language",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/language"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/language"
+      ],
       "label": "Language",
       "help": "ISO 639-2 code IRI (e.g. http://id.loc.gov/vocabulary/languages/eng)",
-      "valueSource": {"kind": "entity"},
+      "valueSource": {
+        "kind": "entity"
+      },
       "marcHint": "008/35-37"
     },
     {
       "path": "subjects",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/subject"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/subject"
+      ],
       "label": "Subjects",
       "help": "Controlled vocabulary terms (authority URIs)",
-      "valueSource": {"kind": "vocab", "ref": "homosaurus"},
-      "annotation": ["http://www.w3.org/2004/02/skos/core#prefLabel"],
+      "valueSource": {
+        "kind": "vocab",
+        "ref": "homosaurus"
+      },
+      "annotation": [
+        "http://www.w3.org/2004/02/skos/core#prefLabel"
+      ],
       "marcHint": "650"
     },
     {
       "path": "subjectLabels",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/subject", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/subject",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
       "label": "Subject headings",
       "help": "Vendor/uncontrolled headings on subject nodes; reconcile to controlled terms via the lookup",
-      "valueSource": {"kind": "literal"},
+      "valueSource": {
+        "kind": "literal"
+      },
       "readOnly": true,
-      "annotation": ["http://id.loc.gov/ontologies/bibframe/source", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "annotation": [
+        "http://id.loc.gov/ontologies/bibframe/source",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
       "marcHint": "650"
     },
     {
       "path": "tags",
-      "predicates": ["https://github.com/freeeve/libcat/ns#tag"],
+      "predicates": [
+        "https://github.com/freeeve/libcat/ns#tag"
+      ],
       "label": "Tags",
       "help": "Uncontrolled community/staff tags",
-      "valueSource": {"kind": "literal"}
+      "valueSource": {
+        "kind": "literal"
+      }
     },
     {
       "path": "genreForm",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/genreForm", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/genreForm",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
       "label": "Genre / form",
-      "valueSource": {"kind": "literal"},
+      "valueSource": {
+        "kind": "literal"
+      },
       "readOnly": true,
       "marcHint": "655"
     },
     {
       "path": "content",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/content"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/content"
+      ],
       "label": "Content type",
       "help": "RDA content IRI (id.loc.gov/vocabulary/contentTypes)",
-      "valueSource": {"kind": "entity"},
+      "valueSource": {
+        "kind": "entity"
+      },
       "marcHint": "336"
     },
     {
       "path": "classification",
-      "predicates": ["http://id.loc.gov/ontologies/bibframe/classification", "http://id.loc.gov/ontologies/bibframe/classificationPortion"],
+      "predicates": [
+        "http://id.loc.gov/ontologies/bibframe/classification",
+        "http://id.loc.gov/ontologies/bibframe/classificationPortion"
+      ],
       "label": "Classification",
-      "valueSource": {"kind": "literal"},
+      "valueSource": {
+        "kind": "literal"
+      },
       "readOnly": true,
-      "annotation": ["http://id.loc.gov/ontologies/bibframe/source", "http://www.w3.org/2000/01/rdf-schema#label"],
+      "annotation": [
+        "http://id.loc.gov/ontologies/bibframe/source",
+        "http://www.w3.org/2000/01/rdf-schema#label"
+      ],
       "marcHint": "072/084"
     },
     {
       "path": "externalIdentities",
-      "predicates": ["http://www.w3.org/2002/07/owl#sameAs"],
+      "predicates": [
+        "http://www.w3.org/2002/07/owl#sameAs"
+      ],
       "label": "External identities",
       "help": "Outward links to hub records for the same work (e.g. OpenLibrary), written by the identity enrichment pass (tasks/066)",
-      "valueSource": {"kind": "entity"},
+      "valueSource": {
+        "kind": "entity"
+      },
       "readOnly": true,
       "marcHint": "024/758"
     }

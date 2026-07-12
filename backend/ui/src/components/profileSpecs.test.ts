@@ -45,6 +45,19 @@ describe("buildFieldSpecs", () => {
     expect(buildFieldSpecs(presentation, undefined)).toBe(presentation);
     expect(buildFieldSpecs(presentation, [])).toBe(presentation);
   });
+
+  it("carries the profile's vocab hint into the spec for picker tab preselection", () => {
+    const specs = buildFieldSpecs(presentation, [
+      { path: "title", label: "Title", valueSource: { kind: "vocab", ref: "lcnaf" } },
+    ]);
+    expect(specs[0].vocabRef).toBe("lcnaf");
+  });
+
+  it("wires contributorIds as a vocab lookup hinted at lcnaf (task 400)", () => {
+    const specs = buildFieldSpecs(WORK_FIELDS, workMonograph.fields as ProfileField[]);
+    const spec = specs.find((s) => s.path === "contributorIds");
+    expect(spec).toMatchObject({ kind: "vocab", vocabRef: "lcnaf", label: "Contributor authorities" });
+  });
 });
 
 describe("WORK_FIELDS presentation", () => {

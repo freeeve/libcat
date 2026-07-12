@@ -18,10 +18,14 @@
 
   let {
     title = "Pick a term",
+    initialSource,
     onselect,
     onclose,
   }: {
     title?: string;
+    /** Preselects the tab matching this scheme or live-source name (the
+     *  opening field's vocab hint, e.g. "lcnaf" for contributor lookups). */
+    initialSource?: string;
     onselect: (term: Term) => void;
     onclose: () => void;
   } = $props();
@@ -61,14 +65,25 @@
     pushScope(SCOPE); // silences the screen's bindings while the modal is up
     // Live tabs load lazily; a deployment without the source registry (or a
     // fetch hiccup) just keeps the local tabs.
+    if (initialSource) {
+      const i = tabs.findIndex((t) => t.scheme === initialSource);
+      if (i >= 0) active = i;
+    }
     fetchVocabSources().then(
-      (r) =>
-        (tabs = [
+      (r) => {
+        tabs = [
           ...tabs,
           ...(r.sources ?? [])
             .filter((s) => !!s.suggestUrl && !!s.suggestFlavor)
             .map((s) => ({ key: "live:" + s.name, label: s.name, live: true, scheme: s.scheme, source: s.name })),
-        ]),
+        ];
+        // The hint may name a live source that only just arrived; never
+        // steal the tab back after the user has already switched.
+        if (initialSource && tabs[active]?.scheme !== initialSource && tabs[active]?.source !== initialSource && active === 0) {
+          const i = tabs.findIndex((t) => t.source === initialSource || t.scheme === initialSource);
+          if (i >= 0) active = i;
+        }
+      },
       () => {},
     );
     return () => {

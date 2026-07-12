@@ -636,7 +636,9 @@
           <button class="button button--quiet act" type="submit">Add</button>
         </form>
       {:else if spec.kind === "vocab"}
-        <button class="button button--quiet act" onclick={() => (pickerFor = spec.path)}>Add subject…</button>
+        <button class="button button--quiet act" onclick={() => (pickerFor = spec.path)}>
+          {spec.path === "subjects" ? "Add subject…" : `Look up ${spec.label.toLowerCase()}…`}
+        </button>
       {:else if spec.kind === "tag"}
         <TagInput id={"tag-" + resource} label="Add a tag" hideLabel placeholder="Type a tag…" onselect={(tag) => onstage({ resource, path: spec.path, action: "add", value: { v: tag } })} />
       {/if}
@@ -693,7 +695,13 @@
 </div>
 
 {#if pickerFor}
-  <VocabPicker title="Add a subject" onselect={subjectPicked} onclose={() => (pickerFor = null)} />
+  {@const pickerSpec = specs.find((s) => s.path === pickerFor)}
+  <VocabPicker
+    title={pickerFor === "subjects" ? "Add a subject" : `Add: ${pickerSpec?.label ?? "term"}`}
+    initialSource={pickerSpec?.vocabRef}
+    onselect={subjectPicked}
+    onclose={() => (pickerFor = null)}
+  />
 {/if}
 
 <style>

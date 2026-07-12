@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/freeeve/libcat/bibframe"
+	"github.com/freeeve/libcat/ingest"
 	"github.com/freeeve/libcat/project"
 
 	"github.com/freeeve/libcat/backend/profiles"
@@ -47,6 +48,55 @@ func firstWork(t *testing.T) (string, []byte) {
 	}
 	t.Fatal("no grain with a title")
 	return "", nil
+}
+
+// TestContributorAuthorityFlowsToSummary covers the contributor-hydration
+// payoff end to end: an editorial contributorIds add builds a skolem
+// contribution whose agent IS the authority IRI, the doc reads it back with
+// editorial provenance, and the ingest summary scan surfaces it in
+// ContributorIDs -- the exact key the creator-audit enricher resolves
+// (LCNAF -> Wikidata P244).
+func TestContributorAuthorityFlowsToSummary(t *testing.T) {
+	m := newMapper(t)
+	workID, grain := firstWork(t)
+	const lcnaf = "http://id.loc.gov/authorities/names/n79018395"
+	updated, _ := applyAndProject(t, m, grain, workID, []Op{{
+		Resource: "work", Path: "contributorIds", Action: "add",
+		Value: &OpValue{V: lcnaf, IRI: true},
+	}})
+	text := string(updated)
+	if !strings.Contains(text, "-ed-contributorIds") {
+		t.Fatal("skolem contribution node missing")
+	}
+	if !strings.Contains(text, "<"+lcnaf+">") {
+		t.Fatal("authority IRI missing from the grain")
+	}
+
+	doc, err := m.ToDoc(updated, workID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, v := range doc.Work.Fields["contributorIds"] {
+		if v.V == lcnaf && v.IRI && v.Prov == "editorial:" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("contributorIds = %+v, want the editorial IRI value", doc.Work.Fields["contributorIds"])
+	}
+
+	sums, err := ingest.SummarizeGrain(updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hit := false
+	for _, s := range sums {
+		hit = hit || slices.Contains(s.ContributorIDs, lcnaf)
+	}
+	if !hit {
+		t.Fatal("summary scan did not surface the authority IRI in ContributorIDs")
+	}
 }
 
 func TestSetTitleOverridesFeed(t *testing.T) {
