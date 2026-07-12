@@ -28,6 +28,11 @@ export interface Screen {
   adminOnly?: boolean;
   /** Detail routes that should light this screen's sidebar link. */
   alsoCurrent?: string[];
+  /** Settings-menu section: "prefs" (per-user customization) or "admin"
+   *  (set-once instance configuration). A grouped screen leaves the primary
+   *  nav -- the bar reads as the catalog's daily verbs -- and lives in the
+   *  top-right Settings menu instead; palette and chords are unaffected. */
+  group?: "prefs" | "admin";
 }
 
 // Order is the surfaces' order: the sidebar reads left to right, and the
@@ -37,9 +42,9 @@ export interface Screen {
 export const SCREENS: Screen[] = [
   { route: "works", path: "/works", label: "Works", chord: "w", sidebar: true, alsoCurrent: ["work"] },
   { route: "authorities", path: "/authorities", label: "Authorities", chord: "a", sidebar: true, alsoCurrent: ["authority"] },
-  { route: "vocabsources", path: "/vocabularies", label: "Vocabularies", chord: "v", sidebar: true },
+  { route: "vocabsources", path: "/vocabularies", label: "Vocabularies", chord: "v", sidebar: true, group: "admin" },
   { route: "batch", path: "/batch", label: "Batch", paletteLabel: "Batch operations", chord: "b", sidebar: true },
-  { route: "macros", path: "/macros", label: "Macros", chord: "m", sidebar: true },
+  { route: "macros", path: "/macros", label: "Macros", chord: "m", sidebar: true, group: "prefs" },
   { route: "exports", path: "/exports", label: "Exports", chord: "e", sidebar: true },
   { route: "copycat", path: "/copycat", label: "Import", paletteLabel: "Copy cataloging (import)", chord: "i", sidebar: true },
   { route: "duplicates", path: "/duplicates", label: "Duplicates", chord: "u", sidebar: true },
@@ -49,11 +54,11 @@ export const SCREENS: Screen[] = [
   // "g p" is Promotions, so Profiles takes "f". Admin-only, and the palette
   // lists it for everyone -- the route already refuses a non-admin, and hiding
   // a screen's existence from the palette is what this task is about.
-  { route: "profiles", path: "/profiles", label: "Profiles", chord: "f", sidebar: true, adminOnly: true },
+  { route: "profiles", path: "/profiles", label: "Profiles", chord: "f", sidebar: true, adminOnly: true, group: "admin" },
   // The patron-suggestion policy editor: opt-in switch, scheme
   // allowlist, free-text mode. Admin-only like its config routes; the public
   // read that hides the discovery affordance needs no screen.
-  { route: "suggestions", path: "/suggestions", label: "Suggestions", paletteLabel: "Suggestion policy", chord: "s", sidebar: true, adminOnly: true },
+  { route: "suggestions", path: "/suggestions", label: "Suggestions", paletteLabel: "Suggestion policy", chord: "s", sidebar: true, adminOnly: true, group: "admin" },
   // The audit-log reader: the month's entries unfiltered by work, so
   // the system-level actions (users, roles, profiles, imports, batch runs) that
   // carry no workId -- invisible in a work's History tab -- have a screen.
@@ -69,7 +74,7 @@ export const SCREENS: Screen[] = [
   // Enrichment runs and the async job board. Admin-only like its routes;
   // off the sidebar (the nav is at capacity -- cf. the settings-menu task),
   // reachable by palette and by chord.
-  { route: "enrichment", path: "/enrichment", label: "Enrichment", paletteLabel: "Enrichment jobs", chord: "n", sidebar: false, adminOnly: true },
+  { route: "enrichment", path: "/enrichment", label: "Enrichment", paletteLabel: "Enrichment jobs", chord: "n", sidebar: false, adminOnly: true, group: "admin" },
   // Last in the palette, and absent from the nav: the brand link is its door.
   { route: "dashboard", path: "/", label: "Dashboard", chord: "d", sidebar: false },
 ];
@@ -79,9 +84,22 @@ export function paletteLabel(s: Screen): string {
   return s.paletteLabel ?? s.label;
 }
 
-/** The screens the primary nav links, for the given admin-ness. */
+/** The screens the primary nav links, for the given admin-ness: the daily
+ *  operational verbs. Grouped screens (Settings menu) leave the bar even
+ *  when their historical sidebar flag stands. */
 export function sidebarScreens(isAdmin: boolean): Screen[] {
-  return SCREENS.filter((s) => s.sidebar && (!s.adminOnly || isAdmin));
+  return SCREENS.filter((s) => s.sidebar && !s.group && (!s.adminOnly || isAdmin));
+}
+
+/** The Settings menu's sections: per-user preferences, then -- for admins --
+ *  the set-once instance configuration. Every entry stays palette- and
+ *  chord-reachable; the menu is a home, not a hiding place. */
+export function settingsScreens(isAdmin: boolean): { prefs: Screen[]; admin: Screen[] } {
+  const visible = SCREENS.filter((s) => !s.adminOnly || isAdmin);
+  return {
+    prefs: visible.filter((s) => s.group === "prefs"),
+    admin: visible.filter((s) => s.group === "admin"),
+  };
 }
 
 /** Whether a screen's sidebar link should read as current for a route name. */

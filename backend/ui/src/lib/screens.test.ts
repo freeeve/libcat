@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NON_SCREEN_ROUTES, ROUTES } from "./router";
-import { chordMap, isCurrent, paletteLabel, SCREENS, sidebarScreens } from "./screens";
+import { chordMap, isCurrent, paletteLabel, SCREENS, settingsScreens, sidebarScreens } from "./screens";
 
 // the palette, the "g <letter>" chords, and the sidebar were three
 // hand-maintained lists and no two agreed. The palette answered "No matching
@@ -75,15 +75,37 @@ describe("the derived surfaces", () => {
     expect(map["g f"]?.[0]).toBe("/profiles");
   });
 
-  it("hides the admin screen from a non-admin sidebar and shows it to an admin", () => {
+  it("keeps the primary nav to the daily operational verbs", () => {
     const asStaff = sidebarScreens(false).map((s) => s.route);
     const asAdmin = sidebarScreens(true).map((s) => s.route);
-    expect(asStaff).not.toContain("profiles");
-    expect(asAdmin).toContain("profiles");
+    // Grouped screens live in the Settings menu, never the bar -- for
+    // anyone (the settings-menu declutter, task 382).
+    for (const moved of ["profiles", "suggestions", "vocabsources", "macros", "enrichment"]) {
+      expect(asStaff, `${moved} back on the staff nav`).not.toContain(moved);
+      expect(asAdmin, `${moved} back on the admin nav`).not.toContain(moved);
+    }
     // The dashboard is the brand link, not a nav item.
     expect(asAdmin).not.toContain("dashboard");
     // Promotions had no sidebar link at all; it does now.
     expect(asStaff).toContain("promotions");
+  });
+
+  it("sections the settings menu and gates administration by role", () => {
+    const staff = settingsScreens(false);
+    const admin = settingsScreens(true);
+    // Per-user preferences show for everyone.
+    expect(staff.prefs.map((s) => s.route)).toContain("macros");
+    // Instance configuration: admins see all of it; staff see only the
+    // non-adminOnly entries (Vocabularies is librarian-usable).
+    expect(admin.admin.map((s) => s.route)).toEqual(
+      expect.arrayContaining(["vocabsources", "profiles", "suggestions", "enrichment"]),
+    );
+    expect(staff.admin.map((s) => s.route)).toEqual(["vocabsources"]);
+    // The menu is a home, not a hiding place: every grouped screen keeps
+    // its palette entry and chord reachability by staying in SCREENS.
+    for (const s of [...admin.prefs, ...admin.admin]) {
+      expect(SCREENS).toContain(s);
+    }
   });
 
   it("marks a detail route as current on its parent's link", () => {

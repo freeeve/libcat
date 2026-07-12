@@ -7,7 +7,7 @@
   import { CALLBACK_PATH, canAdmin, getToken, handleOidcCallback, logout, onSessionExpired, session } from "./lib/auth";
   import { initTheme, toggleTheme, type Theme } from "./lib/theme";
   import { resolve, navigate, ROUTES, confirmLeave } from "./lib/router";
-  import { chordMap, isCurrent, sidebarScreens } from "./lib/screens";
+  import { chordMap, isCurrent, settingsScreens, sidebarScreens } from "./lib/screens";
   import { configStore, sessionStore } from "./lib/stores";
   import { bindKeys, GLOBAL_SCOPE } from "./lib/keyboard";
   import { resetScreenStates } from "./lib/screenState.svelte";
@@ -46,6 +46,7 @@
   let theme = $state<Theme>(initTheme());
   let ready = $state(false);
   let paletteOpen = $state(false);
+  let settingsOpen = $state(false);
   // Session-expiry re-auth: when the live session dies, the
   // screen stays mounted (staged edits survive) under a sign-in overlay;
   // the header identity clears immediately. expiredEmail prefills the form.
@@ -200,14 +201,32 @@
              once the session died. -->
         <span class="expired">session expired</span>
       {/if}
-      <button
-        class="button button--quiet"
-        onclick={() => (theme = toggleTheme())}
-        aria-pressed={theme === "dark"}
-        title="Switch to {theme === 'dark' ? 'light' : 'dark'} mode"
-      >
-        {theme === "dark" ? "Light" : "Dark"} mode
-      </button>
+      <!-- Settings: per-user preferences plus (admins) the set-once instance
+           configuration -- off the primary bar so it reads as the catalog's
+           daily verbs. details/summary keeps the menu keyboard-native. -->
+      <details class="settings" bind:open={settingsOpen}>
+        <summary class="button button--quiet">Settings</summary>
+        <div class="menu" role="group" aria-label="Settings">
+          <span class="menuhead">Preferences</span>
+          {#each settingsScreens(canAdmin($sessionStore)).prefs as s (s.route)}
+            <a href="#{s.path}" class:current={isCurrent(s, route.name)} onclick={() => (settingsOpen = false)}>{s.label}</a>
+          {/each}
+          <button
+            type="button"
+            onclick={() => (theme = toggleTheme())}
+            aria-pressed={theme === "dark"}
+            title="Switch to {theme === 'dark' ? 'light' : 'dark'} mode"
+          >
+            {theme === "dark" ? "Light" : "Dark"} mode
+          </button>
+          {#if settingsScreens(canAdmin($sessionStore)).admin.length > 0}
+            <span class="menuhead">Administration</span>
+            {#each settingsScreens(canAdmin($sessionStore)).admin as s (s.route)}
+              <a href="#{s.path}" class:current={isCurrent(s, route.name)} onclick={() => (settingsOpen = false)}>{s.label}</a>
+            {/each}
+          {/if}
+        </div>
+      </details>
       <button class="button button--quiet" onclick={signOut}>Sign out</button>
     </span>
   </header>
@@ -373,6 +392,68 @@
   .expired {
     color: var(--danger);
     font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .settings {
+    position: relative;
+  }
+  .settings summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+  }
+  .settings summary::-webkit-details-marker {
+    display: none;
+  }
+  .settings summary::after {
+    content: " ▾";
+    font-size: 0.75em;
+    color: var(--ink-muted);
+  }
+  .settings[open] summary::after {
+    content: " ▴";
+  }
+  .settings .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.35rem);
+    min-width: 12rem;
+    display: grid;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius, 6px);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--ink) 14%, transparent);
+    padding: 0.35rem;
+    z-index: 30;
+  }
+  .settings .menuhead {
+    font-size: 0.68rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-muted);
+    padding: 0.4rem 0.6rem 0.15rem;
+  }
+  .settings .menu a,
+  .settings .menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: var(--ink);
+    text-decoration: none;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    padding: 0.3rem 0.6rem;
+    cursor: pointer;
+  }
+  .settings .menu a:hover,
+  .settings .menu button:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  .settings .menu a.current {
+    color: var(--accent);
     font-weight: 600;
   }
 </style>
