@@ -580,10 +580,13 @@ func seriesTitles(g *rdf.Graph, work rdf.Term) []string {
 	const (
 		bfNS              = "http://id.loc.gov/ontologies/bibframe/"
 		seriesRelationIRI = "http://id.loc.gov/vocabulary/relationship/series"
+		// The 762 subseries linking entry names a series membership too;
+		// controlled 8xx entries share the series IRI and need no extra case.
+		subseriesRelationIRI = "http://id.loc.gov/vocabulary/relationship/subseries"
 	)
 	var titles []string
 	for _, rel := range g.Objects(work, bfNS+"relation") {
-		if r, ok := g.Object(rel, bfNS+"relationship"); !ok || r.Value != seriesRelationIRI {
+		if r, ok := g.Object(rel, bfNS+"relationship"); !ok || (r.Value != seriesRelationIRI && r.Value != subseriesRelationIRI) {
 			continue
 		}
 		res, ok := g.Object(rel, bfNS+"associatedResource")

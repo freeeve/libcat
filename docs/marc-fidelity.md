@@ -44,6 +44,8 @@ changes.
 | 306 | Playing time | since libcodex v0.11.0 (bf:duration) |
 | 347 | Digital file characteristics | since libcodex v0.11.0 ($a/$b via bflc FileType/EncodingFormat; $2 not kept) |
 | 490 | Series statement | since libcodex v0.25.0 one bf:relation per 490 on the Work (relationship/series -> bf:Series), so $a/$v pair per field; $x -> bf:Issn and ind1=1 -> mstatus/tr are carried. $n/$p, $l, $3 and the 880 parallel grouping are not. Before v0.25.0: flat bf:seriesStatement literals on the Instance, which lost the $a/$v pairing across repeated 490s |
+| 800 / 810 / 811 / 830 | Series added entries | since libcodex v0.33.0: same relationship/series relation as a 490, but the associated resource is typed bf:Hub + bf:Series (the Hub type is the transcription-vs-controlled discriminator); heading name is a flat bf:contribution on the Hub, title bf:title, $x bf:Issn, $v bf:seriesEnumeration on the relation; the source field rides an internal marcKey note for exact decode. The projection merges a 490 with its 8xx pair by title into one traced series entry |
+| 760 / 762 | Series / subseries linking entries | since libcodex v0.33.0, as the 8xx shape above (762 uses relationship/subseries); the projection reads both |
 | 500 | General note | since libcodex v0.9.0 (5XX -> bf:Note) |
 | 511 / 521 / 533 / 538 | Specialized notes | since libcodex v0.11.0 -- typed bf:noteType decodes back to the original tag; note labels join every subfield |
 | 520 | Summary | |

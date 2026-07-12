@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/RoaringBitmap/roaring/v2 v2.19.0
 	github.com/freeeve/gochickpeas v0.14.13
-	github.com/freeeve/libcodex v0.32.0
+	github.com/freeeve/libcodex v0.33.0
 	github.com/freeeve/roaringrange v0.30.0
 )
 

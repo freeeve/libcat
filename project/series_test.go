@@ -251,3 +251,82 @@ func TestSimilarWorkTakesSeriesTitlesNotEnumerations(t *testing.T) {
 		t.Fatalf("scorer series = %v", got.Series)
 	}
 }
+
+// A cataloged record typically carries the PAIR: the 490 transcription and
+// its 830 controlled form. libcodex v0.33.0 emits both as series relations
+// (the 830's resource additionally typed bf:Hub), and one membership must
+// not render twice: the pair merges by title, traced, with the enumeration
+// from the 490 and the ISSN from whichever side carries it (task 436).
+func TestA490AndIts830PairProjectOneMergedSeries(t *testing.T) {
+	cat := projectMARC(t, seriesRecord("c1", "A Book",
+		codex.NewDataField("490", '1', ' ',
+			codex.NewSubfield('a', "Firebrand fiction ;"),
+			codex.NewSubfield('v', "bk. 2")),
+		codex.NewDataField("830", ' ', '0',
+			codex.NewSubfield('a', "Firebrand fiction"),
+			codex.NewSubfield('x', "0075-2118"))))
+
+	want := []Series{
+		{Title: "Firebrand fiction", Enumeration: "bk. 2", ISSN: "0075-2118", Traced: true},
+	}
+	if !reflect.DeepEqual(cat.Works[0].Series, want) {
+		t.Fatalf("series = %+v\nwant %+v", cat.Works[0].Series, want)
+	}
+}
+
+// An 830 with no 490 at all (some vendors catalog only the controlled form)
+// still projects, and projects traced: the controlled added entry IS the
+// trace, even with no mstatus/tr in sight (task 436).
+func TestAnAloneControlled830ProjectsATracedSeries(t *testing.T) {
+	cat := projectMARC(t, seriesRecord("c1", "A Book",
+		codex.NewDataField("830", ' ', '0',
+			codex.NewSubfield('a', "Herculine"),
+			codex.NewSubfield('v', "v. 3"))))
+
+	want := []Series{{Title: "Herculine", Enumeration: "v. 3", Traced: true}}
+	if !reflect.DeepEqual(cat.Works[0].Series, want) {
+		t.Fatalf("series = %+v\nwant %+v", cat.Works[0].Series, want)
+	}
+}
+
+// A 762 subseries entry names a series membership through the subseries
+// relationship IRI; it must project like the rest (task 436).
+func TestA762SubseriesEntryProjectsAsASeries(t *testing.T) {
+	cat := projectMARC(t, seriesRecord("c1", "A Book",
+		codex.NewDataField("762", '0', ' ',
+			codex.NewSubfield('t', "Companion volumes"))))
+
+	if len(cat.Works[0].Series) != 1 || cat.Works[0].Series[0].Title != "Companion volumes" {
+		t.Fatalf("series = %+v, want the 762 subseries", cat.Works[0].Series)
+	}
+	if !cat.Works[0].Series[0].Traced {
+		t.Fatalf("a controlled linking entry is the trace; got %+v", cat.Works[0].Series[0])
+	}
+}
+
+// An 800 heading is name + title; the series title is its $t (bf:title on
+// the Hub), not the personal name, which rides as a contribution (task 436).
+func TestAn800PersonalNameSeriesProjectsItsTitle(t *testing.T) {
+	cat := projectMARC(t, seriesRecord("c1", "A Book",
+		codex.NewDataField("800", '1', ' ',
+			codex.NewSubfield('a', "Le Guin, Ursula K."),
+			codex.NewSubfield('t', "Earthsea cycle"),
+			codex.NewSubfield('v', "bk. 4"))))
+
+	want := []Series{{Title: "Earthsea cycle", Enumeration: "bk. 4", Traced: true}}
+	if !reflect.DeepEqual(cat.Works[0].Series, want) {
+		t.Fatalf("series = %+v\nwant %+v", cat.Works[0].Series, want)
+	}
+}
+
+// Two DIFFERENT series -- a 490 and an unrelated 830 -- must stay two
+// entries; the pair-merge keys on the title, not on the shapes (task 436).
+func TestAnUnrelated830DoesNotMergeWithA490(t *testing.T) {
+	cat := projectMARC(t, seriesRecord("c1", "A Book",
+		codex.NewDataField("490", '0', ' ', codex.NewSubfield('a', "Second series")),
+		codex.NewDataField("830", ' ', '0', codex.NewSubfield('a', "Herculine"))))
+
+	if len(cat.Works[0].Series) != 2 {
+		t.Fatalf("series = %+v, want two distinct entries", cat.Works[0].Series)
+	}
+}

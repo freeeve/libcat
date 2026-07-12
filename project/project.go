@@ -65,7 +65,11 @@ const (
 	pAssociatedResource = bfNS + "associatedResource"
 	pStatus             = bfNS + "status"
 	classIssn           = bfNS + "Issn"
+	classHub            = bfNS + "Hub"
 	seriesRelationIRI   = "http://id.loc.gov/vocabulary/relationship/series"
+	// subseries is the 762 subseries linking entry's relationship; its
+	// associated resource is a Hub-typed series like the 8xx entries'.
+	subseriesRelationIRI = "http://id.loc.gov/vocabulary/relationship/subseries"
 	// mstatus/tr is "traced": the cataloger gave the series an added entry
 	// (490 ind1=1). mstatus/t ("transcribed") is on every series and says nothing.
 	statusTracedIRI = "http://id.loc.gov/vocabulary/mstatus/tr"
@@ -882,14 +886,24 @@ func (p *projector) contributors(w rdf.Term) []Contributor {
 // entry, which uses the same bf:relation predicate. Reading bf:relation without
 // checking it would project every "translation of" and "sequel to" as a series.
 //
+// libcodex >= v0.33.0 additionally emits the controlled series added entries
+// (800/810/811/830) and the 760/762 linking entries: same relationship IRI
+// (762 uses .../subseries), with the associated resource typed bf:Hub as well
+// as bf:Series. A controlled entry IS the series trace, so it projects
+// Traced. And because a cataloged record typically carries the pair -- the
+// 490 transcription AND its 8xx controlled form -- two relations describing
+// one membership merge by title: one Series entry, traced, with the
+// enumeration and ISSN from whichever side carries them.
+//
 // Sorted by title then enumeration, so a projection is stable across runs: blank
 // node labels are canonicalized per graph, not per corpus, and Objects() does not
 // promise an order.
 func (p *projector) series(w rdf.Term) []Series {
 	var out []Series
+	byTitle := map[string]int{}
 	for _, rel := range p.view.Objects(w, pRelation) {
 		r, ok := p.view.Object(rel, pRelationship)
-		if !ok || r.Value != seriesRelationIRI {
+		if !ok || (r.Value != seriesRelationIRI && r.Value != subseriesRelationIRI) {
 			continue
 		}
 		res, ok := p.view.Object(rel, pAssociatedResource)
@@ -908,6 +922,11 @@ func (p *projector) series(w rdf.Term) []Series {
 		if enum, ok := p.view.Literal(rel, pSeriesEnum); ok {
 			s.Enumeration = enum
 		}
+		// mstatus/tr marks a traced 490; a Hub-typed resource is itself the
+		// controlled added entry, i.e. the trace.
+		if p.view.HasType(res, classHub) {
+			s.Traced = true
+		}
 		for _, st := range p.view.Objects(res, pStatus) {
 			if st.Value == statusTracedIRI {
 				s.Traced = true
@@ -925,6 +944,11 @@ func (p *projector) series(w rdf.Term) []Series {
 				break
 			}
 		}
+		if at, dup := byTitle[seriesTitleKey(s.Title)]; dup {
+			out[at] = mergeSeries(out[at], s)
+			continue
+		}
+		byTitle[seriesTitleKey(s.Title)] = len(out)
 		out = append(out, s)
 	}
 	if len(out) == 0 {
@@ -937,6 +961,33 @@ func (p *projector) series(w rdf.Term) []Series {
 		return out[a].Enumeration < out[b].Enumeration
 	})
 	return out
+}
+
+// seriesTitleKey folds a series title for pairing a 490 transcription with
+// its controlled 8xx form: case and the transcription's trailing ISBD
+// punctuation must not keep one membership as two entries.
+func seriesTitleKey(t string) string {
+	return strings.ToLower(strings.TrimRight(t, " ;:,."))
+}
+
+// mergeSeries folds two relations describing one membership (the 490 and its
+// 8xx pair) into one entry: the controlled side usually carries the ISSN,
+// the transcription the enumeration, and the trace holds if either says so.
+// When the titles differ by ISBD residue, the form without trailing
+// punctuation wins -- relation order is not promised, the output must not
+// depend on it.
+func mergeSeries(a, b Series) Series {
+	if a.Title != b.Title && strings.TrimRight(b.Title, " ;:,.") == b.Title {
+		a.Title = b.Title
+	}
+	if a.Enumeration == "" {
+		a.Enumeration = b.Enumeration
+	}
+	if a.ISSN == "" {
+		a.ISSN = b.ISSN
+	}
+	a.Traced = a.Traced || b.Traced
+	return a
 }
 
 // seriesTitle reads bf:title -> bf:mainTitle off a bf:Series node.
