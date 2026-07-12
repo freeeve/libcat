@@ -6,6 +6,7 @@ import { expireSession, getToken, invalidateAccess } from "./auth";
 import type {
   AuditPage,
   AuthorityMergeResult,
+  AuthorityUnmergeResult,
   AuthoritySelection,
   AuthorityTerm,
   AuthorityView,
@@ -740,6 +741,12 @@ export function updateAuthority(id: string, term: AuthorityTerm, ifMatch: string
  *  every referencing work (librarian). */
 export function mergeAuthority(loser: string, winner: TermRef): Promise<AuthorityMergeResult> {
   return call("POST", "/v1/authorities/merge", { loser, winner });
+}
+
+/** Reverses a recorded merge: replays the merge's manifest backwards, revives
+ *  the term, and reports what it restored vs skipped (librarian). */
+export function unmergeAuthority(id: string): Promise<AuthorityUnmergeResult> {
+  return call("POST", `/v1/authorities/${encodeURIComponent(id)}/unmerge`);
 }
 
 /** Tag promotions, optionally filtered by status (moderator). */

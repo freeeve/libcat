@@ -214,6 +214,18 @@ func AddAuthorityMergeMarker(grainNQ []byte, loserURI, winnerURI, vocab string) 
 	}}})
 }
 
+// RemoveAuthorityMergeMarker reverses AddAuthorityMergeMarker: the loser's
+// lcat:mergedInto <winner> statement leaves the authority:<vocab> graph, so
+// the term is live again on reload. Idempotent -- a grain without the marker
+// (an un-merge resuming past the removal) returns unchanged bytes.
+func RemoveAuthorityMergeMarker(grainNQ []byte, loserURI, winnerURI, vocab string) ([]byte, error) {
+	return ApplyPatch(grainNQ, AuthorityGraph(vocab), Patch{Remove: []rdf.Quad{{
+		S: rdf.NewIRI(loserURI),
+		P: rdf.NewIRI(PredMergedInto),
+		O: rdf.NewIRI(winnerURI),
+	}}})
+}
+
 // ReplaceSubjectReference rewrites one Work's controlled-subject reference
 // after an authority merge: the editorial bf:subject link to the
 // loser is retracted along with every authority-graph statement about the

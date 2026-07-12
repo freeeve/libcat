@@ -12,6 +12,7 @@
     fetchAuthorityProfile,
     updateAuthority,
     mergeAuthority,
+    unmergeAuthority,
     ApiError,
     humanApiMessage,
     ConflictError,
@@ -41,6 +42,7 @@
   let uriDrafts = $state<Record<string, string>>({ broader: "", narrower: "", related: "", exactMatch: "" });
   let pickerFor = $state<string | null>(null);
   let merging = $state(false);
+  let unmerging = $state(false);
   let mergeWinner = $state<Term | null>(null);
   let loading = $state(true);
   let saving = $state(false);
@@ -191,6 +193,22 @@
     }
   }
 
+  async function runUnmerge(): Promise<void> {
+    unmerging = true;
+    error = "";
+    try {
+      const result = await unmergeAuthority(authorityId);
+      status =
+        `un-merged -- ${result.restored} of ${result.manifestWorks} work${result.manifestWorks === 1 ? "" : "s"} restored` +
+        (result.skipped > 0 ? ` (${result.skipped} skipped: no longer on the winner)` : "");
+      await load();
+    } catch (e) {
+      error = humanApiMessage(e, "un-merge failed");
+    } finally {
+      unmerging = false;
+    }
+  }
+
   function fieldLabel(path: string, fallback: string): string {
     return profile?.fields.find((f) => f.path === path)?.label ?? fallback;
   }
@@ -215,6 +233,11 @@
       <p class="banner" role="status">
         This term is retired: merged into <span class="id">{mergedInto}</span>. Works were rewritten to the winner;
         edits here only affect the historical record.
+        {#if !isReadOnly()}
+          <button type="button" class="button button--quiet" onclick={() => void runUnmerge()} disabled={unmerging}>
+            {unmerging ? "Un-merging…" : "Un-merge"}
+          </button>
+        {/if}
       </p>
     {/if}
 

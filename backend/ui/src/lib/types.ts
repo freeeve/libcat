@@ -269,6 +269,20 @@ export interface AuthorityMergeResult {
   complete: boolean;
 }
 
+/** POST /v1/authorities/{id}/unmerge response. */
+export interface AuthorityUnmergeResult {
+  loser: string;
+  winner: string;
+  /** The recorded rewrite set's size. */
+  manifestWorks: number;
+  /** Works repointed back to the loser this run. */
+  restored: number;
+  /** Manifest works left alone: no longer carrying the winner. */
+  skipped: number;
+  /** Every eligible work restored, the marker removed, the term live again. */
+  complete: boolean;
+}
+
 /** profiles.Profile -- the field definitions an editor form renders from. */
 export interface Profile {
   id: string;

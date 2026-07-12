@@ -267,7 +267,18 @@ func (s *Service) Merge(ctx context.Context, loserID string, winner vocab.TermRe
 	//
 	// Same execute-then-stamp shape as the promotion.
 	var changed []string
+	var rewritten []mergedWork
 	finish := func(err error) (MergeResult, error) {
+		// The reversal manifest records what THIS merge actually moved --
+		// on failure too: partially rewritten works are really repointed,
+		// and an un-merge must know about them. Failing to persist it is
+		// logged, not fatal: the merge itself already happened.
+		if len(rewritten) > 0 {
+			m := mergeManifest{Loser: loserURI, Winner: winner, Actor: actor, At: time.Now().UTC(), Works: rewritten}
+			if merr := s.writeMergeManifest(ctx, loserID, m); merr != nil && s.Logger != nil {
+				s.Logger.Error("merge manifest write failed; this merge will not be un-mergeable", "loser", loserID, "err", merr)
+			}
+		}
 		// Both outcomes are audited and both reload. The audit entry is the only
 		// record that a heading was touched and N works repointed, and it used to
 		// be written on the success path only -- absent for exactly the runs where
@@ -302,6 +313,9 @@ func (s *Service) Merge(ctx context.Context, loserID string, winner vocab.TermRe
 			return finish(fmt.Errorf("rewrite %s: %w", workID, err))
 		}
 		result.Rewritten++
+		// AlsoWinner: the work referenced both terms before this rewrite
+		// fused them; the reversal must not take the winner away from it.
+		rewritten = append(rewritten, mergedWork{ID: workID, AlsoWinner: slices.Contains(summary.Subjects, winner.ID)})
 		changed = append(changed, path)
 	}
 	if _, err := publish.MutateGrain(ctx, s.Blob, loserPath, func(old []byte) ([]byte, error) {

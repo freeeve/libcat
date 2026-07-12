@@ -230,6 +230,52 @@ func registerAuthorities(mux *http.ServeMux, svc *authoritiesvc.Service, prof *p
 		writeJSON(w, http.StatusOK, result)
 	})))
 
+	// The designed reversal: replay the merge's recorded rewrite set
+	// backwards. Only merges that wrote a manifest reverse; works a later
+	// merge moved again are skipped and counted, never guessed at.
+	mux.Handle("POST /v1/authorities/{id}/unmerge", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, _ := auth.FromContext(r.Context())
+		loserID := r.PathValue("id")
+		if !authoritiesvc.IDPattern.MatchString(loserID) {
+			writeError(w, http.StatusBadRequest, "un-merge needs a local authority id")
+			return
+		}
+		result, err := svc.Unmerge(r.Context(), loserID, id.Email)
+		switch {
+		case errors.Is(err, authoritiesvc.ErrValidation):
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		case errors.Is(err, blob.ErrNotFound):
+			writeError(w, http.StatusNotFound, "no such authority")
+			return
+		case errors.Is(err, blob.ErrReadOnly):
+			writeReadOnly(w)
+			return
+		case errors.Is(err, publish.ErrGrainConflict):
+			writeError(w, http.StatusConflict, "a record changed while the un-merge ran, retry")
+			return
+		case err != nil:
+			// Same partial-progress honesty as merge: restored works stay
+			// restored, and re-issuing the un-merge resumes.
+			logger.Error("authority un-merge failed", "loser", loserID,
+				"restored", result.Restored, "manifestWorks", result.ManifestWorks, "complete", result.Complete, "err", err)
+			msg := "un-merge failed; nothing was changed"
+			switch {
+			case result.Complete:
+				msg = "un-merge applied, but the vocabulary index was not reloaded; it is correct on disk"
+			case result.Restored > 0:
+				msg = fmt.Sprintf("un-merge partially applied: %d of %d works restored; retry to finish",
+					result.Restored, result.ManifestWorks)
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error": msg, "loser": result.Loser, "winner": result.Winner,
+				"restored": result.Restored, "manifestWorks": result.ManifestWorks, "complete": result.Complete,
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+	})))
+
 	mux.Handle("POST /v1/authorities/reload", librarian(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := svc.Reload(r.Context()); err != nil {
 			writeError(w, http.StatusInternalServerError, "vocab reload failed")

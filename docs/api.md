@@ -569,6 +569,7 @@ of them: `/` serves the admin SPA, `/v1/` is the JSON-404 catch-all.
 | `POST` | `/v1/authorities/reload` | librarian | `authorities_handlers.go` |
 | `GET` | `/v1/authorities/{id}` | librarian | `authorities_handlers.go` |
 | `PUT` | `/v1/authorities/{id}` | librarian | `authorities_handlers.go` |
+| `POST` | `/v1/authorities/{id}/unmerge` | librarian | `authorities_handlers.go` |
 | `POST` | `/v1/batch` | librarian | `records_handlers.go` |
 | `POST` | `/v1/batch/ops` | librarian | `batch_handlers.go` |
 | `POST` | `/v1/batch/resolve` | librarian | `batch_handlers.go` |

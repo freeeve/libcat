@@ -253,6 +253,54 @@ func TestAuthorityMergeEndpoint(t *testing.T) {
 	}
 }
 
+// TestAuthorityUnmergeEndpoint drives the reversal over HTTP: merge, then
+// un-merge -- the carrier points back at the loser, the term returns to
+// search, and the guards answer with their statuses (400 no-manifest /
+// bad id).
+func TestAuthorityUnmergeEndpoint(t *testing.T) {
+	h, bs, _ := newAuthoritiesAPI(t)
+	rec := request(t, h, http.MethodPost, "/v1/authorities", "lib-token", "", map[string]any{
+		"prefLabel": map[string]string{"en": "Trans folks"},
+	})
+	var created struct{ ID, URI string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &created)
+	seedTypedWork(t, bs, "wunmerge0001a", nil, created.URI)
+
+	// Un-merge before any merge: 400 with the no-manifest explanation.
+	if rec := request(t, h, http.MethodPost, "/v1/authorities/"+created.ID+"/unmerge", "lib-token", "", nil); rec.Code != http.StatusBadRequest {
+		t.Fatalf("premature un-merge = %d (%s)", rec.Code, rec.Body)
+	}
+
+	rec = request(t, h, http.MethodPost, "/v1/authorities/merge", "lib-token", "", map[string]any{
+		"loser":  created.ID,
+		"winner": map[string]string{"scheme": "homosaurus", "id": "https://homosaurus.org/v4/homoit0001235"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("merge = %d %s", rec.Code, rec.Body)
+	}
+
+	rec = request(t, h, http.MethodPost, "/v1/authorities/"+created.ID+"/unmerge", "lib-token", "", nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"restored":1`) || !strings.Contains(rec.Body.String(), `"complete":true`) {
+		t.Fatalf("un-merge = %d %s", rec.Code, rec.Body)
+	}
+	grain, _, err := bs.Get(t.Context(), bibframe.GrainPath("wunmerge0001a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(grain), created.URI) || strings.Contains(string(grain), "homoit0001235") {
+		t.Fatalf("carrier after un-merge:\n%s", grain)
+	}
+	// The revived term is searchable again.
+	rec = request(t, h, http.MethodGet, "/v1/authorities?q=trans+folks", "lib-token", "", nil)
+	if !strings.Contains(rec.Body.String(), created.URI) {
+		t.Fatalf("revived term not searchable: %s", rec.Body)
+	}
+
+	if rec := request(t, h, http.MethodPost, "/v1/authorities/not-an-id/unmerge", "lib-token", "", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad id = %d, want 400", rec.Code)
+	}
+}
+
 // TestRecordSaveAutoLinks proves the write path hands saved Works to the
 // auto-linker: a record edit adding an uncontrolled tag that names an
 // authority heading lands a PIPELINE suggestion in the queue.
