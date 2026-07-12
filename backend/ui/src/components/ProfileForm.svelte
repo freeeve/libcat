@@ -781,12 +781,18 @@
     font-weight: 650;
     color: var(--ink-muted);
   }
+  /* Wide enough that a typical heading chip + scheme badge + provenance +
+     Remove sit on ONE line; 17rem wrapped the controls under most chips,
+     making every FAST subject a ragged two-line item. */
   .vals.flatcols {
-    column-width: 17rem;
-    column-gap: 2rem;
+    column-width: 21rem;
+    column-gap: 1.5rem;
   }
   .vals.flatcols > :global(li) {
     break-inside: avoid;
+    /* A genuinely long heading still wraps its controls; keep the wrapped
+       line snug under the chip so the item reads as one unit. */
+    row-gap: 0;
   }
   .vals.flatcols > :global(li.hoodrow) {
     column-span: all;
