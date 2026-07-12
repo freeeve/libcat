@@ -190,10 +190,11 @@ func TestCrosswalkPivotReachesHomosaurusFromFAST(t *testing.T) {
 // TestCrosswalkTiersKeepDemotionVisible pins task 428 on queerbooks' exact
 // Homosaurus v5 shape: "Women" and "Womyn" are skos:related (NOT
 // broader/narrower, so the ancestor drop cannot fire) and BOTH exactMatch
-// the bare LCSH "Women" node. The guard demotes the non-matching
-// co-claimant -- and that demotion must survive into the emitted
-// confidences: one enrichment per tier, Women at pivot-exact, Womyn
-// materially below it, never folded into one per-work number.
+// the bare LCSH "Women" node -- and, per task 430, FAST folds "Womyn" into
+// "Women" as an ALT label, which must read as see-also grade rather than
+// granting the full-match exemption. The demotion must survive into the
+// emitted confidences: one enrichment per tier, Women at pivot-exact,
+// Womyn materially below it, never folded into one per-work number.
 func TestCrosswalkTiersKeepDemotionVisible(t *testing.T) {
 	const relatedNT = `<urn:fast:women> <http://www.w3.org/2004/02/skos/core#prefLabel> "Women"@en <authority:fast> .
 <urn:fast:women> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:women> <authority:fast> .

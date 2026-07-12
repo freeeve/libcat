@@ -110,8 +110,10 @@ matched counterpart.
 
 Match links are not transitive, so pivots are guarded against the broad-
 heading trap (a node like LCSH "Women" collects both its true counterpart
-and narrower identity terms): per pivot node and scheme, a label-matching
-counterpart keeps full pivot strength, a claimant whose sibling on the same
+and narrower identity terms): per pivot node and scheme, a PREFERRED-label-
+matching counterpart keeps full pivot strength (a match that exists only
+through an alt label -- FAST folds "Womyn" into "Women" as a variant access
+string -- is see-also grade and caps at pivot-close), a claimant whose sibling on the same
 node is its skos:broader ancestor is dropped outright ("Women" never
 suggests "Womyn"), and when several claimants remain the node is treated as
 a hub -- non-matching survivors demote one tier (a demoted pivot-close is

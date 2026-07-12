@@ -362,3 +362,42 @@ func TestPivotGuardLabelCounterpart(t *testing.T) {
 		t.Errorf("Minorities -> Sexual minorities = %q, want pivot-close still", got)
 	}
 }
+
+// TestPivotGuardAltLabelIsSeeAlsoGrade pins task 430 on the real FAST
+// shape: fast "Women" carries "Womyn" as an ALT label (a variant access
+// string), homosaurus models Women/Womyn as skos:related (no broader), and
+// both claim the bare LCSH node. The alt-label overlap must not grant
+// "Womyn" the full-match exemption: the prefLabel counterpart keeps
+// pivot-exact, the alt-only match caps at pivot-close -- demoted but
+// reviewable, never dropped.
+func TestPivotGuardAltLabelIsSeeAlsoGrade(t *testing.T) {
+	const nq = `
+<urn:fast:women430> <http://www.w3.org/2004/02/skos/core#prefLabel> "Women"@en <authority:fast> .
+<urn:fast:women430> <http://www.w3.org/2004/02/skos/core#altLabel> "Womyn"@en <authority:fast> .
+<urn:fast:women430> <http://www.w3.org/2004/02/skos/core#altLabel> "Wimmin"@en <authority:fast> .
+<urn:fast:women430> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:women430> <authority:fast> .
+<urn:homo:women430> <http://www.w3.org/2004/02/skos/core#prefLabel> "Women"@en <authority:homosaurus> .
+<urn:homo:women430> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:women430> <authority:homosaurus> .
+<urn:homo:womyn430> <http://www.w3.org/2004/02/skos/core#prefLabel> "Womyn"@en <authority:homosaurus> .
+<urn:homo:womyn430> <http://www.w3.org/2004/02/skos/core#exactMatch> <urn:lcsh:women430> <authority:homosaurus> .
+<urn:homo:womyn430> <http://www.w3.org/2004/02/skos/core#related> <urn:homo:women430> <authority:homosaurus> .
+`
+	bs := blob.NewMem()
+	if _, err := bs.Put(t.Context(), "data/authorities/alt/vocab.nq", []byte(nq), blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := Load(t.Context(), bs, "data/authorities/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eqs, ok := ix.Equivalents("urn:fast:women430")
+	if !ok {
+		t.Fatal("fast Women unresolved")
+	}
+	if got := strengthOf(eqs, "urn:homo:women430"); got != "pivot-exact" {
+		t.Errorf("prefLabel counterpart = %q, want pivot-exact", got)
+	}
+	if got := strengthOf(eqs, "urn:homo:womyn430"); got != "pivot-close" {
+		t.Errorf("alt-label match = %q, want pivot-close (see-also grade, kept reviewable)", got)
+	}
+}

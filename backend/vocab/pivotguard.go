@@ -16,10 +16,12 @@ type pivotCand struct {
 // variant terms. The evidence is the claimant set itself -- guards fire per
 // (pivot node, candidate scheme) group:
 //
-//   - Label-matching candidates (normalized, plural-tolerant, alt labels
-//     included) keep full pivot strength: they are the node's true
-//     counterpart ("Same-sex marriage" -> "Same-sex marriage",
-//     "Masculinity" -> "Masculinities").
+//   - PREFERRED-label-matching candidates (normalized, plural-tolerant)
+//     keep full pivot strength: they are the node's true counterpart
+//     ("Same-sex marriage" -> "Same-sex marriage", "Masculinity" ->
+//     "Masculinities"). A match that exists only through an ALT label is
+//     see-also evidence (FAST folds "Womyn" into "Women" as a variant
+//     access string): it survives the drop rules but caps at pivot-close.
 //   - A candidate whose group sibling is its ANCESTOR is subtree
 //     over-reach and drops: the sibling owns the node, the descendant is a
 //     narrower identity ("Women" node claimed by both "Women" and its
@@ -53,12 +55,27 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 		}
 	}
 
+	// Two grades of label match (task 430): preferred labels agreeing on
+	// both sides is conceptual identity and keeps full pivot strength;
+	// a match that exists only through an ALT label (FAST folds "Womyn"
+	// into "Women" as a variant access string) is see-also evidence, not
+	// identity -- it still exempts the candidate from the drop rules, but
+	// its pivot caps at the weakest tier.
+	srcPrefForms := prefLabelForms(src)
 	matched := map[int]bool{}
+	weakMatch := map[int]bool{}
 	for i, t := range terms {
-		if t != nil && formsOverlap(srcForms, labelForms(t)) {
+		if t == nil {
+			continue
+		}
+		switch {
+		case formsOverlap(srcPrefForms, prefLabelForms(t)):
 			matched[i] = true
+		case formsOverlap(srcForms, labelForms(t)):
+			weakMatch[i] = true
 		}
 	}
+	exempt := func(i int) bool { return matched[i] || weakMatch[i] }
 
 	drop := map[int]bool{}
 	demote := map[int]bool{}
@@ -67,7 +84,7 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 			continue // no same-scheme sibling evidence at this node
 		}
 		for _, i := range members {
-			if matched[i] {
+			if exempt(i) {
 				continue
 			}
 			for _, j := range members {
@@ -87,7 +104,7 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 			continue
 		}
 		for _, i := range members {
-			if !drop[i] && !matched[i] {
+			if !drop[i] && !exempt(i) {
 				demote[i] = true
 			}
 		}
@@ -124,7 +141,7 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 		// one node is a broad heading by evidence, whatever their schemes.
 		hub := len(distinct)+1 >= 3
 		for _, i := range members {
-			if matched[i] {
+			if exempt(i) {
 				continue
 			}
 			switch {
@@ -183,7 +200,7 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 		return false
 	}
 	for i, c := range cands {
-		if terms[i] == nil || matched[i] || drop[i] {
+		if terms[i] == nil || exempt(i) || drop[i] {
 			continue
 		}
 		cp := counterpart(terms[i].Scheme)
@@ -207,6 +224,9 @@ func guardPivots(ix *Index, src *Term, cands []pivotCand) []pivotCand {
 				continue // a demoted pivot-close is coincidence-grade noise
 			}
 			c.strength = "pivot-close"
+		}
+		if weakMatch[i] && c.strength == "pivot-exact" {
+			c.strength = "pivot-close" // alt-label identity is see-also grade
 		}
 		out = append(out, c)
 	}
@@ -238,6 +258,21 @@ func isAncestorTerm(ix *Index, child, anc *Term) bool {
 		}
 	}
 	return false
+}
+
+// prefLabelForms folds ONLY a term's preferred labels into normalized
+// comparison forms -- the identity grade of label match.
+func prefLabelForms(t *Term) map[string]bool {
+	forms := map[string]bool{}
+	if t == nil {
+		return forms
+	}
+	for _, l := range t.Labels {
+		if n := pivotLabelNorm(l); n != "" {
+			forms[n] = true
+		}
+	}
+	return forms
 }
 
 // labelForms folds a term's preferred AND alternate labels (every language)
