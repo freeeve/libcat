@@ -254,6 +254,22 @@ func (e convertError) Unwrap() error { return e.err }
 // dump's fault, so they surface as validation errors with the underlying
 // reason rather than a generic 500.
 func (s *Service) installFrom(ctx context.Context, src Source, r io.Reader, provenance string) (int, error) {
+	// One INSTALLED snapshot per scheme: sidecar artifacts key by SCHEME
+	// while snapshots key by NAME, so a second source's install would
+	// rebuild the shared sidecar from only its own snapshot and silently
+	// force the whole scheme resident (a 513k-term LCSH ballooning into RAM
+	// with sidecar:true still reported). Registering extra suggest-only
+	// sources under a scheme stays fine; installing a second snapshot does
+	// not. Same-source reinstall is the normal refresh path.
+	installed, err := s.Installed(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, info := range installed {
+		if info.Scheme == src.Scheme && info.Source != src.Name {
+			return 0, fmt.Errorf("%w: scheme %q already has an installed snapshot from source %q -- remove it first (the sidecar is scheme-keyed)", ErrConflict, src.Scheme, info.Source)
+		}
+	}
 	pr, pw := io.Pipe()
 	var terms int
 	go func() {

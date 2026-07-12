@@ -1027,3 +1027,37 @@ func TestPutSourceAcceptsSearchFAST(t *testing.T) {
 		t.Fatalf("unknown flavor = %v, want ErrValidation", err)
 	}
 }
+
+// TestInstallRefusesSchemeCollision is the 410 regression: two sources may
+// share a scheme (suggest-only registration is a real pattern), but only one
+// may hold the scheme's INSTALLED snapshot -- the sidecar is scheme-keyed,
+// and a second install used to rebuild it from the smaller snapshot and
+// silently force the whole scheme resident. Same-source reinstall stays the
+// normal refresh path.
+func TestInstallRefusesSchemeCollision(t *testing.T) {
+	s := newService(t)
+	ctx := t.Context()
+	ix, err := vocab.Load(ctx, s.Blob, s.AuthoritiesPrefix, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Index = ix
+	if err := s.PutSource(ctx, Source{Name: "big", Scheme: "zzcol"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutSource(ctx, Source{Name: "small", Scheme: "zzcol", SuggestFlavor: FlavorSuggest2, SuggestURL: "https://id.loc.gov"}); err != nil {
+		t.Fatalf("registering a second suggest source under the scheme must stay allowed: %v", err)
+	}
+	nt := `<https://example.org/zzcol/1> <http://www.w3.org/2004/02/skos/core#prefLabel> "One"@en .`
+	if _, err := s.InstallUpload(ctx, "big", strings.NewReader(nt)); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	// The colliding install refuses with a conflict naming the holder.
+	if _, err := s.InstallUpload(ctx, "small", strings.NewReader(nt)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second install = %v, want ErrConflict", err)
+	}
+	// Same-source reinstall is the refresh path and stays open.
+	if _, err := s.InstallUpload(ctx, "big", strings.NewReader(nt)); err != nil {
+		t.Fatalf("reinstall: %v", err)
+	}
+}
