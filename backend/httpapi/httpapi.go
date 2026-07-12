@@ -128,6 +128,12 @@ func New(deps Deps) http.Handler {
 		deps.Profiles = profilesvc.New(nil, "", deps.Logger)
 		_ = deps.Profiles.Load(context.Background())
 	}
+	// One shared work index for every consumer (records handlers, the
+	// queue's title join): defaulting it here rather than inside the
+	// records block means a caller who set only Blob still gets one.
+	if deps.WorkIndex == nil && deps.Blob != nil {
+		deps.WorkIndex = workindex.New(deps.Blob, "data/works/")
+	}
 	if deps.AuthExchange != nil {
 		mux.Handle("POST /v1/auth/exchange", deps.AuthExchange)
 	}
@@ -141,7 +147,7 @@ func New(deps Deps) http.Handler {
 		registerSuggestions(mux, deps.Suggest, deps.Abuse)
 	}
 	if deps.Suggest != nil && deps.Verifier != nil {
-		registerReview(mux, deps.Suggest, deps.Verifier, deps.Publisher)
+		registerReview(mux, deps.Suggest, deps.Verifier, deps.Publisher, deps.WorkIndex)
 	}
 	// The auto-linker seam stays a nil interface unless a service is
 	// configured (a typed-nil *Service must not masquerade as a hook).
@@ -151,9 +157,6 @@ func New(deps Deps) http.Handler {
 	}
 	if deps.Blob != nil && deps.DB != nil && deps.Verifier != nil {
 		ix := deps.WorkIndex
-		if ix == nil {
-			ix = workindex.New(deps.Blob, "data/works/")
-		}
 		registerRecords(mux, deps.Blob, ix, deps.DB, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier, hook)
 		registerMARC(mux, deps.Blob, ix, deps.Suggest, deps.Profiles, deps.Vocab, deps.Verifier, deps.OrgCode)
 		registerMaintenance(mux, deps.Blob, ix, deps.Suggest, deps.Verifier)

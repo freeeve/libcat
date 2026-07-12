@@ -12,6 +12,7 @@ import (
 	"github.com/freeeve/libcat/backend/publish"
 	"github.com/freeeve/libcat/backend/suggest"
 	"github.com/freeeve/libcat/backend/vocab"
+	"github.com/freeeve/libcat/backend/workindex"
 )
 
 var monthPattern = regexp.MustCompile(`^\d{4}-\d{2}$`)
@@ -35,7 +36,9 @@ func requestMonth(r *http.Request) (string, bool) {
 
 // registerReview mounts the staff moderation surface: the queue, batch
 // review, manual/folk term governance, publishing, and the audit trail.
-func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.TokenVerifier, publisher GraphPublisher) {
+// ix, when set, joins work titles onto queue rows at read time; nil (no
+// work index) leaves rows as stored.
+func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.TokenVerifier, publisher GraphPublisher, ix *workindex.Index) {
 	moderator := auth.Require(verifier, auth.RoleModerator)
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
@@ -78,6 +81,34 @@ func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.Toke
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "queue read failed")
 			return
+		}
+		// Titles join at read time from the work index: pipeline suggestions
+		// are created title-less (a stored copy would also go stale on
+		// edit), and a reviewer triaging "should this work gain this term"
+		// needs the work named, not its id. Rows that carry a title (the
+		// patron path stores what the patron saw) keep it; only gaps fill.
+		if ix != nil {
+			missing := map[string]bool{}
+			for i := range page.Items {
+				if page.Items[i].WorkTitle == "" && page.Items[i].WorkID != "" {
+					missing[page.Items[i].WorkID] = true
+				}
+			}
+			if len(missing) > 0 {
+				if sums, _, err := ix.SummariesWithGeneration(r.Context()); err == nil {
+					titles := make(map[string]string, len(missing))
+					for i := range sums {
+						if missing[sums[i].WorkID] && sums[i].Title != "" {
+							titles[sums[i].WorkID] = sums[i].Title
+						}
+					}
+					for i := range page.Items {
+						if page.Items[i].WorkTitle == "" {
+							page.Items[i].WorkTitle = titles[page.Items[i].WorkID]
+						}
+					}
+				}
+			}
 		}
 		writeJSON(w, http.StatusOK, page)
 	})))

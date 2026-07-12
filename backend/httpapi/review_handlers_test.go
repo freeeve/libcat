@@ -214,3 +214,75 @@ func TestManualAndFolkGovernanceRoutes(t *testing.T) {
 		t.Fatalf("accepted terms = %+v", out.Terms)
 	}
 }
+
+// TestQueueJoinsWorkTitles covers the read-time title join: a pipeline
+// suggestion is created title-less, and the queue names its work from the
+// work index -- a reviewer triages "should THIS BOOK gain this term", not a
+// work id. A row that stored a title (the patron path keeps what the patron
+// saw) is left alone.
+func TestQueueJoinsWorkTitles(t *testing.T) {
+	// The moderation harness with a REAL blob store + work index, so the
+	// join has summaries to read.
+	data, err := os.ReadFile("../vocab/testdata/authorities.nq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs := blob.NewMem()
+	_, _ = bs.Put(t.Context(), "a/x.nq", data, blob.PutOptions{})
+	ix, err := vocab.Load(t.Context(), bs, "a/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := suggest.New(store.NewMem(), ix, suggest.Caps{})
+	if _, err := queue.PutPolicy(t.Context(), suggest.Policy{Enabled: true, FreeText: suggest.FreeTextAny}); err != nil {
+		t.Fatal(err)
+	}
+	verifier := staffVerifier{
+		"mod-token": {Email: "mod@example.org", Roles: []auth.Role{auth.RoleModerator}},
+		"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}},
+	}
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Suggest: queue, Vocab: ix, Verifier: verifier})
+	seedAuditWork(t, bs, "wqtitle0001a", "", "", "zines", nil)
+	if err := queue.PipelineSuggest(t.Context(), "wqtitle0001a",
+		vocab.TermRef{Scheme: "homosaurus", ID: "https://homosaurus.org/v5/homoit0009999", Label: "Zines"}, 0.8); err != nil {
+		t.Fatal(err)
+	}
+	// A patron-style row with its own stored title, for a work the index
+	// also knows under a DIFFERENT (edited) title: the stored one wins.
+	if _, err := queue.Submit(t.Context(), suggest.SubmitInput{
+		WorkID: "wqtitle0001a",
+		Term:   vocab.TermRef{Scheme: "homosaurus", ID: transURI, Label: "Other"},
+		Type:   suggest.TypeAdd, SupporterHash: "h", WorkTitle: "Title The Patron Saw",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := request(t, h, http.MethodGet, "/v1/queue", "mod-token", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("queue = %d (%s)", rec.Code, rec.Body)
+	}
+	var page struct {
+		Items []struct {
+			WorkID    string `json:"workId"`
+			WorkTitle string `json:"workTitle"`
+			Term      struct{ ID string }
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("items = %d (%s)", len(page.Items), rec.Body)
+	}
+	byTerm := map[string]string{}
+	for _, it := range page.Items {
+		byTerm[it.Term.ID] = it.WorkTitle
+	}
+	// seedAuditWork titles the work "T <workID>".
+	if got := byTerm["https://homosaurus.org/v5/homoit0009999"]; got != "T wqtitle0001a" {
+		t.Fatalf("pipeline row title = %q, want the index join", got)
+	}
+	if got := byTerm[transURI]; got != "Title The Patron Saw" {
+		t.Fatalf("patron row title = %q, want the stored title kept", got)
+	}
+}
