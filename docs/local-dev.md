@@ -7,9 +7,11 @@ credentials. For the container stack (MinIO + DynamoDB-local) see
 ## lcatd against a directory
 
 `lcatd` needs a grain store and an abuse secret. With `LCATD_BLOB_DIR` it uses a
-plain directory, and with no `LCATD_DYNAMO_TABLE` the document store is
-in-memory (it resets on restart -- fine for a scratch instance, and the reason
-the demo playground keeps its blob dir on disk).
+plain directory. The document store defaults to in-memory (resets on restart --
+fine for a scratch instance); set `LCATD_STORE_DIR=/path/to/store` to persist it
+locally, so the moderation queue, promotions, review decisions, audit trail,
+drafts, and job records survive restarts with no AWS dependency
+(`LCATD_DYNAMO_TABLE` still selects DynamoDB and wins when both are set).
 
 ```sh
 cd backend

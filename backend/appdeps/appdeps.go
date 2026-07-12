@@ -64,15 +64,23 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		vocabSchemes = append(vocabSchemes, authoritiesvc.LocalScheme)
 	}
 	var db store.Store = store.NewMem()
-	if cfg.DynamoTable != "" {
+	switch {
+	case cfg.DynamoTable != "":
 		d, err := awsstore.Dynamo(ctx, cfg.DynamoTable, cfg.ResolvedDynamoEndpoint())
 		if err != nil {
 			return httpapi.Deps{}, err
 		}
 		db = d
 		logger.Info("document store", "backend", "dynamodb", "table", cfg.DynamoTable)
-	} else {
-		logger.Info("document store", "backend", "memory (resets on restart)")
+	case cfg.StoreDir != "":
+		d, err := store.NewDir(cfg.StoreDir)
+		if err != nil {
+			return httpapi.Deps{}, fmt.Errorf("open document store %s: %w", cfg.StoreDir, err)
+		}
+		db = d
+		logger.Info("document store", "backend", "dir", "path", cfg.StoreDir)
+	default:
+		logger.Info("document store", "backend", "memory (resets on restart; set LCATD_STORE_DIR or LCATD_DYNAMO_TABLE to persist)")
 	}
 	deps.DB = db
 	switch {

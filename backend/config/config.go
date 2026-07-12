@@ -29,6 +29,11 @@ type Config struct {
 	// surface (audit trail, queue, drafts, copycat, ...). Empty keeps the
 	// in-memory store -- the local/demo default, which resets on restart.
 	DynamoTable string
+	// StoreDir, when set (and DynamoTable is not), selects the persistent
+	// local document store: a journal-backed directory, so the moderation
+	// queue, promotions, review decisions, audit trail, drafts, and job
+	// records survive restarts without any AWS dependency.
+	StoreDir string
 	// AWSEndpoint overrides the AWS service endpoint for every AWS client, for
 	// a single compatible endpoint such as LocalStack. Empty uses the real AWS
 	// endpoints resolved from the region.
@@ -183,6 +188,7 @@ func FromEnv() (Config, error) {
 	cfg := Config{
 		ListenAddr:             envOr("LCATD_LISTEN_ADDR", ":8080"),
 		BlobDir:                os.Getenv("LCATD_BLOB_DIR"),
+		StoreDir:               os.Getenv("LCATD_STORE_DIR"),
 		S3Bucket:               os.Getenv("LCATD_S3_BUCKET"),
 		DynamoTable:            os.Getenv("LCATD_DYNAMO_TABLE"),
 		AWSEndpoint:            os.Getenv("LCATD_AWS_ENDPOINT"),

@@ -159,7 +159,8 @@ secrets arrive as a `secretRef` and need no file mounts.
 |---|---|
 | `LCATD_BLOB_DIR` | a local directory grain store |
 | `LCATD_S3_BUCKET` | an S3-compatible grain store (takes precedence) |
-| `LCATD_DYNAMO_TABLE` | the document store |
+| `LCATD_DYNAMO_TABLE` | the DynamoDB document store |
+| `LCATD_STORE_DIR` | a persistent local (journal-backed) document store; DynamoDB wins when both are set |
 | `LCATD_AWS_ENDPOINT` | redirects every AWS client at once |
 | `LCATD_S3_ENDPOINT` | redirects only S3, overriding the above |
 | `LCATD_DYNAMO_ENDPOINT` | redirects only DynamoDB, overriding the above |
