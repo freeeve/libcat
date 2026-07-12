@@ -271,9 +271,11 @@ func (s *Service) Merge(ctx context.Context, loserID string, winner vocab.TermRe
 	finish := func(err error) (MergeResult, error) {
 		// The reversal manifest records what THIS merge actually moved --
 		// on failure too: partially rewritten works are really repointed,
-		// and an un-merge must know about them. Failing to persist it is
+		// and an un-merge must know about them. A carrier-less merge still
+		// writes one (Complete means the loser was retired, and the
+		// retirement itself must be reversible). Failing to persist it is
 		// logged, not fatal: the merge itself already happened.
-		if len(rewritten) > 0 {
+		if len(rewritten) > 0 || result.Complete {
 			m := mergeManifest{Loser: loserURI, Winner: winner, Actor: actor, At: time.Now().UTC(), Works: rewritten}
 			if merr := s.writeMergeManifest(ctx, loserID, m); merr != nil && s.Logger != nil {
 				s.Logger.Error("merge manifest write failed; this merge will not be un-mergeable", "loser", loserID, "err", merr)

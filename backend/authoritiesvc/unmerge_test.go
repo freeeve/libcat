@@ -155,6 +155,30 @@ func TestUnmergeSkipsWorksALaterMergeMoved(t *testing.T) {
 	}
 }
 
+// TestUnmergeRevivesACarrierlessMerge: a merge that rewrote nothing still
+// retired the term, and that retirement must reverse too (caught live: the
+// manifest was only written when works moved, task 405).
+func TestUnmergeRevivesACarrierlessMerge(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	loserID, _, err := svc.Create(t.Context(), bibframe.AuthorityTerm{
+		PrefLabel: map[string]string{"en": "Trans folks"},
+	}, "lib@example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loserURI := bibframe.LocalAuthorityIRI(loserID)
+	if _, err := svc.Merge(t.Context(), loserID, vocab.TermRef{Scheme: "homosaurus", ID: homoTransPeople}, "x"); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Unmerge(t.Context(), loserID, "x")
+	if err != nil || !result.Complete || result.ManifestWorks != 0 {
+		t.Fatalf("Unmerge = %+v, %v; want a complete zero-work reversal", result, err)
+	}
+	if term, ok := svc.Vocab.Lookup(authoritiesvc.LocalScheme, loserURI); !ok || term.MergedInto != "" {
+		t.Fatalf("term = %+v, want live again", term)
+	}
+}
+
 // TestUnmergeNeedsAManifest: merges made before manifests existed (or a
 // never-merged term) cannot be reversed, and say so.
 func TestUnmergeNeedsAManifest(t *testing.T) {
