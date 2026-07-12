@@ -33,6 +33,21 @@ export interface Screen {
    *  nav -- the bar reads as the catalog's daily verbs -- and lives in the
    *  top-right Settings menu instead; palette and chords are unaffected. */
   group?: "prefs" | "admin";
+  /** Primary-nav menu, for occasional destinations that pair up by
+   *  job-to-be-done: "review" (triaging incoming community input),
+   *  "maintenance" (collection-hygiene reports), "reports" (getting
+   *  information out). A menued screen leaves the flat bar and lives under
+   *  its menu's summary instead; palette and chords are unaffected. */
+  menu?: NavMenuId;
+}
+
+export type NavMenuId = "review" | "maintenance" | "reports";
+
+/** One primary-nav menu: its screens, filtered for the viewer's role. */
+export interface NavMenu {
+  id: NavMenuId;
+  label: string;
+  screens: Screen[];
 }
 
 // Order is the surfaces' order: the sidebar reads left to right, and the
@@ -45,12 +60,12 @@ export const SCREENS: Screen[] = [
   { route: "vocabsources", path: "/vocabularies", label: "Vocabularies", chord: "v", sidebar: true, group: "admin" },
   { route: "batch", path: "/batch", label: "Batch", paletteLabel: "Batch operations", chord: "b", sidebar: true },
   { route: "macros", path: "/macros", label: "Macros", chord: "m", sidebar: true, group: "prefs" },
-  { route: "exports", path: "/exports", label: "Exports", chord: "e", sidebar: true },
+  { route: "exports", path: "/exports", label: "Exports", chord: "e", sidebar: true, menu: "reports" },
   { route: "copycat", path: "/copycat", label: "Import", paletteLabel: "Copy cataloging (import)", chord: "i", sidebar: true },
-  { route: "duplicates", path: "/duplicates", label: "Duplicates", chord: "u", sidebar: true },
-  { route: "withdrawals", path: "/withdrawals", label: "Withdrawals", chord: "t", sidebar: true },
-  { route: "queue", path: "/queue", label: "Queue", chord: "q", sidebar: true },
-  { route: "promotions", path: "/promotions", label: "Promotions", chord: "p", sidebar: true },
+  { route: "duplicates", path: "/duplicates", label: "Duplicates", chord: "u", sidebar: true, menu: "maintenance" },
+  { route: "withdrawals", path: "/withdrawals", label: "Withdrawals", chord: "t", sidebar: true, menu: "maintenance" },
+  { route: "queue", path: "/queue", label: "Queue", chord: "q", sidebar: true, menu: "review" },
+  { route: "promotions", path: "/promotions", label: "Promotions", chord: "p", sidebar: true, menu: "review" },
   // "g p" is Promotions, so Profiles takes "f". Admin-only, and the palette
   // lists it for everyone -- the route already refuses a non-admin, and hiding
   // a screen's existence from the palette is what this task is about.
@@ -63,11 +78,11 @@ export const SCREENS: Screen[] = [
   // the system-level actions (users, roles, profiles, imports, batch runs) that
   // carry no workId -- invisible in a work's History tab -- have a screen.
   // Librarian-gated like its route; a moderator cannot read the trail.
-  { route: "audit", path: "/audit", label: "Audit", paletteLabel: "Audit log", chord: "l", sidebar: true },
+  { route: "audit", path: "/audit", label: "Audit", paletteLabel: "Audit log", chord: "l", sidebar: true, menu: "reports" },
   // The content-diversity audit: coverage-first category distribution over
   // the live work index, methodology inline. "Diversity audit" everywhere
   // user-facing -- "Audit" alone is the log reader above.
-  { route: "diversity", path: "/diversity", label: "Diversity", paletteLabel: "Diversity audit", chord: "y", sidebar: true },
+  { route: "diversity", path: "/diversity", label: "Diversity", paletteLabel: "Diversity audit", chord: "y", sidebar: true, menu: "reports" },
   // The crosswalk editor behind the audit. Off the sidebar (the Diversity
   // screen links it); the palette still reaches it by name.
   { route: "diversityconfig", path: "/diversity/config", label: "Diversity setup", paletteLabel: "Diversity crosswalk setup", chord: null, sidebar: false },
@@ -84,11 +99,26 @@ export function paletteLabel(s: Screen): string {
   return s.paletteLabel ?? s.label;
 }
 
-/** The screens the primary nav links, for the given admin-ness: the daily
- *  operational verbs. Grouped screens (Settings menu) leave the bar even
- *  when their historical sidebar flag stands. */
+/** The screens the primary nav links FLAT, for the given admin-ness: the
+ *  daily operational verbs. Grouped screens (Settings menu) and menued
+ *  screens (nav menus) leave the flat bar even when their historical
+ *  sidebar flag stands. */
 export function sidebarScreens(isAdmin: boolean): Screen[] {
-  return SCREENS.filter((s) => s.sidebar && !s.group && (!s.adminOnly || isAdmin));
+  return SCREENS.filter((s) => s.sidebar && !s.group && !s.menu && (!s.adminOnly || isAdmin));
+}
+
+/** The primary nav's menus, after the flat verbs: occasional destinations
+ *  grouped by job-to-be-done. Every entry stays palette- and
+ *  chord-reachable; a menu is a home, not a hiding place. */
+export function navMenus(isAdmin: boolean): NavMenu[] {
+  const order: { id: NavMenuId; label: string }[] = [
+    { id: "review", label: "Review" },
+    { id: "maintenance", label: "Maintenance" },
+    { id: "reports", label: "Reports" },
+  ];
+  return order
+    .map((m) => ({ ...m, screens: SCREENS.filter((s) => s.menu === m.id && (!s.adminOnly || isAdmin)) }))
+    .filter((m) => m.screens.length > 0);
 }
 
 /** The Settings menu's sections: per-user preferences, then -- for admins --

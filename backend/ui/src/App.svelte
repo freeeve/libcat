@@ -7,7 +7,7 @@
   import { CALLBACK_PATH, canAdmin, getToken, handleOidcCallback, logout, onSessionExpired, session } from "./lib/auth";
   import { initTheme, toggleTheme, type Theme } from "./lib/theme";
   import { resolve, navigate, ROUTES, confirmLeave } from "./lib/router";
-  import { chordMap, isCurrent, settingsScreens, sidebarScreens } from "./lib/screens";
+  import { chordMap, isCurrent, navMenus, settingsScreens, sidebarScreens } from "./lib/screens";
   import { configStore, sessionStore } from "./lib/stores";
   import { bindKeys, GLOBAL_SCOPE } from "./lib/keyboard";
   import { resetScreenStates } from "./lib/screenState.svelte";
@@ -47,6 +47,8 @@
   let ready = $state(false);
   let paletteOpen = $state(false);
   let settingsOpen = $state(false);
+  // One open-flag per primary-nav menu (Review/Maintenance/Reports).
+  let navOpen: Record<string, boolean> = $state({});
   // Session-expiry re-auth: when the live session dies, the
   // screen stays mounted (staged edits survive) under a sign-in overlay;
   // the header identity clears immediately. expiredEmail prefills the form.
@@ -191,6 +193,20 @@
     <nav aria-label="Primary">
       {#each sidebarScreens(canAdmin($sessionStore)) as s (s.route)}
         <a href="#{s.path}" class:current={isCurrent(s, route.name)}>{s.label}</a>
+      {/each}
+      <!-- Occasional destinations, grouped by job-to-be-done so the bar
+           reads as the daily verbs plus three menus. Same keyboard-native
+           details/summary mechanism as the Settings menu; the summary takes
+           the current highlight when a child route is active. -->
+      {#each navMenus(canAdmin($sessionStore)) as m (m.id)}
+        <details class="navmenu" bind:open={navOpen[m.id]}>
+          <summary class:current={m.screens.some((s) => isCurrent(s, route.name))}>{m.label}</summary>
+          <div class="menu" role="group" aria-label={m.label}>
+            {#each m.screens as s (s.route)}
+              <a href="#{s.path}" class:current={isCurrent(s, route.name)} onclick={() => (navOpen[m.id] = false)}>{s.label}</a>
+            {/each}
+          </div>
+        </details>
       {/each}
     </nav>
     <span class="side">
@@ -394,26 +410,45 @@
     font-size: 0.9rem;
     font-weight: 600;
   }
-  .settings {
+  .settings,
+  .navmenu {
     position: relative;
   }
-  .settings summary {
+  .settings summary,
+  .navmenu summary {
     list-style: none;
     cursor: pointer;
     user-select: none;
   }
-  .settings summary::-webkit-details-marker {
+  .settings summary::-webkit-details-marker,
+  .navmenu summary::-webkit-details-marker {
     display: none;
   }
-  .settings summary::after {
+  .settings summary::after,
+  .navmenu summary::after {
     content: " ▾";
     font-size: 0.75em;
     color: var(--ink-muted);
   }
-  .settings[open] summary::after {
+  .settings[open] summary::after,
+  .navmenu[open] summary::after {
     content: " ▴";
   }
-  .settings .menu {
+  /* A nav menu's summary reads as a nav link, current-underline included. */
+  .navmenu summary {
+    color: var(--ink-muted);
+    padding-bottom: 0.1em;
+    border-bottom: 2px solid transparent;
+  }
+  .navmenu summary:hover {
+    color: var(--ink);
+  }
+  .navmenu summary.current {
+    color: var(--ink);
+    border-bottom-color: var(--accent);
+  }
+  .settings .menu,
+  .navmenu .menu {
     position: absolute;
     right: 0;
     top: calc(100% + 0.35rem);
@@ -426,6 +461,12 @@
     padding: 0.35rem;
     z-index: 30;
   }
+  /* The nav panels anchor left under their summary (the Settings panel
+     anchors right, at the bar's far edge). */
+  .navmenu .menu {
+    right: auto;
+    left: 0;
+  }
   .settings .menuhead {
     font-size: 0.68rem;
     font-weight: 650;
@@ -435,7 +476,8 @@
     padding: 0.4rem 0.6rem 0.15rem;
   }
   .settings .menu a,
-  .settings .menu button {
+  .settings .menu button,
+  .navmenu .menu a {
     display: block;
     width: 100%;
     text-align: left;
@@ -449,10 +491,12 @@
     cursor: pointer;
   }
   .settings .menu a:hover,
-  .settings .menu button:hover {
+  .settings .menu button:hover,
+  .navmenu .menu a:hover {
     background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
-  .settings .menu a.current {
+  .settings .menu a.current,
+  .navmenu .menu a.current {
     color: var(--accent);
     font-weight: 600;
   }

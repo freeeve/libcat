@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NON_SCREEN_ROUTES, ROUTES } from "./router";
-import { chordMap, isCurrent, paletteLabel, SCREENS, settingsScreens, sidebarScreens } from "./screens";
+import { chordMap, isCurrent, navMenus, paletteLabel, SCREENS, settingsScreens, sidebarScreens } from "./screens";
 
 // the palette, the "g <letter>" chords, and the sidebar were three
 // hand-maintained lists and no two agreed. The palette answered "No matching
@@ -84,10 +84,42 @@ describe("the derived surfaces", () => {
       expect(asStaff, `${moved} back on the staff nav`).not.toContain(moved);
       expect(asAdmin, `${moved} back on the admin nav`).not.toContain(moved);
     }
+    // Menued screens live under their nav menu, not flat on the bar
+    // (task 435).
+    for (const menued of ["queue", "promotions", "duplicates", "withdrawals", "audit", "diversity", "exports"]) {
+      expect(asStaff, `${menued} back flat on the nav`).not.toContain(menued);
+    }
     // The dashboard is the brand link, not a nav item.
     expect(asAdmin).not.toContain("dashboard");
-    // Promotions had no sidebar link at all; it does now.
-    expect(asStaff).toContain("promotions");
+    // The flat bar is exactly the four daily verbs: with the three menus it
+    // renders 7 top-level entries, down from 11 (task 435).
+    expect(asStaff).toEqual(["works", "authorities", "batch", "copycat"]);
+  });
+
+  it("groups the occasional destinations into three nav menus (task 435)", () => {
+    const menus = navMenus(false);
+    expect(menus.map((m) => m.id)).toEqual(["review", "maintenance", "reports"]);
+    const byId = Object.fromEntries(menus.map((m) => [m.id, m.screens.map((s) => s.route)]));
+    // Review is one job: triaging incoming community input.
+    expect(byId.review).toEqual(["queue", "promotions"]);
+    // Maintenance: the occasional collection-hygiene reports.
+    expect(byId.maintenance).toEqual(["duplicates", "withdrawals"]);
+    // Reports: getting information out.
+    expect(byId.reports).toEqual(["exports", "audit", "diversity"]);
+    // A menu is a home, not a hiding place: every menued screen keeps its
+    // palette entry and chord reachability by staying in SCREENS.
+    for (const m of menus) {
+      for (const s of m.screens) {
+        expect(SCREENS).toContain(s);
+        expect(s.chord, `${s.route} lost its chord`).not.toBeNull();
+      }
+    }
+    // No screen is both menued and Settings-grouped, and nothing menued is
+    // admin-gated today -- staff and admins see the same three menus.
+    for (const s of SCREENS.filter((x) => x.menu)) {
+      expect(s.group, `${s.route} is both menued and grouped`).toBeUndefined();
+    }
+    expect(navMenus(true)).toEqual(menus);
   });
 
   it("sections the settings menu and gates administration by role", () => {
