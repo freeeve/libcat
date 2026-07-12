@@ -161,6 +161,13 @@ func registerCopycat(mux *http.ServeMux, svc *copycat.Service, verifier auth.Tok
 			if source == "" {
 				source = "search"
 			}
+			// Refuse a bad policy before anything persists: Stage commits the
+			// batch, and a 400 after that leaves an orphan a retrying client
+			// multiplies.
+			if req.Policy != "" && !copycat.ValidPolicy(req.Policy) {
+				writeError(w, http.StatusBadRequest, "unknown policy "+strconv.Quote(req.Policy))
+				return
+			}
 			batch, records, err = svc.Stage(r.Context(), req.Label, source, req.Records, id.Email)
 		}
 		if writeCopycatError(w, err) {
