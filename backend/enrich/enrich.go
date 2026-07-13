@@ -66,6 +66,10 @@ type Service struct {
 	// job id, a worker drains, GET polls live progress. Nil keeps runs
 	// synchronous-only.
 	DB store.Store
+	// MaxParallel caps how many jobs a single drain runs at once across
+	// distinct sources; 0 is unlimited (one per queued source). The drain
+	// never runs two jobs of the SAME source concurrently regardless.
+	MaxParallel int
 	// Now overrides the job clock (tests).
 	Now func() time.Time
 }

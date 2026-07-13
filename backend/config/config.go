@@ -249,6 +249,10 @@ type Config struct {
 	// EnrichSirsiDynixScheme picks the driver vocabulary (default
 	// "homosaurus").
 	EnrichSirsiDynixScheme string
+	// EnrichMaxParallel caps how many queued enrichment jobs a single drain
+	// runs at once across distinct sources (0 = unlimited, one per queued
+	// source). Same-source jobs stay serial regardless.
+	EnrichMaxParallel int
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
@@ -359,6 +363,13 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("config: LCATD_ENRICH_BIBLIOCOMMONS_CONCURRENCY must be a positive integer")
 		}
 		cfg.EnrichBiblioCommonsConcurrency = n
+	}
+	if raw := os.Getenv("LCATD_ENRICH_MAX_PARALLEL"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("config: LCATD_ENRICH_MAX_PARALLEL must be a positive integer")
+		}
+		cfg.EnrichMaxParallel = n
 	}
 	if raw := os.Getenv("LCATD_QUEUE_MIN_CONFIDENCE"); raw != "" {
 		v, err := strconv.ParseFloat(raw, 64)

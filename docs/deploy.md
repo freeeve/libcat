@@ -199,6 +199,7 @@ surviving a pod restart (grains in MinIO, documents on the PVC).
 | `LCATD_ENRICH_VEGA` (+ `_SCHEME`, `_MAX_PAGES`) | the III Vega Discover peer harvest: comma-separated `<siteCode>.<region>` tenants (e.g. `nypl.na2,mdpls.na`) whose concept model states Homosaurus explicitly; ISBN-matched, queue-moderated, consensus-ranked like the BiblioCommons harvest ([details](authority-sources.md)) |
 | `LCATD_ENRICH_TLC` (+ `_SCHEME`, `_MAX_PAGES`) | the TLC LS2 PAC peer harvest: comma-separated catalog subdomains of `<tenant>.tlcdelivers.com` (e.g. `nbpl`); exact-prefLabel Subject-facet searches, ISBN-matched, queue-moderated, consensus-ranked ([details](authority-sources.md)) |
 | `LCATD_ENRICH_SIRSIDYNIX` (+ `_SCHEME`) | the SirsiDynix Enterprise peer harvest: comma-separated `<host>[/<profile>]` tenants, where a bare subdomain expands to `<host>.ent.sirsidynix.net` (e.g. `winca`) and the profile defaults to `default`; exact-prefLabel Subject-scoped RSS hitlists, ISBN-matched, queue-moderated, consensus-ranked. Cloudflare-gated tenants are detected and skipped ([details](authority-sources.md)) |
+| `LCATD_ENRICH_MAX_PARALLEL` | caps how many queued enrichment jobs a single drain runs at once across distinct sources (0/unset = one per queued source). Jobs for the same source always stay serial (a shared caller IP would trip a peer's per-IP limiter) |
 | `LCATD_AWS_ENDPOINT` | redirects every AWS client at once |
 | `LCATD_S3_ENDPOINT` | redirects only S3, overriding the above |
 | `LCATD_DYNAMO_ENDPOINT` | redirects only DynamoDB, overriding the above |

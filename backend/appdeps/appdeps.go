@@ -601,7 +601,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		}
 	}
 	if len(enrichSources) > 0 && deps.Blob != nil {
-		deps.Enrich = &enrich.Service{Blob: deps.Blob, DB: db, Queue: deps.Suggest, Sources: enrichSources, Summaries: deps.WorkIndex}
+		deps.Enrich = &enrich.Service{Blob: deps.Blob, DB: db, Queue: deps.Suggest, Sources: enrichSources, Summaries: deps.WorkIndex, MaxParallel: cfg.EnrichMaxParallel}
 		// Container worker: drain queued enrichment jobs on a ticker, like
 		// exports. Serverless entrypoints disable tickers and drain on
 		// schedule.

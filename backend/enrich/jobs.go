@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/freeeve/libcat/ingest"
@@ -172,6 +173,14 @@ func (s *Service) ListJobs(ctx context.Context) ([]Job, error) {
 // deployments (a ticker) and scheduled serverless drains alike. Job failures
 // land in the job record; the returned error is store trouble only.
 //
+// Jobs for DISTINCT sources run concurrently: the sources hit independent
+// external services with independent rate limits, so a whole-catalog Vega
+// crawl need not block a BiblioCommons consensus run queued behind it. Jobs
+// for the SAME source stay serial -- two runs sharing the caller IP would
+// trip a peer's per-IP limiter -- enforced two ways: a source with a live
+// RUNNING record is skipped this tick, and only its oldest QUEUED job is
+// dispatched. MaxParallel optionally caps the concurrency across sources.
+//
 // The drain also reaps orphans: a RUNNING record whose heartbeat has gone
 // stale belongs to a process that died between claim and completion, and
 // nothing else would ever finish it.
@@ -179,32 +188,77 @@ func (s *Service) RunQueuedJobs(ctx context.Context) (int, error) {
 	if s.DB == nil {
 		return 0, nil
 	}
-	ran := 0
+	busy := map[string]bool{}     // sources with a live RUNNING job
+	oldest := map[string]string{} // source -> oldest QUEUED job id
+	oldestAt := map[string]time.Time{}
 	for rec, err := range s.DB.Query(ctx, "JOB#ENRICH", "", store.QueryOpt{}) {
 		if err != nil {
-			return ran, err
+			return 0, err
 		}
 		var job Job
 		if json.Unmarshal(rec.Data, &job) != nil {
 			continue
 		}
-		if job.Status == JobRunning && s.staleRunning(job) {
+		switch {
+		case job.Status == JobRunning && s.staleRunning(job):
 			if err := s.reapJob(ctx, rec, job); err != nil {
-				return ran, err
+				return 0, err
 			}
-			continue
+		case job.Status == JobRunning:
+			busy[job.Source] = true
+		case job.Status == JobQueued:
+			if at, ok := oldestAt[job.Source]; !ok || job.CreatedAt.Before(at) {
+				oldest[job.Source] = job.ID
+				oldestAt[job.Source] = job.CreatedAt
+			}
 		}
-		if job.Status != JobQueued {
-			continue
-		}
-		if err := s.runJob(ctx, job.ID); errors.Is(err, errJobClaimed) {
-			continue
-		} else if err != nil {
-			return ran, err
-		}
-		ran++
 	}
-	return ran, nil
+
+	var toRun []string
+	for src, id := range oldest {
+		if !busy[src] {
+			toRun = append(toRun, id)
+		}
+	}
+	if len(toRun) == 0 {
+		return 0, nil
+	}
+	sort.Strings(toRun) // deterministic dispatch order
+
+	var sem chan struct{}
+	if s.MaxParallel > 0 {
+		sem = make(chan struct{}, s.MaxParallel)
+	}
+	var (
+		mu       sync.Mutex
+		ran      int
+		firstErr error
+		wg       sync.WaitGroup
+	)
+	for _, id := range toRun {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			if sem != nil {
+				sem <- struct{}{}
+				defer func() { <-sem }()
+			}
+			err := s.runJob(ctx, id)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case errors.Is(err, errJobClaimed):
+			case err != nil:
+				if firstErr == nil {
+					firstErr = err
+				}
+			default:
+				ran++
+			}
+		}(id)
+	}
+	wg.Wait()
+	return ran, firstErr
 }
 
 // staleRunning reports whether a RUNNING job's worker is presumed dead.
