@@ -534,7 +534,11 @@ export interface ItemTemplate {
 /** GET /v1/duplicates -- one clustering-key collision group. */
 export interface DuplicateGroup {
   key: string;
-  works: { workId: string; title?: string }[];
+  /** "exact" (the confident author+title+language key) or a near-duplicate
+   *  rule the operator reviews: "subtitle", "identifier", "contributor" --
+   *  or "manual" for an ad-hoc group assembled from Work search. */
+  tier?: string;
+  works: { workId: string; title?: string; items?: number; hasAvailability?: boolean }[];
 }
 
 /** copycat.Target -- one external Z39.50/SRU search source. */

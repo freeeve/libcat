@@ -277,6 +277,19 @@
     navigate(`/works/${encodeURIComponent(w.WorkID)}`);
   }
 
+  // Merge-by-eye (task 456): tick two or more results and hand them to the
+  // Duplicates screen's compare/merge surface as an ad-hoc group -- the
+  // path for duplicates the report does not cluster.
+  let mergePick = $state<Record<string, boolean>>({});
+  const mergeIds = $derived(Object.keys(mergePick).filter((id) => mergePick[id]));
+
+  function mergeSelected(): void {
+    if (mergeIds.length < 2) return;
+    const ids = mergeIds.join(",");
+    mergePick = {};
+    navigate(`/duplicates?works=${encodeURIComponent(ids)}`);
+  }
+
   function focusSearch(): void {
     document.getElementById("work-q")?.focus();
   }
@@ -328,6 +341,14 @@
     <div class="results-list">
       <RowList items={st.works} bind:selected={st.selected} getKey={(w) => w.WorkID} ariaLabel="Search results" scope={SCOPE} itemName="result" onactivate={open}>
         {#snippet row(w: WorkSummary)}
+          <input
+            type="checkbox"
+            class="merge-pick"
+            aria-label={"select " + (w.Title || w.WorkID) + " for merge"}
+            checked={!!mergePick[w.WorkID]}
+            onclick={(e) => e.stopPropagation()}
+            onchange={() => (mergePick = { ...mergePick, [w.WorkID]: !mergePick[w.WorkID] })}
+          />
           <a class="row-link" href={"#/works/" + encodeURIComponent(w.WorkID)} title={w.Tags?.length ? w.Tags.join(", ") : undefined}>
             <span class="title">{w.Title || "(untitled)"}</span>
             <span class="muted who">{w.Contributors?.join("; ") ?? ""}</span>
@@ -341,6 +362,13 @@
           </a>
         {/snippet}
       </RowList>
+
+      {#if mergeIds.length >= 2}
+        <p>
+          <button class="button" onclick={mergeSelected}>Merge {mergeIds.length} selected…</button>
+          <span class="muted">opens the compare view; nothing merges until confirmed there</span>
+        </p>
+      {/if}
 
       {#if st.works.length < st.matched}
         <p><button class="button button--quiet" onclick={() => void loadMore()} disabled={loading}>Load more ({st.matched - st.works.length} left)</button></p>
@@ -494,5 +522,12 @@
     font-family: var(--mono);
     font-size: var(--fs-meta);
     color: var(--ink-muted);
+  }
+  .merge-pick {
+    flex: none;
+    width: 1.05rem;
+    height: 1.05rem;
+    margin-right: 0.4rem;
+    accent-color: var(--accent, #4a7dff);
   }
 </style>

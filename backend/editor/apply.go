@@ -255,6 +255,13 @@ func applyOne(m *Mapper, doc *WorkDoc, workID string, op Op, patch *bibframe.Pat
 		overrideField(field, nodeIRI, op.Path, existing, keepers, patch)
 		return nil
 	case "set":
+		// An empty set is refused, not treated as a clear: a client that
+		// sent the singular `value` key by mistake would otherwise wipe
+		// the field with a 200 -- and through the batch engine, wipe it
+		// corpus-wide. "Empty this field" is what clear is for.
+		if len(op.Values) == 0 {
+			return fmt.Errorf("set needs at least one value (use clear to empty the field)")
+		}
 		for _, v := range op.Values {
 			if err := validateValue(field, v); err != nil {
 				return err

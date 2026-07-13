@@ -23,6 +23,12 @@
   const FRESH_MS = 60_000;
   const readOnly = isReadOnly();
 
+  // An ad-hoc group from Work search ("Merge selected"): ?works=w1,w2
+  // synthesizes a group and opens the same compare/merge surface the
+  // report groups use -- the affordance is one UI wherever the duplicate
+  // was found.
+  let { initialWorks = "" }: { initialWorks?: string } = $props();
+
   const st = screenState("duplicates", () => ({
     groups: [] as DuplicateGroup[],
     selected: 0,
@@ -59,7 +65,16 @@
     // The compare scope survives drill-in: re-push when returning with a
     // group still open.
     if (st.openKey) pushScope(COMPARE_SCOPE);
-    if (Date.now() - st.loadedAt > FRESH_MS) void load();
+    const adhoc = initialWorks
+      .split(",")
+      .map((w) => w.trim())
+      .filter(Boolean);
+    if (adhoc.length >= 2) {
+      const g: DuplicateGroup = { key: "manual:" + adhoc.join(","), tier: "manual", works: adhoc.map((workId) => ({ workId })) };
+      if (!st.groups.some((x) => x.key === g.key)) st.groups = [g, ...st.groups];
+      st.selected = 0;
+      void expand(g);
+    } else if (Date.now() - st.loadedAt > FRESH_MS) void load();
     return () => {
       unbindList();
       unbindCompare();
@@ -71,7 +86,8 @@
     busy = true;
     error = "";
     try {
-      st.groups = (await fetchDuplicates()).groups ?? [];
+      const manual = st.groups.filter((g) => g.tier === "manual");
+      st.groups = [...manual, ...((await fetchDuplicates()).groups ?? [])];
       st.loadedAt = Date.now();
       st.selected = Math.min(st.selected, Math.max(0, st.groups.length - 1));
       if (st.openKey && !st.groups.some((g) => g.key === st.openKey)) collapse();
@@ -288,6 +304,16 @@
     {#snippet row(g: DuplicateGroup)}
       <div class="grow-wrap">
         <button class="ghead" onclick={() => void expand(g)} aria-expanded={st.openKey === g.key}>
+          {#if g.tier && g.tier !== "exact"}<span
+              class="chip chip--tier"
+              title={g.tier === "subtitle"
+                ? "same title core and author; a subtitle differs"
+                : g.tier === "identifier"
+                  ? "a shared ISBN; titles differ"
+                  : g.tier === "contributor"
+                    ? "same title; contributors disagree (check the author slot)"
+                    : "assembled by hand from Work search"}>{g.tier}</span
+            >{/if}
           {g.works.map((w) => w.title || w.workId).join("  ·  ")}
           <span class="muted">({g.works.length} works)</span>
         </button>
@@ -403,6 +429,15 @@
         <code>{Object.keys(st.adopted).map((p) => field(p)?.label ?? p).join(", ")}</code>
       </p>
     {/if}
+    {@const losersWithHoldings = openGroup.works.filter((w) => w.workId !== st.survivor && ((w.items ?? 0) > 0 || w.hasAvailability))}
+    {#if losersWithHoldings.length > 0}
+      <p class="warn" role="alert">
+        A merge does not move holdings: retiring
+        <code>{losersWithHoldings.map((w) => w.workId).join(", ")}</code>
+        leaves {losersWithHoldings.length === 1 ? "its" : "their"} items/availability behind. Consider making the record
+        with holdings the survivor.
+      </p>
+    {/if}
     <p class="confirm-acts">
       <button class="button button--quiet" onclick={() => (confirming = false)}>Cancel</button>
       <button class="button" data-autofocus onclick={() => openGroup && void merge(openGroup)} disabled={busy}>
@@ -503,5 +538,20 @@
   }
   .ok {
     color: var(--accent);
+  }
+  .chip--tier {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--surface-alt, #eef0f4);
+    border: 1px solid var(--rule, #d5d9e0);
+    border-radius: 999px;
+    padding: 0.05rem 0.5rem;
+    margin-right: 0.5rem;
+  }
+  .warn {
+    color: var(--danger, #b00020);
+    font-size: 0.9rem;
   }
 </style>

@@ -318,9 +318,18 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 		type dupWork struct {
 			WorkID string `json:"workId"`
 			Title  string `json:"title,omitempty"`
+			// Holdings signals for the merge UI's retire warning: merging
+			// does not move a loser's items, so retiring the record that
+			// carries them deserves a flag.
+			Items           int  `json:"items,omitempty"`
+			HasAvailability bool `json:"hasAvailability,omitempty"`
 		}
 		type dupGroup struct {
-			Key   string    `json:"key"`
+			Key string `json:"key"`
+			// Tier: "exact" (the confident author+title+language key), or a
+			// near-duplicate rule -- "subtitle", "identifier",
+			// "contributor" -- the operator reviews.
+			Tier  string    `json:"tier"`
 			Works []dupWork `json:"works"`
 		}
 		byKey, err := ix.DuplicateGroups(r.Context())
@@ -328,21 +337,40 @@ func registerMaintenance(mux *http.ServeMux, bs blob.Store, ix *workindex.Index,
 			writeError(w, http.StatusInternalServerError, "scan failed")
 			return
 		}
-		titles := map[string]string{}
+		near, err := ix.NearDuplicateGroups(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "scan failed")
+			return
+		}
+		type sumInfo struct {
+			title string
+			items int
+			avail bool
+		}
+		info := map[string]sumInfo{}
 		if summaries, err := ix.Summaries(r.Context()); err == nil {
 			for _, s := range summaries {
-				titles[s.WorkID] = s.Title
+				info[s.WorkID] = sumInfo{title: s.Title, items: s.Items, avail: s.HasAvailability}
 			}
+		}
+		mkWorks := func(ids []string) []dupWork {
+			out := make([]dupWork, 0, len(ids))
+			for _, id := range ids {
+				in := info[id]
+				out = append(out, dupWork{WorkID: id, Title: in.title, Items: in.items, HasAvailability: in.avail})
+			}
+			return out
 		}
 		groups := []dupGroup{}
 		for key, ids := range byKey {
-			g := dupGroup{Key: key}
-			for _, id := range ids {
-				g.Works = append(g.Works, dupWork{WorkID: id, Title: titles[id]})
-			}
-			groups = append(groups, g)
+			groups = append(groups, dupGroup{Key: key, Tier: "exact", Works: mkWorks(ids)})
 		}
 		sort.Slice(groups, func(i, j int) bool { return groups[i].Key < groups[j].Key })
+		// Near tiers follow the confident tier, already pair-deduped
+		// against it (and each other) by the index.
+		for _, g := range near {
+			groups = append(groups, dupGroup{Key: g.Key, Tier: g.Tier, Works: mkWorks(g.IDs)})
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"groups": groups})
 	})))
 }

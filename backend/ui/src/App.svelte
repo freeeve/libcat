@@ -280,7 +280,7 @@
   {:else if route.name === "newrecord"}
     <NewRecord />
   {:else if route.name === "duplicates"}
-    <Duplicates />
+    <Duplicates initialWorks={route.query.get("works") ?? ""} />
   {:else if route.name === "withdrawals"}
     <Withdrawals />
   {:else if route.name === "exports"}

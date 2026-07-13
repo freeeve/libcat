@@ -211,12 +211,15 @@ func TestOpValidation(t *testing.T) {
 	m := newMapper(t)
 	workID, grain := firstWork(t)
 	cases := map[string]Op{
-		"unknown field":    {Resource: "work", Path: "nope", Action: "add", Value: &OpValue{V: "x"}},
-		"unknown action":   {Resource: "work", Path: "tags", Action: "upsert", Value: &OpValue{V: "x"}},
-		"empty value":      {Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: ""}},
-		"literal for iri":  {Resource: "work", Path: "subjects", Action: "add", Value: &OpValue{V: "not-iri"}},
-		"iri for literal":  {Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "https://x", IRI: true}},
-		"multi for max1":   {Resource: "work", Path: "title", Action: "set", Values: []OpValue{{V: "a"}, {V: "b"}}},
+		"unknown field":   {Resource: "work", Path: "nope", Action: "add", Value: &OpValue{V: "x"}},
+		"unknown action":  {Resource: "work", Path: "tags", Action: "upsert", Value: &OpValue{V: "x"}},
+		"empty value":     {Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: ""}},
+		"literal for iri": {Resource: "work", Path: "subjects", Action: "add", Value: &OpValue{V: "not-iri"}},
+		"iri for literal": {Resource: "work", Path: "tags", Action: "add", Value: &OpValue{V: "https://x", IRI: true}},
+		"multi for max1":  {Resource: "work", Path: "title", Action: "set", Values: []OpValue{{V: "a"}, {V: "b"}}},
+		// A values-less set (the singular `value` key by mistake) must
+		// refuse, not silently clear the field (task 457).
+		"empty set":        {Resource: "work", Path: "title", Action: "set", Value: &OpValue{V: "X"}},
 		"unknown instance": {Resource: "izzznope", Path: "isbn", Action: "add", Value: &OpValue{V: "1"}},
 		"remove missing":   {Resource: "work", Path: "tags", Action: "remove", Value: &OpValue{V: "never added"}},
 		"read-only field":  {Resource: "work", Path: "contributors", Action: "add", Value: &OpValue{V: "Doe, Jane"}},
