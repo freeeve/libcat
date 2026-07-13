@@ -72,6 +72,11 @@ type Enricher struct {
 	delay time.Duration
 	log   *slog.Logger
 
+	// hostConcurrency caps how many peer OPACs crawl at once; each host's
+	// own crawl stays sequential with the politeness delay. Default 4; a
+	// wide consensus run (20 known Homosaurus peers) may raise it.
+	hostConcurrency int
+
 	statsMu sync.Mutex
 	stats   ingest.EnrichStats
 
@@ -82,10 +87,6 @@ type Enricher struct {
 	cache    *harvestCache
 	cacheTTL time.Duration
 }
-
-// hostConcurrency caps how many peer OPACs crawl at once; each host's own
-// crawl stays sequential with the politeness delay.
-const hostConcurrency = 4
 
 // harvestCache holds per-host completed crawls, shared across per-run
 // enricher views.
@@ -127,6 +128,16 @@ func WithLogger(l *slog.Logger) Option { return func(e *Enricher) { e.log = l } 
 // peer OPAC is crawled again.
 func WithCacheTTL(d time.Duration) Option { return func(e *Enricher) { e.cacheTTL = d } }
 
+// WithHostConcurrency overrides how many peer OPACs crawl at once
+// (politeness stays per host; non-positive values keep the default).
+func WithHostConcurrency(n int) Option {
+	return func(e *Enricher) {
+		if n > 0 {
+			e.hostConcurrency = n
+		}
+	}
+}
+
 // New returns the harvester for the given peer hosts and driver term list.
 func New(hosts []string, terms []Term, opts ...Option) *Enricher {
 	e := &Enricher{
@@ -137,6 +148,7 @@ func New(hosts []string, terms []Term, opts ...Option) *Enricher {
 		maxPages:        6,
 		delay:           1500 * time.Millisecond,
 		cacheTTL:        24 * time.Hour,
+		hostConcurrency: 4,
 		cache:           &harvestCache{byHost: map[string]*hostHarvest{}},
 	}
 	for _, o := range opts {
@@ -158,6 +170,7 @@ func (e *Enricher) ForHosts(hosts []string) ingest.Enricher {
 		delay:           e.delay,
 		log:             e.log,
 		cacheTTL:        e.cacheTTL,
+		hostConcurrency: e.hostConcurrency,
 		cache:           e.cache,
 	}
 }
@@ -381,7 +394,7 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 	var aggMu sync.Mutex
 	agg := map[matchKey]*consensus{}
 
-	sem := make(chan struct{}, hostConcurrency)
+	sem := make(chan struct{}, e.hostConcurrency)
 	var wg sync.WaitGroup
 	errs := make(chan error, len(e.hosts))
 	for _, host := range e.hosts {

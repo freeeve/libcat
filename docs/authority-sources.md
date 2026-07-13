@@ -198,7 +198,9 @@ patron-backed and already-reviewed rows are never touched.
 The inherent bound: the harvest can only confirm terms it queries, never
 reveal one it did not -- coverage equals the driver vocabulary. Politeness
 and cost: requests to one host pause 1.5s apart (distinct hosts crawl
-concurrently, capped at four) and each term stops at
+concurrently, capped at four by default --
+`LCATD_ENRICH_BIBLIOCOMMONS_CONCURRENCY` raises it for wide consensus
+runs; politeness stays per host) and each term stops at
 `LCATD_ENRICH_BIBLIOCOMMONS_MAX_PAGES` (default 6, i.e. 600 items; large
 terms are truncated and logged). A completed crawl is reused per host for 24
 hours, so re-running against a different `?filter` scope -- or a different

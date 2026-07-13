@@ -213,8 +213,12 @@ type Config struct {
 	// EnrichBiblioCommonsScheme picks the driver vocabulary (default
 	// "homosaurus"); it must be loaded. EnrichBiblioCommonsMaxPages caps RSS
 	// pages fetched per term (default 6 -- 600 items at 100/page).
-	EnrichBiblioCommonsScheme   string
-	EnrichBiblioCommonsMaxPages int
+	// EnrichBiblioCommonsConcurrency caps how many peer hosts crawl at once
+	// (default 4; politeness stays per host) -- raise it for wide consensus
+	// runs over many peers.
+	EnrichBiblioCommonsScheme      string
+	EnrichBiblioCommonsMaxPages    int
+	EnrichBiblioCommonsConcurrency int
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
@@ -293,6 +297,13 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("config: LCATD_ENRICH_BIBLIOCOMMONS_MAX_PAGES must be a positive integer")
 		}
 		cfg.EnrichBiblioCommonsMaxPages = n
+	}
+	if raw := os.Getenv("LCATD_ENRICH_BIBLIOCOMMONS_CONCURRENCY"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			return Config{}, fmt.Errorf("config: LCATD_ENRICH_BIBLIOCOMMONS_CONCURRENCY must be a positive integer")
+		}
+		cfg.EnrichBiblioCommonsConcurrency = n
 	}
 	if raw := os.Getenv("LCATD_QUEUE_MIN_CONFIDENCE"); raw != "" {
 		v, err := strconv.ParseFloat(raw, 64)

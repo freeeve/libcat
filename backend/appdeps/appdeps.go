@@ -483,6 +483,9 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 			if cfg.EnrichBiblioCommonsMaxPages > 0 {
 				opts = append(opts, bibliocommons.WithMaxPages(cfg.EnrichBiblioCommonsMaxPages))
 			}
+			if cfg.EnrichBiblioCommonsConcurrency > 0 {
+				opts = append(opts, bibliocommons.WithHostConcurrency(cfg.EnrichBiblioCommonsConcurrency))
+			}
 			var hosts []string
 			for _, h := range strings.Split(cfg.EnrichBiblioCommons, ",") {
 				if h = strings.TrimSpace(h); h != "" {

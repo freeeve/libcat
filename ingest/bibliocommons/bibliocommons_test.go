@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/freeeve/libcat/ingest"
 )
@@ -407,5 +408,49 @@ func TestParseFeedScrubsIllegalControlChars(t *testing.T) {
 	// Tab/LF/CR are XML-legal and must survive.
 	if got := scrubXML([]byte("a\tb\nc\rd")); string(got) != "a\tb\nc\rd" {
 		t.Fatalf("legal whitespace scrubbed: %q", got)
+	}
+}
+
+// gaugeDoer counts concurrent in-flight requests, holding each briefly so
+// overlap is observable.
+type gaugeDoer struct {
+	mu       sync.Mutex
+	inflight int
+	max      int
+}
+
+func (d *gaugeDoer) Do(req *http.Request) (*http.Response, error) {
+	d.mu.Lock()
+	d.inflight++
+	if d.inflight > d.max {
+		d.max = d.inflight
+	}
+	d.mu.Unlock()
+	time.Sleep(5 * time.Millisecond)
+	d.mu.Lock()
+	d.inflight--
+	d.mu.Unlock()
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(rssPage()))}, nil
+}
+
+// TestHostConcurrencyCapIsRespected pins the semaphore (task 454): eight
+// hosts under a cap of 2 never overlap more than two crawls, every host
+// still completes, and ForHosts views inherit the cap.
+func TestHostConcurrencyCapIsRespected(t *testing.T) {
+	doer := &gaugeDoer{}
+	hosts := []string{"h1", "h2", "h3", "h4", "h5", "h6", "h7", "h8"}
+	e := New(hosts, testTerms()[:1], WithClient(doer), WithDelay(0), WithHostConcurrency(2))
+	if _, err := e.Enrich(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if doer.max > 2 {
+		t.Fatalf("max concurrent crawls = %d, want <= the cap of 2", doer.max)
+	}
+	if st := e.RunStats(); st.Batches != 8 {
+		t.Fatalf("batches = %d, want all 8 hosts crawled", st.Batches)
+	}
+	view := e.ForHosts([]string{"h9", "h10", "h11"})
+	if view.(*Enricher).hostConcurrency != 2 {
+		t.Fatalf("ForHosts view lost the cap: %d", view.(*Enricher).hostConcurrency)
 	}
 }
