@@ -434,6 +434,86 @@ func TestDrainSourceBusyIsSkipped(t *testing.T) {
 	}
 }
 
+// waitForStatus polls a job until it reaches want, or fails after a second.
+func waitForStatus(t *testing.T, svc *Service, id string, want JobStatus) {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		if j, _ := svc.GetJob(t.Context(), id); j.Status == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	j, _ := svc.GetJob(t.Context(), id)
+	t.Fatalf("job %s = %s, want %s within timeout", id, j.Status, want)
+}
+
+// TestDispatchQueuedDoesNotStarveIdleSources pins the continuous dispatch
+// fix (task 466): a job on a stuck source stays in flight forever, yet a
+// job queued afterward on an idle source dispatches on the next tick and
+// finishes -- the slow job does not starve it.
+func TestDispatchQueuedDoesNotStarveIdleSources(t *testing.T) {
+	started := make(chan string, 1)
+	release := make(chan struct{})
+	svc := &Service{
+		Blob: fixtureStore(t), DB: store.NewMem(), GrainPrefix: "data/works/",
+		Sources: map[string]Source{
+			"slow": {Enricher: &gatedEnricher{name: "slow", started: started, release: release}, Mode: ModeDirect},
+			"fast": {Enricher: stubEnricher{}, Mode: ModeDirect},
+		},
+	}
+	slow, _ := svc.CreateJob(t.Context(), "a", "slow", nil, nil)
+
+	// Tick 1 launches the slow job, which blocks in flight.
+	if n, err := svc.DispatchQueued(t.Context()); err != nil || n != 1 {
+		t.Fatalf("dispatch 1 = %d, %v; want the slow job launched", n, err)
+	}
+	<-started // slow is now stuck mid-run
+
+	// A job queued AFTER the slow one started, on an idle source.
+	fast, _ := svc.CreateJob(t.Context(), "a", "fast", nil, nil)
+
+	// Tick 2 must launch fast even though slow is still in flight.
+	if n, err := svc.DispatchQueued(t.Context()); err != nil || n != 1 {
+		t.Fatalf("dispatch 2 = %d, %v; want fast launched despite the stuck slow job", n, err)
+	}
+	waitForStatus(t, svc, fast.ID, JobDone)
+
+	if j, _ := svc.GetJob(t.Context(), slow.ID); j.Status != JobRunning {
+		t.Fatalf("slow job = %s, want still RUNNING (blocked)", j.Status)
+	}
+	close(release)
+	waitForStatus(t, svc, slow.ID, JobDone)
+}
+
+// TestDispatchQueuedSameSourceSerial: while a source's job is in flight, a
+// second job for the SAME source is not dispatched.
+func TestDispatchQueuedSameSourceSerial(t *testing.T) {
+	started := make(chan string, 1)
+	release := make(chan struct{})
+	svc := &Service{
+		Blob: fixtureStore(t), DB: store.NewMem(), GrainPrefix: "data/works/",
+		Sources: map[string]Source{
+			"slow": {Enricher: &gatedEnricher{name: "slow", started: started, release: release}, Mode: ModeDirect},
+		},
+	}
+	svc.Now = func() time.Time { return time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC) }
+	if _, err := svc.CreateJob(t.Context(), "a", "slow", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := svc.DispatchQueued(t.Context()); n != 1 {
+		t.Fatalf("dispatch 1 = %d, want the first slow job", n)
+	}
+	<-started
+	// A second same-source job queued while the first is in flight.
+	if _, err := svc.CreateJob(t.Context(), "a", "slow", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := svc.DispatchQueued(t.Context()); err != nil || n != 0 {
+		t.Fatalf("dispatch 2 = %d, %v; want 0 (source in flight, same-source serial)", n, err)
+	}
+	close(release)
+}
+
 // TestDrainMaxParallelCaps: MaxParallel bounds how many distinct-source jobs
 // are in flight at once.
 func TestDrainMaxParallelCaps(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/freeeve/libcat/ingest"
@@ -72,6 +73,12 @@ type Service struct {
 	MaxParallel int
 	// Now overrides the job clock (tests).
 	Now func() time.Time
+
+	// inflight tracks the sources this process has a DispatchQueued goroutine
+	// running, so the continuous container worker tops up idle sources every
+	// tick without redispatching a busy one. Guarded by inflightMu.
+	inflightMu sync.Mutex
+	inflight   map[string]bool
 }
 
 // Result summarizes one run.

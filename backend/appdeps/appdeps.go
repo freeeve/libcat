@@ -602,8 +602,10 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 	}
 	if len(enrichSources) > 0 && deps.Blob != nil {
 		deps.Enrich = &enrich.Service{Blob: deps.Blob, DB: db, Queue: deps.Suggest, Sources: enrichSources, Summaries: deps.WorkIndex, MaxParallel: cfg.EnrichMaxParallel}
-		// Container worker: drain queued enrichment jobs on a ticker, like
-		// exports. Serverless entrypoints disable tickers and drain on
+		// Container worker: dispatch queued enrichment jobs on a ticker,
+		// continuously. DispatchQueued tops up idle sources without joining,
+		// so a slow job never starves a later-queued job on an unrelated
+		// idle source. Serverless entrypoints disable tickers and drain on
 		// schedule.
 		if !cfg.ReadOnly && !cfg.DisableTickers {
 			enrichSvc := deps.Enrich
@@ -615,7 +617,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 					case <-ctx.Done():
 						return
 					case <-ticker.C:
-						if _, err := enrichSvc.RunQueuedJobs(ctx); err != nil && ctx.Err() == nil {
+						if _, err := enrichSvc.DispatchQueued(ctx); err != nil && ctx.Err() == nil {
 							logger.Error("enrichment job worker", "err", err)
 						}
 					}

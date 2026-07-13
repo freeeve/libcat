@@ -261,6 +261,95 @@ func (s *Service) RunQueuedJobs(ctx context.Context) (int, error) {
 	return ran, firstErr
 }
 
+// queuedRef is one source's oldest QUEUED job, for continuous dispatch.
+type queuedRef struct {
+	id  string
+	src string
+	at  time.Time
+}
+
+// scanQueued reads the job table once and returns the sources with a live
+// RUNNING record (busy) and each source's oldest QUEUED job. It does not
+// reap: stale-RUNNING orphans count as busy here and the independent
+// ReapStaleJobs clears them, so dispatch never double-runs a source.
+func (s *Service) scanQueued(ctx context.Context) (map[string]bool, []queuedRef, error) {
+	busy := map[string]bool{}
+	firstQueued := map[string]queuedRef{}
+	for rec, err := range s.DB.Query(ctx, "JOB#ENRICH", "", store.QueryOpt{}) {
+		if err != nil {
+			return nil, nil, err
+		}
+		var job Job
+		if json.Unmarshal(rec.Data, &job) != nil {
+			continue
+		}
+		switch job.Status {
+		case JobRunning:
+			busy[job.Source] = true
+		case JobQueued:
+			if r, ok := firstQueued[job.Source]; !ok || job.CreatedAt.Before(r.at) {
+				firstQueued[job.Source] = queuedRef{id: job.ID, src: job.Source, at: job.CreatedAt}
+			}
+		}
+	}
+	oldest := make([]queuedRef, 0, len(firstQueued))
+	for _, r := range firstQueued {
+		oldest = append(oldest, r)
+	}
+	sort.Slice(oldest, func(i, j int) bool { return oldest[i].id < oldest[j].id })
+	return busy, oldest, nil
+}
+
+// DispatchQueued tops up the running set WITHOUT joining and returns how
+// many jobs it launched this tick. It is the continuous container worker:
+// the ticker calls it every tick, and it launches one goroutine per idle
+// source (no live RUNNING record and none of this process's goroutines
+// already on it), so a QUEUED job for an idle source dispatches on the next
+// tick no matter how long a sibling source's job runs. This is what keeps a
+// slow job (a rate-limited multi-host bibliocommons crawl) from starving
+// every later-queued job. Same-source stays serial. MaxParallel caps the
+// concurrent in-flight count.
+func (s *Service) DispatchQueued(ctx context.Context) (int, error) {
+	if s.DB == nil {
+		return 0, nil
+	}
+	busy, oldest, err := s.scanQueued(ctx)
+	if err != nil {
+		return 0, err
+	}
+	s.inflightMu.Lock()
+	defer s.inflightMu.Unlock()
+	if s.inflight == nil {
+		s.inflight = map[string]bool{}
+	}
+	dispatched := 0
+	for _, r := range oldest {
+		if busy[r.src] || s.inflight[r.src] {
+			continue
+		}
+		if s.MaxParallel > 0 && len(s.inflight) >= s.MaxParallel {
+			break
+		}
+		s.inflight[r.src] = true
+		dispatched++
+		go s.runInflight(ctx, r.id, r.src)
+	}
+	return dispatched, nil
+}
+
+// runInflight runs one dispatched job and releases its source when done.
+// Run failures land in the job record; a claim lost to another worker is
+// benign, and a store fault is the next tick's problem -- matching the
+// best-effort posture of the live stats writer.
+func (s *Service) runInflight(ctx context.Context, id, src string) {
+	defer func() {
+		s.inflightMu.Lock()
+		delete(s.inflight, src)
+		s.inflightMu.Unlock()
+	}()
+	_ = s.runJob(ctx, id)
+}
+
 // ReapStaleJobs fails every RUNNING record whose heartbeat has gone stale
 // and returns how many it reaped. It runs on a cadence INDEPENDENT of
 // RunQueuedJobs: the parallel drain joins its launched jobs, so a legit
