@@ -1,0 +1,199 @@
+# The candidate off-AWS stack on a local Kubernetes cluster (kind), for
+# testing the deployment shape end to end before picking a provider:
+#
+#   lcatd (this repo's image)  +  MinIO (S3-compatible grain store)
+#   + the journal-backed local document store on a volume
+#
+# This is the same wiring an EU provider would run -- only the StorageClass,
+# the Secret contents, and an Ingress change. Quick start:
+#
+#   kind create cluster --name lcat-local
+#   docker build -t libcat:local --build-arg VERSION=$(git describe --tags) .
+#   kind load docker-image libcat:local --name lcat-local
+#   kubectl apply -f deploy/k8s-local/lcat-local.yaml
+#   kubectl -n lcat wait --for=condition=available deploy --all --timeout=180s
+#   kubectl -n lcat port-forward svc/lcatd 8080:8080
+#
+# Then http://localhost:8080/ (admin below). Everything lives in the `lcat`
+# namespace; `kind delete cluster --name lcat-local` removes it all.
+#
+# NOT for production as-is: the secrets are sample values, MinIO is a
+# single node with one PVC, and there is no TLS/Ingress. See docs/deploy.md
+# for probes/drain/scaling guidance that carries over unchanged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lcat
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lcatd-secrets
+  namespace: lcat
+type: Opaque
+stringData:
+  # Sample values for the LOCAL test cluster only -- generate real ones
+  # (openssl rand) for anything reachable by others.
+  LCATD_BOOTSTRAP_ADMIN: eve@example.org:changeme123
+  LCATD_ABUSE_SECRET: local-0123456789abcdef01234567
+  LCATD_LOCAL_SIGNING_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  MINIO_ROOT_USER: lcat
+  MINIO_ROOT_PASSWORD: lcat-minio-local
+  AWS_ACCESS_KEY_ID: lcat
+  AWS_SECRET_ACCESS_KEY: lcat-minio-local
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: lcat
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: lcat
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: minio }
+  template:
+    metadata:
+      labels: { app: minio }
+    spec:
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:latest
+          args: ["server", "/data"]
+          envFrom:
+            - secretRef: { name: lcatd-secrets }
+          ports: [{ containerPort: 9000 }]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: minio-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: lcat
+spec:
+  selector: { app: minio }
+  ports: [{ port: 9000, targetPort: 9000 }]
+---
+# One-shot bucket creation; lcatd expects the bucket to exist.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-mkbucket
+  namespace: lcat
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: quay.io/minio/mc:latest
+          envFrom:
+            - secretRef: { name: lcatd-secrets }
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              until mc alias set local http://minio:9000
+              "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done &&
+              mc mb --ignore-existing local/lcat-grains
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lcatd-store
+  namespace: lcat
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lcatd
+  namespace: lcat
+spec:
+  # One replica because the journal-backed document store is single-writer;
+  # scaling out means moving the document store to Alternator/DynamoDB
+  # (docs/deploy.md) -- the grain store already shares fine.
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: lcatd }
+  template:
+    metadata:
+      labels: { app: lcatd }
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: lcatd
+          image: libcat:local
+          imagePullPolicy: Never # kind-loaded local image
+          ports: [{ containerPort: 8080 }]
+          env:
+            - name: LCATD_LOCAL_AUTH
+              value: "1"
+            - name: LCATD_S3_BUCKET
+              value: lcat-grains
+            - name: LCATD_S3_ENDPOINT
+              value: http://minio:9000
+            - name: LCATD_STORE_DIR
+              value: /store
+            - name: AWS_REGION
+              value: us-east-1
+            - name: LCATD_SHUTDOWN_DELAY
+              value: "5s"
+          envFrom:
+            - secretRef: { name: lcatd-secrets }
+          volumeMounts:
+            - name: store
+              mountPath: /store
+          livenessProbe:
+            httpGet: { path: /v1/healthz, port: 8080 }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /v1/readyz, port: 8080 }
+            periodSeconds: 2
+          securityContext:
+            runAsNonRoot: true
+            # Distroless declares the named user "nonroot"; the kubelet
+            # cannot verify a name, so state the uid.
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+      securityContext:
+        # The store volume must be writable by the distroless uid.
+        fsGroup: 65532
+      volumes:
+        - name: store
+          persistentVolumeClaim: { claimName: lcatd-store }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lcatd
+  namespace: lcat
+spec:
+  selector: { app: lcatd }
+  ports: [{ port: 8080, targetPort: 8080 }]

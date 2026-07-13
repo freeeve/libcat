@@ -154,6 +154,37 @@ spec:
 Configuration is environment-only, which is what `envFrom` consumes directly, so
 secrets arrive as a `secretRef` and need no file mounts.
 
+## Trying the stack on local Kubernetes (kind)
+
+`deploy/k8s-local/lcat-local.yaml` stands up the whole candidate stack --
+lcatd + MinIO grains + the journal-backed document store on a volume -- on
+a laptop cluster, so the deployment shape is testable end to end before
+any provider is picked. The same wiring runs unchanged on a managed
+cluster; only the StorageClass, Secret contents, and an Ingress differ.
+
+```sh
+kind create cluster --name lcat-local
+docker build -t libcat:local --build-arg VERSION=$(git describe --tags) .
+kind load docker-image libcat:local --name lcat-local
+kubectl apply -f deploy/k8s-local/lcat-local.yaml
+kubectl -n lcat wait --for=condition=available deploy --all --timeout=180s
+kubectl -n lcat port-forward svc/lcatd 8080:8080
+```
+
+Notes learned standing it up:
+
+- Distroless declares its user by NAME (`nonroot`), which `runAsNonRoot`
+  cannot verify -- state `runAsUser: 65532` (and `fsGroup: 65532` so the
+  store volume is writable).
+- The manifest runs ONE lcatd replica (`strategy: Recreate`): the
+  journal-backed document store is single-writer. Scaling out means moving
+  documents to DynamoDB/Alternator; the MinIO grain store shares fine.
+- A one-shot Job creates the `lcat-grains` bucket; lcatd expects it.
+- Sample secrets only -- generate real values for anything shared.
+
+Verified: login, an authority write landing in MinIO, and the write
+surviving a pod restart (grains in MinIO, documents on the PVC).
+
 ## Storage
 
 | Env | Selects |
