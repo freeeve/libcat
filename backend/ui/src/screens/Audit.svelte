@@ -8,6 +8,7 @@
   import { onMount } from "svelte";
   import { ApiError, fetchAudit, humanApiMessage } from "../lib/api";
   import type { AuditEntry } from "../lib/types";
+  import AuditDetail from "../components/AuditDetail.svelte";
 
   let {
     initialMonth = "",
@@ -130,6 +131,7 @@
           <span class="when muted">{new Date(e.at).toLocaleString()}</span>
           {#if e.workId}<a class="work mono" href={"#/works/" + encodeURIComponent(e.workId)}>{e.workId}</a>{/if}
           {#if e.note}<span class="note muted">{formatNote(e.note)}</span>{/if}
+          <AuditDetail entry={e} />
         </li>
       {:else}
         <li class="muted empty">No entries{actor || action ? " match the filter" : ""} in {month}.</li>

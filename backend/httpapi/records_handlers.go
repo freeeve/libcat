@@ -244,7 +244,8 @@ func registerRecords(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, db 
 				WorkID: workID, Action: "RECORD_EDIT", Actor: id.Email, ETag: newTag,
 				// Quad counts, not just the op count: "3 ops" told a reader how
 				// much was asked for, never how much changed.
-				Note: fmt.Sprintf("%d ops, +%d/-%d quads", len(req.Ops), len(diff.Added), len(diff.Removed)),
+				Note:    fmt.Sprintf("%d ops, +%d/-%d quads", len(req.Ops), len(diff.Added), len(diff.Removed)),
+				Changes: suggest.NewAuditChanges(diff.Added, diff.Removed),
 			})
 		}
 		if hook != nil {

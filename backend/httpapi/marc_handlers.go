@@ -152,6 +152,7 @@ func registerMARC(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, queue 
 		if queue != nil {
 			queue.WriteAudit(r.Context(), suggest.AuditEntry{
 				WorkID: workID, Action: "MARC_EDIT", Actor: id.Email, ETag: newTag,
+				Changes: suggest.NewAuditChanges(diff.Added, diff.Removed),
 			})
 		}
 		w.Header().Set("ETag", newTag)

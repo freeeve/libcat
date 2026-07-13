@@ -39,9 +39,53 @@ type AuditEntry struct {
 	Terms  []string  `json:"terms,omitempty"` // "<scheme>:<id>"
 	Note   string    `json:"note,omitempty"`
 	ETag   string    `json:"etag,omitempty"` // grain etag for publish events
+	// Changes is the field-level diff a record edit carried -- the N-Quads
+	// lines added and removed -- so an entry says WHAT changed, not just that
+	// an edit happened. Nil for actions with no grain diff.
+	Changes *AuditChanges `json:"changes,omitempty"`
+	// Attributions is the harvest provenance of an approved suggestion --
+	// which peer sourced the term and the matching evidence -- preserved into
+	// the record's history at approval time. Empty when the action approved
+	// nothing harvested (a librarian's manual term, a patron suggestion).
+	Attributions []Attribution `json:"attributions,omitempty"`
 	// RunID ties a bulk run's per-record entries to its aggregate entry
 	//. Empty for single-record actions, which are their own run.
 	RunID string `json:"runId,omitempty"`
+}
+
+// AuditChanges summarizes a record edit's field-level diff for the history
+// trail: the canonical N-Quads lines added and removed, each list bounded so
+// one large rewrite cannot bloat the audit record, with More counting what
+// the cap dropped.
+type AuditChanges struct {
+	Added   []string `json:"added,omitempty"`
+	Removed []string `json:"removed,omitempty"`
+	More    int      `json:"more,omitempty"`
+}
+
+// maxAuditChangeLines bounds each side of an edit's recorded diff.
+const maxAuditChangeLines = 40
+
+// NewAuditChanges bounds a diff's added/removed line lists for the audit
+// record, recording how many lines the cap dropped. Nil when nothing
+// changed, so a no-op save carries no diff.
+func NewAuditChanges(added, removed []string) *AuditChanges {
+	if len(added) == 0 && len(removed) == 0 {
+		return nil
+	}
+	c := &AuditChanges{}
+	c.Added, c.More = capLines(added, c.More)
+	c.Removed, c.More = capLines(removed, c.More)
+	return c
+}
+
+// capLines truncates a line list to the cap, adding the overflow to more.
+func capLines(lines []string, more int) ([]string, int) {
+	if len(lines) > maxAuditChangeLines {
+		more += len(lines) - maxAuditChangeLines
+		lines = lines[:maxAuditChangeLines]
+	}
+	return lines, more
 }
 
 // auditSKLayout keys an audit entry by time. It is RFC3339 with a **fixed
@@ -257,6 +301,11 @@ func (s *Service) Review(ctx context.Context, decisions []Decision, actor string
 			}
 		}
 		key := store.Key{PK: workPK(d.WorkID), SK: suggSK(d.Term, d.Type)}
+		// Capture the suggestion's harvest provenance as it is approved, so
+		// the audit entry can carry which peer sourced the term into history
+		// -- the layer libraries usually drop (MARC keeps the scheme, not the
+		// peer). Only an approval preserves it; a reject records none.
+		var approvedAttrs []Attribution
 		err := s.transition(ctx, key, to, func(sg *Suggestion) {
 			sg.ReviewedAt = now
 			sg.ReviewedBy = actor
@@ -264,6 +313,9 @@ func (s *Service) Review(ctx context.Context, decisions []Decision, actor string
 			if d.Approve && d.SubstituteTerm != nil {
 				sub := *d.SubstituteTerm
 				sg.SubstituteTerm = &sub
+			}
+			if d.Approve {
+				approvedAttrs = sg.Attributions
 			}
 		})
 		// An APPROVED row whose work never published (its grain is gone --
@@ -298,6 +350,7 @@ func (s *Service) Review(ctx context.Context, decisions []Decision, actor string
 		s.writeAudit(ctx, AuditEntry{
 			WorkID: d.WorkID, Action: action, Actor: actor,
 			Terms: []string{d.Term.Scheme + ":" + d.Term.ID}, Note: d.Note,
+			Attributions: approvedAttrs,
 		})
 		res.Applied++
 	}

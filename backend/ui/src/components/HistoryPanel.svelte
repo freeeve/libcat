@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
   import { ApiError, fetchAudit } from "../lib/api";
   import type { AuditEntry } from "../lib/types";
+  import AuditDetail from "./AuditDetail.svelte";
 
   let { workId }: { workId: string } = $props();
 
@@ -64,6 +65,7 @@
         <span class="actor">{e.actor}</span>
         <span class="when muted">{new Date(e.at).toLocaleString()}</span>
         {#if e.note}<span class="note muted">{e.note}</span>{/if}
+        <AuditDetail entry={e} />
       </li>
     {/each}
   </ul>

@@ -174,6 +174,10 @@ export interface AuditEntry {
   terms?: string[];
   note?: string;
   etag?: string;
+  /** Field-level diff a record edit carried: N-Quads lines added/removed. */
+  changes?: { added?: string[]; removed?: string[]; more?: number };
+  /** Harvest provenance of an approved subject: which peer sourced it. */
+  attributions?: { source: string; basis?: string; key?: string; ref?: string }[];
   /** Ties a bulk run's per-record entries to its aggregate entry. */
   runId?: string;
 }

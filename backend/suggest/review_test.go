@@ -68,6 +68,57 @@ func TestQueueAndReview(t *testing.T) {
 	}
 }
 
+// TestApprovePreservesAttribution pins facet 2 of the richer-audit-trail
+// work (task 468): approving a harvested suggestion carries its source
+// attribution -- which peer sourced the term, with evidence -- into the
+// audit entry, so the record's history keeps where the subject came from. A
+// reject records none.
+func TestApprovePreservesAttribution(t *testing.T) {
+	svc, _ := newService(t)
+	ctx := t.Context()
+	term := controlled(transURI)
+	attrs := []Attribution{{Source: "winca", Basis: "isbn", Key: "9781643756905", Ref: "https://winca.ent.sirsidynix.net/item/1"}}
+	if _, err := svc.PipelineSuggestVouched(ctx, "wprov0000001", term, 0.9, 1, "sirsidynix: winca", attrs); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Review(ctx, []Decision{{
+		WorkID: "wprov0000001", Term: term, Type: TypeAdd, Approve: true, Note: "peer-cataloged",
+	}}, "lib@example.org"); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+
+	month := svc.now().UTC().Format("2006-01")
+	entries, err := svc.Audit(ctx, month)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("audit = %+v, %v", entries, err)
+	}
+	e := entries[0]
+	if e.Action != "REVIEW_APPROVE" {
+		t.Fatalf("action = %s, want REVIEW_APPROVE", e.Action)
+	}
+	if len(e.Attributions) != 1 || e.Attributions[0].Source != "winca" || e.Attributions[0].Key != "9781643756905" || e.Attributions[0].Ref == "" {
+		t.Fatalf("audit attributions = %+v, want the peer provenance preserved", e.Attributions)
+	}
+}
+
+// TestNewAuditChanges bounds the recorded diff and drops nothing silently.
+func TestNewAuditChanges(t *testing.T) {
+	if c := NewAuditChanges(nil, nil); c != nil {
+		t.Fatalf("empty diff = %+v, want nil (no change, no record)", c)
+	}
+	added := make([]string, maxAuditChangeLines+5)
+	for i := range added {
+		added[i] = "line"
+	}
+	c := NewAuditChanges(added, []string{"gone"})
+	if len(c.Added) != maxAuditChangeLines || c.More != 5 {
+		t.Fatalf("changes = %d added, %d more; want the cap with the overflow counted", len(c.Added), c.More)
+	}
+	if len(c.Removed) != 1 || c.Removed[0] != "gone" {
+		t.Fatalf("removed = %+v", c.Removed)
+	}
+}
+
 func TestReviewSubstitute(t *testing.T) {
 	svc, _ := newService(t)
 	submit(t, svc, "wabc123def456", controlled(transURI), TypeAdd, "h1")
