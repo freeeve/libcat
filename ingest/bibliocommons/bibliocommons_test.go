@@ -387,3 +387,25 @@ func TestForHostsSharesTheCrawlCache(t *testing.T) {
 		t.Fatalf("view stats = %d/%d, want 2/2 (1 host x 2 terms, cache-warm)", st.Batches, st.Total)
 	}
 }
+
+// TestParseFeedScrubsIllegalControlChars pins the task 453 fix: a stray C0
+// byte inside a description (Seattle's feeds carry U+0003/U+0019 in some
+// summaries) must not fail the whole page -- and with it the whole subject
+// term, persistently. Legal whitespace controls survive the scrub.
+func TestParseFeedScrubsIllegalControlChars(t *testing.T) {
+	body := rssPage([4]string{"Dirty\x03 Data", "Author, Test\x19", "9781549304002", "1"})
+	items, err := parseFeed([]byte(body))
+	if err != nil {
+		t.Fatalf("parseFeed on a control-byte page: %v", err)
+	}
+	if len(items) != 1 || items[0].title != "Dirty Data" || items[0].author != "Author, Test" {
+		t.Fatalf("items = %+v, want the record with the bytes dropped", items)
+	}
+	if items[0].isbn != "9781549304002" {
+		t.Fatalf("isbn = %q, want intact identifiers around the scrub", items[0].isbn)
+	}
+	// Tab/LF/CR are XML-legal and must survive.
+	if got := scrubXML([]byte("a\tb\nc\rd")); string(got) != "a\tb\nc\rd" {
+		t.Fatalf("legal whitespace scrubbed: %q", got)
+	}
+}

@@ -208,10 +208,15 @@ type harvestItem struct {
 	link string
 }
 
-// parseFeed extracts the match-relevant fields from one RSS page.
+// parseFeed extracts the match-relevant fields from one RSS page. The body
+// is scrubbed of XML-illegal control characters first: peer feeds carry
+// stray C0 bytes (U+0003, U+0019...) inside description fields, and one
+// such byte makes xml.Unmarshal reject the whole page -- which cost the
+// whole subject term, persistently, since the bad byte lives in the source
+// record (a Seattle harvest lost 18 terms this way).
 func parseFeed(body []byte) ([]harvestItem, error) {
 	var feed rssFeed
-	if err := xml.Unmarshal(body, &feed); err != nil {
+	if err := xml.Unmarshal(scrubXML(body), &feed); err != nil {
 		return nil, fmt.Errorf("bibliocommons: parse rss: %w", err)
 	}
 	out := make([]harvestItem, 0, len(feed.Items))
@@ -233,6 +238,31 @@ func parseFeed(body []byte) ([]harvestItem, error) {
 		out = append(out, h)
 	}
 	return out, nil
+}
+
+// scrubXML drops the characters XML 1.0 forbids outright -- C0 controls
+// except tab/LF/CR, plus DEL and the C1 range -- and leaves everything else
+// (including multi-byte UTF-8) untouched. Allocation-free when the body is
+// already clean, which is nearly every page.
+func scrubXML(body []byte) []byte {
+	clean := true
+	for _, b := range body {
+		if (b < 0x20 && b != '\t' && b != '\n' && b != '\r') || b == 0x7f {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return body
+	}
+	out := make([]byte, 0, len(body))
+	for _, b := range body {
+		if (b < 0x20 && b != '\t' && b != '\n' && b != '\r') || b == 0x7f {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 // normalizeISBN strips hyphens and a Syndetics "/SC.GIF"-style suffix.
