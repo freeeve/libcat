@@ -67,6 +67,10 @@ func TestQueueMode(t *testing.T) {
 	if err != nil || result.Works != 1 || result.Mode != ModeQueue {
 		t.Fatalf("result = %+v, %v", result, err)
 	}
+	// The exact queued tally (task 451): one NEW row this run.
+	if result.Suggestions != 1 {
+		t.Fatalf("suggestions = %d, want 1", result.Suggestions)
+	}
 	// A PIPELINE suggestion is in the moderation queue with confidence.
 	page, err := queue.Queue(t.Context(), suggest.QueueQuery{Provenance: suggest.ProvenancePipeline})
 	if err != nil || len(page.Items) != 1 {
@@ -81,9 +85,14 @@ func TestQueueMode(t *testing.T) {
 	if item.SourceRef != "stub: tag sci-fi" {
 		t.Fatalf("sourceRef = %q, want \"stub: tag sci-fi\"", item.SourceRef)
 	}
-	// Re-running never duplicates or resets moderation state.
-	if _, err := svc.Run(t.Context(), "stub", nil); err != nil {
+	// Re-running never duplicates or resets moderation state -- and the
+	// tally says so: zero NEW rows.
+	rerun, err := svc.Run(t.Context(), "stub", nil)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if rerun.Suggestions != 0 {
+		t.Fatalf("re-run suggestions = %d, want 0 (pair already queued)", rerun.Suggestions)
 	}
 	page, _ = queue.Queue(t.Context(), suggest.QueueQuery{})
 	if len(page.Items) != 1 {

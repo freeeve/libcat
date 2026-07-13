@@ -401,6 +401,9 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 						if c == nil {
 							c = &consensus{term: h.term, conf: conf, hosts: map[string]ingest.Attribution{}}
 							agg[key] = c
+							// A NEW (work, term) pair is one live candidate;
+							// further hosts corroborate, they don't add.
+							e.bump(started, func(st *ingest.EnrichStats) { st.Candidates++ })
 						}
 						if conf > c.conf {
 							c.conf = conf

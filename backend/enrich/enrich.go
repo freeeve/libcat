@@ -77,6 +77,10 @@ type Result struct {
 	// Works is the number of Works enriched (direct) or with candidates
 	// queued (queue).
 	Works int `json:"works"`
+	// Suggestions is the exact count of NEW queue rows this run created
+	// (queue mode): pairs already suggested, tombstoned, or resolved are
+	// silent no-ops and do not count.
+	Suggestions int `json:"suggestions,omitempty"`
 	// Scope names the run's filter ("" when the whole corpus).
 	Scope string `json:"scope,omitempty"`
 	// Stats carries the enricher's own run counters (batches, skips,
@@ -135,8 +139,8 @@ func (s *Service) RunHosted(ctx context.Context, name string, keep func(*ingest.
 		n, err := ingest.RunEnrichScoped(ctx, s.Blob, s.GrainPrefix, enr, keep)
 		return Result{Source: name, Mode: src.Mode, Works: n, Stats: stats()}, err
 	case ModeQueue:
-		n, err := s.runQueued(ctx, name, src, enr, keep)
-		return Result{Source: name, Mode: src.Mode, Works: n, Stats: stats()}, err
+		n, sugg, err := s.runQueued(ctx, name, src, enr, keep)
+		return Result{Source: name, Mode: src.Mode, Works: n, Suggestions: sugg, Stats: stats()}, err
 	}
 	return Result{}, fmt.Errorf("%w: source %q has invalid mode %q", ErrMisconfigured, name, src.Mode)
 }
@@ -177,13 +181,13 @@ func (s *Service) Names() []string {
 	return names
 }
 
-func (s *Service) runQueued(ctx context.Context, name string, src Source, enricher ingest.Enricher, keep func(*ingest.WorkSummary) bool) (int, error) {
+func (s *Service) runQueued(ctx context.Context, name string, src Source, enricher ingest.Enricher, keep func(*ingest.WorkSummary) bool) (int, int, error) {
 	if s.Queue == nil {
-		return 0, fmt.Errorf("%w: queue mode needs the suggestion service", ErrMisconfigured)
+		return 0, 0, fmt.Errorf("%w: queue mode needs the suggestion service", ErrMisconfigured)
 	}
 	summaries, _, err := ingest.SummariesOf(ctx, s.Summaries, s.Blob, s.GrainPrefix)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if keep != nil {
 		kept := summaries[:0:0]
@@ -196,9 +200,9 @@ func (s *Service) runQueued(ctx context.Context, name string, src Source, enrich
 	}
 	results, err := enricher.Enrich(ctx, summaries)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %w", ingest.ErrEnricher, err)
+		return 0, 0, fmt.Errorf("%w: %w", ingest.ErrEnricher, err)
 	}
-	queued := 0
+	queued, suggestions := 0, 0
 	for _, res := range results {
 		landed := false
 		for si, subj := range res.Subjects {
@@ -224,6 +228,7 @@ func (s *Service) runQueued(ctx context.Context, name string, src Source, enrich
 			if si < len(res.Origins) && res.Origins[si] != "" {
 				sourceRef = name + ": " + res.Origins[si]
 			}
+			var created bool
 			var err error
 			if si < len(res.Endorsements) && res.Endorsements[si].Count > 0 {
 				e := res.Endorsements[si]
@@ -231,13 +236,16 @@ func (s *Service) runQueued(ctx context.Context, name string, src Source, enrich
 				for _, a := range e.Attributions {
 					attrs = append(attrs, suggest.Attribution{Source: a.Source, Basis: a.Basis, Key: a.Key, Ref: a.Ref})
 				}
-				err = s.Queue.PipelineSuggestVouched(ctx, res.WorkID, term, res.Confidence,
+				created, err = s.Queue.PipelineSuggestVouched(ctx, res.WorkID, term, res.Confidence,
 					e.Count, name+": "+strings.Join(e.Sources, ", "), attrs)
 			} else {
-				err = s.Queue.PipelineSuggestFrom(ctx, res.WorkID, term, res.Confidence, sourceRef)
+				created, err = s.Queue.PipelineSuggestFrom(ctx, res.WorkID, term, res.Confidence, sourceRef)
 			}
 			if err != nil {
-				return queued, err
+				return queued, suggestions, err
+			}
+			if created {
+				suggestions++
 			}
 			landed = true
 		}
@@ -245,5 +253,5 @@ func (s *Service) runQueued(ctx context.Context, name string, src Source, enrich
 			queued++
 		}
 	}
-	return queued, nil
+	return queued, suggestions, nil
 }

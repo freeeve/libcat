@@ -348,17 +348,20 @@ func (s *Service) ManualTerm(ctx context.Context, workID string, ref vocab.TermR
 // enrichment sources assert terms from vocabularies too large to load, and
 // moderation is the gate. Tombstoned pairs are skipped silently.
 func (s *Service) PipelineSuggest(ctx context.Context, workID string, term vocab.TermRef, confidence float64) error {
-	return s.PipelineSuggestFrom(ctx, workID, term, confidence, "")
+	_, err := s.PipelineSuggestFrom(ctx, workID, term, confidence, "")
+	return err
 }
 
 // PipelineSuggestFrom is PipelineSuggest naming where the candidate came
 // from: sourceRef reads "<source>: <origin>" ("crosswalk-homosaurus:
-// Women (lcsh)"), so a queue row can say which enricher, from what.
-func (s *Service) PipelineSuggestFrom(ctx context.Context, workID string, term vocab.TermRef, confidence float64, sourceRef string) error {
+// Women (lcsh)"), so a queue row can say which enricher, from what. It
+// reports whether a NEW row landed -- an existing pair, or a tombstoned
+// one, is a silent no-op -- so a run can tally exactly what it queued.
+func (s *Service) PipelineSuggestFrom(ctx context.Context, workID string, term vocab.TermRef, confidence float64, sourceRef string) (bool, error) {
 	if _, err := s.db.Get(ctx, store.Key{PK: workPK(workID), SK: tombstoneSK(term)}); err == nil {
-		return nil
+		return false, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
+		return false, err
 	}
 	now := s.now().UTC()
 	sg := Suggestion{
@@ -369,17 +372,17 @@ func (s *Service) PipelineSuggestFrom(ctx context.Context, workID string, term v
 	}
 	data, err := marshalSuggestion(sg)
 	if err != nil {
-		return err
+		return false, err
 	}
 	key := store.Key{PK: workPK(workID), SK: suggSK(term, TypeAdd)}
 	if _, err := s.db.Put(ctx, store.Record{Key: key, Data: data}, store.CondIfAbsent); err != nil {
 		if errors.Is(err, store.ErrConditionFailed) {
-			return nil // pair already suggested; moderation owns it
+			return false, nil // pair already suggested; moderation owns it
 		}
-		return err
+		return false, err
 	}
 	s.writeStatusIndex(ctx, StatusPending, key)
-	return nil
+	return true, nil
 }
 
 // PipelineSuggestVouched is PipelineSuggest carrying peer consensus: the
@@ -390,11 +393,11 @@ func (s *Service) PipelineSuggestFrom(ctx context.Context, workID string, term v
 // PIPELINE row, the fresh run's census updates the count and sources in
 // place instead of filing a duplicate. Patron-backed and resolved rows are
 // never touched -- votes and review outcomes outrank a re-run.
-func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, term vocab.TermRef, confidence float64, supporters int, sourceRef string, attrs []Attribution) error {
+func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, term vocab.TermRef, confidence float64, supporters int, sourceRef string, attrs []Attribution) (bool, error) {
 	if _, err := s.db.Get(ctx, store.Key{PK: workPK(workID), SK: tombstoneSK(term)}); err == nil {
-		return nil
+		return false, nil
 	} else if !errors.Is(err, store.ErrNotFound) {
-		return err
+		return false, err
 	}
 	now := s.now().UTC()
 	sg := Suggestion{
@@ -405,14 +408,14 @@ func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, ter
 	}
 	data, err := marshalSuggestion(sg)
 	if err != nil {
-		return err
+		return false, err
 	}
 	key := store.Key{PK: workPK(workID), SK: suggSK(term, TypeAdd)}
 	if _, err := s.db.Put(ctx, store.Record{Key: key, Data: data}, store.CondIfAbsent); err == nil {
 		s.writeStatusIndex(ctx, StatusPending, key)
-		return nil
+		return true, nil
 	} else if !errors.Is(err, store.ErrConditionFailed) {
-		return err
+		return false, err
 	}
 	// The pair exists: refresh consensus on an open machine row only.
 	err = s.casUpdate(ctx, key, "suggest: consensus conflict", false, func(data []byte, _ bool) ([]byte, error) {
@@ -433,9 +436,9 @@ func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, ter
 		return marshalSuggestion(cur)
 	})
 	if errors.Is(err, errAlreadyResolved) || errors.Is(err, store.ErrNotFound) {
-		return nil // moderation (or patrons) own it now
+		return false, nil // moderation (or patrons) own it now
 	}
-	return err
+	return false, err
 }
 
 // SetFolkStatus accepts or blocks a folksonomy term. Accepted terms enter

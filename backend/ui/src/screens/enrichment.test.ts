@@ -124,7 +124,7 @@ describe("Enrichment screen", () => {
     expect(fetchEnrichJobs).toHaveBeenCalledTimes(1);
 
     fetchEnrichJobs.mockResolvedValue({
-      jobs: [job({ status: "DONE", result: { source: "sru-subjects", mode: "queue", works: 41 } })],
+      jobs: [job({ status: "DONE", result: { source: "sru-subjects", mode: "queue", works: 41, suggestions: 97 } })],
     });
     await vi.advanceTimersByTimeAsync(3000);
     await tick();
@@ -133,8 +133,9 @@ describe("Enrichment screen", () => {
     // further poll is scheduled.
     const card = document.querySelector(".job");
     expect(card?.querySelector(".bar")).toBeNull();
-    expect(card?.textContent).toContain("41 works");
-    expect(card?.textContent).toContain("with suggestions queued");
+    // The exact queued tally leads; the work count follows (task 451).
+    expect(card?.textContent).toContain("97 suggestions");
+    expect(card?.textContent).toContain("queued on 41 works");
     expect(card?.querySelector('a[href="#/queue?provenance=PIPELINE"]')?.textContent).toContain("Review suggestions");
     await vi.advanceTimersByTimeAsync(10000);
     expect(fetchEnrichJobs).toHaveBeenCalledTimes(2);

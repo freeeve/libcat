@@ -220,6 +220,10 @@ type EnrichStats struct {
 	// ResolvedCreators / Claims count what the run brought back.
 	ResolvedCreators int `json:"resolvedCreators,omitempty"`
 	Claims           int `json:"claims,omitempty"`
+	// Candidates counts subject candidates found SO FAR, live -- honest
+	// label: queue-time dedup and tombstone skips happen after the run,
+	// so the final queued tally can be lower.
+	Candidates int `json:"candidates,omitempty"`
 	// ElapsedMS is the wall time inside the enricher's Enrich calls.
 	ElapsedMS int64 `json:"elapsedMs"`
 }

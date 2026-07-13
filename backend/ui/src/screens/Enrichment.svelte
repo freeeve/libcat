@@ -236,6 +236,7 @@
                   {:else}
                     <span>{j.stats.batches} batch{j.stats.batches === 1 ? "" : "es"}</span>
                   {/if}
+                  {#if j.stats.candidates}<span>{j.stats.candidates} candidate{j.stats.candidates === 1 ? "" : "s"}</span>{/if}
                   {#if j.stats.skippedBatches}<span>{j.stats.skippedBatches} skipped</span>{/if}
                   {#if j.stats.resolvedCreators}<span>{j.stats.resolvedCreators} creators</span>{/if}
                   {#if j.stats.claims}<span>{j.stats.claims} claims</span>{/if}
@@ -246,8 +247,9 @@
                 {/if}
                 {#if j.status === "DONE" && j.result}
                   <span class="ok">
-                    {j.result.works} work{j.result.works === 1 ? "" : "s"}
-                    {j.result.mode === "queue" ? "with suggestions queued" : "enriched"}
+                    {#if j.result.mode === "queue"}{j.result.suggestions ?? 0} suggestion{j.result.suggestions === 1 ? "" : "s"}
+                      queued on {j.result.works} work{j.result.works === 1 ? "" : "s"}{:else}{j.result.works}
+                      work{j.result.works === 1 ? "" : "s"} enriched{/if}
                   </span>
                   {#if j.result.mode === "queue"}
                     <a href="#/queue?provenance=PIPELINE">Review suggestions</a>

@@ -850,6 +850,9 @@ export interface EnrichStats {
   /** The up-front run size (in the source's unit) that batches counts
    *  toward, when the source knows it; absent/0 = sizes lazily. */
   total?: number;
+  /** Subject candidates found so far, live -- queue-time dedup happens
+   *  after the run, so the final queued tally can be lower. */
+  candidates?: number;
   elapsedMs: number;
 }
 
@@ -858,6 +861,8 @@ export interface EnrichRunResult {
   source: string;
   mode: string;
   works: number;
+  /** Exact count of NEW queue rows this run created (queue mode). */
+  suggestions?: number;
   scope?: string;
   stats?: EnrichStats;
 }
