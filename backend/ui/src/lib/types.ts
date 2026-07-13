@@ -337,6 +337,10 @@ export interface Suggestion {
   confidence?: number;
   workTitle?: string;
   sourceRef?: string;
+  /** Read-time join: the work's first few contributor names. */
+  workContributors?: string[];
+  /** A machine suggestion's verifiable evidence, per corroborating source. */
+  attributions?: { source: string; basis?: string; key?: string; ref?: string }[];
   /** A concern's freetext (type CONCERN). */
   note?: string;
   createdAt: string;

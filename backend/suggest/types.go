@@ -86,7 +86,16 @@ type Suggestion struct {
 	Provenance     Provenance     `json:"provenance"`
 	Confidence     float64        `json:"confidence,omitempty"`
 	WorkTitle      string         `json:"workTitle,omitempty"`
-	SourceRef      string         `json:"sourceRef,omitempty"`
+	// WorkContributors is a read-time join (never stored): the work's
+	// first few contributor names, so a reviewer sees who wrote the work
+	// without opening it.
+	WorkContributors []string `json:"workContributors,omitempty"`
+	SourceRef        string   `json:"sourceRef,omitempty"`
+	// Attributions carry a machine suggestion's verifiable evidence: per
+	// corroborating source, what matched (basis + key) and a link to the
+	// peer's actual record -- the moderator-trust layer ("here's the
+	// record we matched and why; go look").
+	Attributions []Attribution `json:"attributions,omitempty"`
 	// Note carries a concern's freetext (TypeConcern only).
 	Note           string    `json:"note,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
@@ -101,6 +110,15 @@ type Suggestion struct {
 	// PublishedETag is the grain ETag that carried the change into the
 	// graph (the git-commit-SHA analog for the S3 grain store).
 	PublishedETag string `json:"publishedEtag,omitempty"`
+}
+
+// Attribution is one source's evidence behind a machine suggestion
+// (mirrors ingest.Attribution at the queue boundary).
+type Attribution struct {
+	Source string `json:"source"`
+	Basis  string `json:"basis,omitempty"`
+	Key    string `json:"key,omitempty"`
+	Ref    string `json:"ref,omitempty"`
 }
 
 // FolkStatus is the lifecycle of a novel folksonomy term itself (distinct

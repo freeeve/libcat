@@ -348,6 +348,13 @@ func (s *Service) ManualTerm(ctx context.Context, workID string, ref vocab.TermR
 // enrichment sources assert terms from vocabularies too large to load, and
 // moderation is the gate. Tombstoned pairs are skipped silently.
 func (s *Service) PipelineSuggest(ctx context.Context, workID string, term vocab.TermRef, confidence float64) error {
+	return s.PipelineSuggestFrom(ctx, workID, term, confidence, "")
+}
+
+// PipelineSuggestFrom is PipelineSuggest naming where the candidate came
+// from: sourceRef reads "<source>: <origin>" ("crosswalk-homosaurus:
+// Women (lcsh)"), so a queue row can say which enricher, from what.
+func (s *Service) PipelineSuggestFrom(ctx context.Context, workID string, term vocab.TermRef, confidence float64, sourceRef string) error {
 	if _, err := s.db.Get(ctx, store.Key{PK: workPK(workID), SK: tombstoneSK(term)}); err == nil {
 		return nil
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -357,7 +364,8 @@ func (s *Service) PipelineSuggest(ctx context.Context, workID string, term vocab
 	sg := Suggestion{
 		WorkID: workID, Term: term, Type: TypeAdd,
 		Status: StatusPending, Provenance: ProvenancePipeline,
-		Confidence: confidence, CreatedAt: now, LastActivityAt: now,
+		Confidence: confidence, SourceRef: sourceRef,
+		CreatedAt: now, LastActivityAt: now,
 	}
 	data, err := marshalSuggestion(sg)
 	if err != nil {
@@ -382,7 +390,7 @@ func (s *Service) PipelineSuggest(ctx context.Context, workID string, term vocab
 // PIPELINE row, the fresh run's census updates the count and sources in
 // place instead of filing a duplicate. Patron-backed and resolved rows are
 // never touched -- votes and review outcomes outrank a re-run.
-func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, term vocab.TermRef, confidence float64, supporters int, sourceRef string) error {
+func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, term vocab.TermRef, confidence float64, supporters int, sourceRef string, attrs []Attribution) error {
 	if _, err := s.db.Get(ctx, store.Key{PK: workPK(workID), SK: tombstoneSK(term)}); err == nil {
 		return nil
 	} else if !errors.Is(err, store.ErrNotFound) {
@@ -393,7 +401,7 @@ func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, ter
 		WorkID: workID, Term: term, Type: TypeAdd,
 		Status: StatusPending, Provenance: ProvenancePipeline,
 		Confidence: confidence, SupporterCount: supporters, SourceRef: sourceRef,
-		CreatedAt: now, LastActivityAt: now,
+		Attributions: attrs, CreatedAt: now, LastActivityAt: now,
 	}
 	data, err := marshalSuggestion(sg)
 	if err != nil {
@@ -417,6 +425,7 @@ func (s *Service) PipelineSuggestVouched(ctx context.Context, workID string, ter
 		}
 		cur.SupporterCount = supporters
 		cur.SourceRef = sourceRef
+		cur.Attributions = attrs
 		if confidence > cur.Confidence {
 			cur.Confidence = confidence
 		}

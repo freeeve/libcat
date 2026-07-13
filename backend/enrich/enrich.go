@@ -127,7 +127,7 @@ func (s *Service) RunHosted(ctx context.Context, name string, keep func(*ingest.
 		n, err := ingest.RunEnrichScoped(ctx, s.Blob, s.GrainPrefix, enr, keep)
 		return Result{Source: name, Mode: src.Mode, Works: n, Stats: stats()}, err
 	case ModeQueue:
-		n, err := s.runQueued(ctx, src, enr, keep)
+		n, err := s.runQueued(ctx, name, src, enr, keep)
 		return Result{Source: name, Mode: src.Mode, Works: n, Stats: stats()}, err
 	}
 	return Result{}, fmt.Errorf("%w: source %q has invalid mode %q", ErrMisconfigured, name, src.Mode)
@@ -155,7 +155,7 @@ func (s *Service) Names() []string {
 	return names
 }
 
-func (s *Service) runQueued(ctx context.Context, src Source, enricher ingest.Enricher, keep func(*ingest.WorkSummary) bool) (int, error) {
+func (s *Service) runQueued(ctx context.Context, name string, src Source, enricher ingest.Enricher, keep func(*ingest.WorkSummary) bool) (int, error) {
 	if s.Queue == nil {
 		return 0, fmt.Errorf("%w: queue mode needs the suggestion service", ErrMisconfigured)
 	}
@@ -192,15 +192,27 @@ func (s *Service) runQueued(ctx context.Context, src Source, enricher ingest.Enr
 				scheme = project.SchemeForURI(subj.URI)
 			}
 			term := vocab.TermRef{Scheme: scheme, ID: subj.URI, Label: label}
-			// A subject arriving with an endorsement carries peer
-			// consensus: the supporter count ranks it in the queue and
-			// the sources say which libraries corroborated.
+			// Every machine row says where it came from: "<source>" or
+			// "<source>: <origin>" (the tag/heading/subject that produced
+			// the candidate). A subject arriving with an endorsement
+			// additionally carries peer consensus -- the supporter count
+			// ranks it, the sources say which libraries corroborated, and
+			// each attribution is the moderator's verifiable evidence.
+			sourceRef := name
+			if si < len(res.Origins) && res.Origins[si] != "" {
+				sourceRef = name + ": " + res.Origins[si]
+			}
 			var err error
 			if si < len(res.Endorsements) && res.Endorsements[si].Count > 0 {
 				e := res.Endorsements[si]
-				err = s.Queue.PipelineSuggestVouched(ctx, res.WorkID, term, res.Confidence, e.Count, strings.Join(e.Sources, ", "))
+				attrs := make([]suggest.Attribution, 0, len(e.Attributions))
+				for _, a := range e.Attributions {
+					attrs = append(attrs, suggest.Attribution{Source: a.Source, Basis: a.Basis, Key: a.Key, Ref: a.Ref})
+				}
+				err = s.Queue.PipelineSuggestVouched(ctx, res.WorkID, term, res.Confidence,
+					e.Count, name+": "+strings.Join(e.Sources, ", "), attrs)
 			} else {
-				err = s.Queue.PipelineSuggest(ctx, res.WorkID, term, res.Confidence)
+				err = s.Queue.PipelineSuggestFrom(ctx, res.WorkID, term, res.Confidence, sourceRef)
 			}
 			if err != nil {
 				return queued, err

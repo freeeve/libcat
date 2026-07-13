@@ -146,6 +146,7 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 		}
 
 		var idMatched, labelMatched []bibframe.AuthoritySubject
+		var idOrigins, labelOrigins []string
 		for _, c := range byKey {
 			if existingLabels[NormHeading(c.Heading)] {
 				continue
@@ -161,15 +162,17 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 			subj := bibframe.AuthoritySubject{URI: term.ID, Labels: map[string]string{"en": term.Label}}
 			if byID {
 				idMatched = append(idMatched, subj)
+				idOrigins = append(idOrigins, "heading "+c.Heading)
 			} else {
 				labelMatched = append(labelMatched, subj)
+				labelOrigins = append(labelOrigins, "heading "+c.Heading)
 			}
 		}
 		if len(idMatched) > 0 {
-			out = append(out, ingest.Enrichment{WorkID: w.WorkID, Confidence: confIDMatch, Subjects: idMatched})
+			out = append(out, ingest.Enrichment{WorkID: w.WorkID, Confidence: confIDMatch, Subjects: idMatched, Origins: idOrigins})
 		}
 		if len(labelMatched) > 0 {
-			out = append(out, ingest.Enrichment{WorkID: w.WorkID, Confidence: confLabelMatch, Subjects: labelMatched})
+			out = append(out, ingest.Enrichment{WorkID: w.WorkID, Confidence: confLabelMatch, Subjects: labelMatched, Origins: labelOrigins})
 		}
 		if e.Log != nil && len(idMatched)+len(labelMatched) > 0 {
 			e.Log.Info("sru subjects suggested", "work", w.WorkID,

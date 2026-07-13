@@ -80,9 +80,11 @@ func (e *CrosswalkEnricher) Enrich(_ context.Context, works []ingest.WorkSummary
 			return enr
 		}
 		for _, uri := range work.Subjects {
-			if term, ok := e.Index.Resolve(uri); !ok || term.Scheme == e.Target {
+			src, ok := e.Index.Resolve(uri)
+			if !ok || src.Scheme == e.Target {
 				continue
 			}
+			origin := src.Label("en") + " (" + src.Scheme + ")"
 			eqs, ok := e.Index.Equivalents(uri)
 			if !ok {
 				continue
@@ -107,6 +109,7 @@ func (e *CrosswalkEnricher) Enrich(_ context.Context, works []ingest.WorkSummary
 				enr.Subjects = append(enr.Subjects, bibframe.AuthoritySubject{
 					URI: target.ID, Labels: target.Labels, Broader: target.Broader,
 				})
+				enr.Origins = append(enr.Origins, origin)
 				for _, a := range e.Index.Ancestors(e.Target, target.ID) {
 					if seen[a.ID] {
 						continue

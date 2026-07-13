@@ -86,10 +86,12 @@ export const SCREENS: Screen[] = [
   // The crosswalk editor behind the audit. Off the sidebar (the Diversity
   // screen links it); the palette still reaches it by name.
   { route: "diversityconfig", path: "/diversity/config", label: "Diversity setup", paletteLabel: "Diversity crosswalk setup", chord: null, sidebar: false },
-  // Enrichment runs and the async job board. Admin-only like its routes;
-  // off the sidebar (the nav is at capacity -- cf. the settings-menu task),
-  // reachable by palette and by chord.
-  { route: "enrichment", path: "/enrichment", label: "Enrichment", paletteLabel: "Enrichment jobs", chord: "n", sidebar: false, adminOnly: true, group: "admin" },
+  // Enrichment runs and the async job board: an OPERATIONS screen, so it
+  // lives with the other collection operations under the Maintenance menu
+  // -- the Settings menu's contract (prefs + set-once configuration) never
+  // fit a jobs board, and the nav-at-capacity reason for hiding it
+  // dissolved when the grouped menus landed. Admin-only like its routes.
+  { route: "enrichment", path: "/enrichment", label: "Enrichment", paletteLabel: "Enrichment jobs", chord: "n", sidebar: true, adminOnly: true, menu: "maintenance" },
   // Last in the palette, and absent from the nav: the brand link is its door.
   { route: "dashboard", path: "/", label: "Dashboard", chord: "d", sidebar: false },
 ];

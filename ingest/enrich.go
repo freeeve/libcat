@@ -130,6 +130,11 @@ type Enrichment struct {
 	// Confidence (0-1] qualifies queue-moderated enrichments; direct-mode
 	// callers may threshold on it.
 	Confidence float64
+	// Origins, when present, parallels Subjects: Origins[i] names what
+	// produced Subjects[i] in the source's own terms -- the uncontrolled
+	// tag a reconciler matched, the work subject a crosswalk pivoted from,
+	// the harvested heading -- so a queue row can say "from X".
+	Origins []string `json:",omitempty"`
 	// Endorsements, when present, parallels Subjects: Endorsements[i]
 	// records the peer sources corroborating Subjects[i], so queue mode
 	// can rank cross-source consensus above singletons.
@@ -141,6 +146,22 @@ type Enrichment struct {
 type Endorsement struct {
 	Count   int
 	Sources []string
+	// Attributions, when present, carry each source's verifiable claim.
+	Attributions []Attribution `json:",omitempty"`
+}
+
+// Attribution is one source's evidence behind an endorsement: which peer,
+// what matched (the basis), the matching key, and a URL a moderator can
+// open to eyeball the peer's actual record.
+type Attribution struct {
+	Source string
+	// Basis names the match kind ("isbn", "title+author").
+	Basis string
+	// Key is the value that matched: the shared ISBN, or the peer's
+	// title/author strings.
+	Key string `json:",omitempty"`
+	// Ref is a verifiable link (the peer OPAC's record page).
+	Ref string `json:",omitempty"`
 }
 
 // CreatorClaim is one resolved creator identity: the knowledge-base entity id

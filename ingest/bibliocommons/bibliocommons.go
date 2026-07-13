@@ -200,6 +200,9 @@ var (
 // harvestItem is one parsed feed row.
 type harvestItem struct {
 	title, author, isbn, oclc string
+	// link is the peer OPAC's record page (/item/show/<bibid>_slug) -- the
+	// moderator's one-click door to the record actually matched.
+	link string
 }
 
 // parseFeed extracts the match-relevant fields from one RSS page.
@@ -210,7 +213,7 @@ func parseFeed(body []byte) ([]harvestItem, error) {
 	}
 	out := make([]harvestItem, 0, len(feed.Items))
 	for _, it := range feed.Items {
-		h := harvestItem{title: strings.TrimSpace(it.Title)}
+		h := harvestItem{title: strings.TrimSpace(it.Title), link: strings.TrimSpace(it.Link)}
 		if m := authorRe.FindStringSubmatch(it.Description); m != nil {
 			h.author = strings.TrimSpace(strings.TrimRight(m[1], " .,"))
 		}
@@ -340,7 +343,7 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 	type consensus struct {
 		term  Term
 		conf  float64
-		hosts map[string]bool
+		hosts map[string]ingest.Attribution
 	}
 	var aggMu sync.Mutex
 	agg := map[matchKey]*consensus{}
@@ -384,17 +387,26 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 						if hasSubject(&works[wi], h.term.URI) {
 							continue
 						}
+						attr := ingest.Attribution{Source: host, Basis: "isbn", Key: it.isbn, Ref: it.link}
+						if conf == confTitleMatch {
+							attr.Basis = "title+author"
+							attr.Key = it.title + " / " + it.author
+						}
 						aggMu.Lock()
 						key := matchKey{work: wi, uri: h.term.URI}
 						c := agg[key]
 						if c == nil {
-							c = &consensus{term: h.term, conf: conf, hosts: map[string]bool{}}
+							c = &consensus{term: h.term, conf: conf, hosts: map[string]ingest.Attribution{}}
 							agg[key] = c
 						}
 						if conf > c.conf {
 							c.conf = conf
 						}
-						c.hosts[host] = true
+						// The strongest evidence per host wins (an ISBN match
+						// outranks a later title match from the same host).
+						if prev, ok := c.hosts[host]; !ok || (prev.Basis != "isbn" && attr.Basis == "isbn") {
+							c.hosts[host] = attr
+						}
 						aggMu.Unlock()
 					}
 				}
@@ -435,7 +447,11 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 					hosts = append(hosts, h)
 				}
 				sort.Strings(hosts)
-				enr.Endorsements = append(enr.Endorsements, ingest.Endorsement{Count: len(hosts), Sources: hosts})
+				attrs := make([]ingest.Attribution, 0, len(hosts))
+				for _, h := range hosts {
+					attrs = append(attrs, c.hosts[h])
+				}
+				enr.Endorsements = append(enr.Endorsements, ingest.Endorsement{Count: len(hosts), Sources: hosts, Attributions: attrs})
 			}
 			out = append(out, enr)
 		}

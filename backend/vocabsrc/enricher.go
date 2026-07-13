@@ -102,6 +102,7 @@ func (e *Enricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]in
 				}
 			}
 			enrichment.Subjects = append(enrichment.Subjects, subj)
+			enrichment.Origins = append(enrichment.Origins, "tag "+tag)
 			if hit.confidence < enrichment.Confidence {
 				enrichment.Confidence = hit.confidence
 			}

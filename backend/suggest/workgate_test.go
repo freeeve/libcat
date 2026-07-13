@@ -141,7 +141,7 @@ func TestPipelineSuggestVouched(t *testing.T) {
 	svc, _ := newService(t)
 	ctx := t.Context()
 	term := controlled(transURI)
-	if err := svc.PipelineSuggestVouched(ctx, "wvouch0000001", term, 0.9, 3, "kcls, seattle, sfpl"); err != nil {
+	if err := svc.PipelineSuggestVouched(ctx, "wvouch0000001", term, 0.9, 3, "bibliocommons: kcls, seattle, sfpl", []Attribution{{Source: "kcls", Basis: "isbn", Key: "9781", Ref: "https://kcls.bibliocommons.com/item/show/1"}}); err != nil {
 		t.Fatal(err)
 	}
 	page, err := svc.Queue(ctx, QueueQuery{})
@@ -149,12 +149,15 @@ func TestPipelineSuggestVouched(t *testing.T) {
 		t.Fatalf("queue = %+v, %v", page, err)
 	}
 	sg := page.Items[0]
-	if sg.SupporterCount != 3 || sg.SourceRef != "kcls, seattle, sfpl" || sg.Confidence != 0.9 {
+	if sg.SupporterCount != 3 || sg.SourceRef != "bibliocommons: kcls, seattle, sfpl" || sg.Confidence != 0.9 {
 		t.Fatalf("row = %+v, want 3 supporters via three hosts", sg)
+	}
+	if len(sg.Attributions) != 1 || sg.Attributions[0].Basis != "isbn" || sg.Attributions[0].Ref == "" {
+		t.Fatalf("attributions = %+v, want the verifiable evidence carried", sg.Attributions)
 	}
 
 	// A wider census refreshes the open row in place -- one row, new count.
-	if err := svc.PipelineSuggestVouched(ctx, "wvouch0000001", term, 0.75, 6, "six hosts"); err != nil {
+	if err := svc.PipelineSuggestVouched(ctx, "wvouch0000001", term, 0.75, 6, "six hosts", nil); err != nil {
 		t.Fatal(err)
 	}
 	page, _ = svc.Queue(ctx, QueueQuery{})
@@ -169,7 +172,7 @@ func TestPipelineSuggestVouched(t *testing.T) {
 	if _, err := svc.Review(ctx, []Decision{{WorkID: "wvouch0000001", Term: term, Type: TypeAdd, Approve: true}}, "mod@x"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.PipelineSuggestVouched(ctx, "wvouch0000001", term, 0.9, 9, "nine hosts"); err != nil {
+	if err := svc.PipelineSuggestVouched(ctx, "wvouch0000001", term, 0.9, 9, "nine hosts", nil); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := svc.ForWork(ctx, "wvouch0000001")

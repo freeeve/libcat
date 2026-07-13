@@ -335,6 +335,7 @@
         <span class="supporters" title="{s.supporterCount} supporter{s.supporterCount === 1 ? '' : 's'}">{s.supporterCount}</span>
         <span class="chip chip--{s.type === 'ADD' ? 'add' : s.type === 'CONCERN' ? 'concern' : 'remove'}">{s.type}</span>
         <a class="work" href={"#/works/" + encodeURIComponent(s.workId)}>{s.workTitle || s.workId}</a>
+        {#if s.workContributors?.length}<span class="authors muted">{s.workContributors.join("; ")}</span>{/if}
         {#if s.type === "CONCERN"}
           <!-- A concern is freetext, not a term: show the note;
                approve reads as resolve, reject as dismiss. -->
@@ -352,7 +353,17 @@
               ? ` ${s.confidence.toFixed(2)}`
               : ""}
           </span>
-          {#if s.sourceRef}<span class="sourceref" title="corroborating sources">via {s.sourceRef}</span>{/if}
+          {#if s.sourceRef}<span class="sourceref" title="where this candidate came from">from {s.sourceRef}</span>{/if}
+          {#if s.attributions?.length}
+            <!-- The moderator-trust layer: each corroborating source's
+                 match basis, with the peer record one click away. -->
+            <span class="attribs">
+              {#each s.attributions as a (a.source)}
+                {#if a.ref}<a class="attrib" href={a.ref} target="_blank" rel="noopener" title={`${a.basis}: ${a.key ?? ""}`}>{a.source} ({a.basis}) ↗</a>
+                {:else}<span class="attrib" title={a.key ?? ""}>{a.source} ({a.basis})</span>{/if}
+              {/each}
+            </span>
+          {/if}
         </span>
         <span class="staged">{#if staged}{stagedLabel(staged)}{/if}</span>
         {#if sel}
@@ -533,5 +544,24 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-style: italic;
+  }
+  .authors {
+    font-size: 0.82rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sourceref {
+    font-size: 0.78rem;
+  }
+  .attribs {
+    display: inline-flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .attrib {
+    font-size: 0.78rem;
+    color: inherit;
   }
 </style>

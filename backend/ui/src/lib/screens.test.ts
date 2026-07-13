@@ -79,7 +79,8 @@ describe("the derived surfaces", () => {
     const asStaff = sidebarScreens(false).map((s) => s.route);
     const asAdmin = sidebarScreens(true).map((s) => s.route);
     // Grouped screens live in the Settings menu, never the bar -- for
-    // anyone (the settings-menu declutter, task 382).
+    // anyone (the settings-menu declutter, task 382). Enrichment moved on
+    // from Settings to the Maintenance nav menu (task 448).
     for (const moved of ["profiles", "suggestions", "vocabsources", "macros", "enrichment"]) {
       expect(asStaff, `${moved} back on the staff nav`).not.toContain(moved);
       expect(asAdmin, `${moved} back on the admin nav`).not.toContain(moved);
@@ -102,7 +103,8 @@ describe("the derived surfaces", () => {
     const byId = Object.fromEntries(menus.map((m) => [m.id, m.screens.map((s) => s.route)]));
     // Review is one job: triaging incoming community input.
     expect(byId.review).toEqual(["queue", "promotions"]);
-    // Maintenance: the occasional collection-hygiene reports.
+    // Maintenance: the collection operations. Enrichment is admin-gated,
+    // so staff see two entries here (task 448).
     expect(byId.maintenance).toEqual(["duplicates", "withdrawals"]);
     // Reports: getting information out.
     expect(byId.reports).toEqual(["exports", "audit", "diversity"]);
@@ -114,12 +116,14 @@ describe("the derived surfaces", () => {
         expect(s.chord, `${s.route} lost its chord`).not.toBeNull();
       }
     }
-    // No screen is both menued and Settings-grouped, and nothing menued is
-    // admin-gated today -- staff and admins see the same three menus.
+    // No screen is both menued and Settings-grouped.
     for (const s of SCREENS.filter((x) => x.menu)) {
       expect(s.group, `${s.route} is both menued and grouped`).toBeUndefined();
     }
-    expect(navMenus(true)).toEqual(menus);
+    // Admins additionally see Enrichment under Maintenance -- an
+    // operations screen, not Settings material (task 448).
+    const adminMaint = navMenus(true).find((m) => m.id === "maintenance")!;
+    expect(adminMaint.screens.map((s) => s.route)).toEqual(["duplicates", "withdrawals", "enrichment"]);
   });
 
   it("sections the settings menu and gates administration by role", () => {
@@ -130,8 +134,10 @@ describe("the derived surfaces", () => {
     // Instance configuration: admins see all of it; staff see only the
     // non-adminOnly entries (Vocabularies is librarian-usable).
     expect(admin.admin.map((s) => s.route)).toEqual(
-      expect.arrayContaining(["vocabsources", "profiles", "suggestions", "enrichment"]),
+      expect.arrayContaining(["vocabsources", "profiles", "suggestions"]),
     );
+    // Enrichment left Settings for the Maintenance menu (task 448).
+    expect(admin.admin.map((s) => s.route)).not.toContain("enrichment");
     expect(staff.admin.map((s) => s.route)).toEqual(["vocabsources"]);
     // The menu is a home, not a hiding place: every grouped screen keeps
     // its palette entry and chord reachability by staying in SCREENS.

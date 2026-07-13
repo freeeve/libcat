@@ -101,26 +101,36 @@ func registerReview(mux *http.ServeMux, svc *suggest.Service, verifier auth.Toke
 		// edit), and a reviewer triaging "should this work gain this term"
 		// needs the work named, not its id. Rows that carry a title (the
 		// patron path stores what the patron saw) keep it; only gaps fill.
-		if ix != nil {
-			missing := map[string]bool{}
+		if ix != nil && len(page.Items) > 0 {
+			wanted := map[string]bool{}
 			for i := range page.Items {
-				if page.Items[i].WorkTitle == "" && page.Items[i].WorkID != "" {
-					missing[page.Items[i].WorkID] = true
+				if page.Items[i].WorkID != "" {
+					wanted[page.Items[i].WorkID] = true
 				}
 			}
-			if len(missing) > 0 {
-				if sums, _, err := ix.SummariesWithGeneration(r.Context()); err == nil {
-					titles := make(map[string]string, len(missing))
-					for i := range sums {
-						if missing[sums[i].WorkID] && sums[i].Title != "" {
-							titles[sums[i].WorkID] = sums[i].Title
-						}
+			if sums, _, err := ix.SummariesWithGeneration(r.Context()); err == nil {
+				titles := make(map[string]string, len(wanted))
+				authors := make(map[string][]string, len(wanted))
+				for i := range sums {
+					if !wanted[sums[i].WorkID] {
+						continue
 					}
-					for i := range page.Items {
-						if page.Items[i].WorkTitle == "" {
-							page.Items[i].WorkTitle = titles[page.Items[i].WorkID]
-						}
+					if sums[i].Title != "" {
+						titles[sums[i].WorkID] = sums[i].Title
 					}
+					// A byline, not a colophon: the first three names.
+					if c := sums[i].Contributors; len(c) > 0 {
+						authors[sums[i].WorkID] = c[:min(len(c), 3)]
+					}
+				}
+				for i := range page.Items {
+					// Rows that carry a title (the patron path stores what
+					// the patron saw) keep it; only gaps fill. Contributors
+					// are never stored, so they always join.
+					if page.Items[i].WorkTitle == "" {
+						page.Items[i].WorkTitle = titles[page.Items[i].WorkID]
+					}
+					page.Items[i].WorkContributors = authors[page.Items[i].WorkID]
 				}
 			}
 		}

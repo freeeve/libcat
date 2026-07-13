@@ -50,6 +50,7 @@ func (stubEnricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]i
 				URI:    "http://id.loc.gov/authorities/subjects/sh85118553",
 				Labels: map[string]string{"en": "Science fiction"},
 			}},
+			Origins: []string{"tag sci-fi"},
 		})
 	}
 	return out, nil
@@ -74,6 +75,11 @@ func TestQueueMode(t *testing.T) {
 	item := page.Items[0]
 	if item.Term.Scheme != "lcsh" || item.Confidence != 0.95 || item.Term.Label != "Science fiction" {
 		t.Fatalf("item = %+v", item)
+	}
+	// Every machine row says where it came from: "<source>: <origin>"
+	// (task 449) -- the enricher name plus what produced the candidate.
+	if item.SourceRef != "stub: tag sci-fi" {
+		t.Fatalf("sourceRef = %q, want \"stub: tag sci-fi\"", item.SourceRef)
 	}
 	// Re-running never duplicates or resets moderation state.
 	if _, err := svc.Run(t.Context(), "stub", nil); err != nil {

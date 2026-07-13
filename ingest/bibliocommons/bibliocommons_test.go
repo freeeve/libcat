@@ -339,6 +339,21 @@ func TestMultiHostConsensus(t *testing.T) {
 	if end.Count != 3 || strings.Join(end.Sources, ",") != "kcls,seattle,sfpl" {
 		t.Fatalf("w1 endorsement = %+v, want all three hosts, sorted", end)
 	}
+	// Each host's evidence rides along (task 447): the match basis, the
+	// matching key, and the peer record link a moderator can open.
+	if len(end.Attributions) != 3 {
+		t.Fatalf("attributions = %+v, want one per host", end.Attributions)
+	}
+	byHost := map[string]ingest.Attribution{}
+	for _, a := range end.Attributions {
+		byHost[a.Source] = a
+	}
+	if a := byHost["seattle"]; a.Basis != "isbn" || a.Key != "9781549304002" || !strings.Contains(a.Ref, "/item/show/") {
+		t.Fatalf("seattle attribution = %+v, want isbn basis with the record link", a)
+	}
+	if a := byHost["sfpl"]; a.Basis != "title+author" || !strings.Contains(a.Key, "Maia Kobabe") {
+		t.Fatalf("sfpl attribution = %+v, want title+author basis naming the peer strings", a)
+	}
 	if w5 == nil || len(w5.Endorsements) != 1 || w5.Endorsements[0].Count != 1 || w5.Endorsements[0].Sources[0] != "kcls" {
 		t.Fatalf("w5 = %+v, want a kcls singleton", w5)
 	}
