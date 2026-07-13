@@ -52,7 +52,11 @@ type Job struct {
 	// Hosts is the per-job peer-host override, for sources that take one
 	// (the bibliocommons harvest): sweep a different peer list without a
 	// restart. Empty keeps the source's configured hosts.
-	Hosts     []string  `json:"hosts,omitempty"`
+	Hosts []string `json:"hosts,omitempty"`
+	// Target names what this run talks to (the source's descriptor at
+	// creation, host overrides applied) -- stamped on the record so a
+	// finished job still says what it pulled after the config changes.
+	Target    string    `json:"target,omitempty"`
 	Requester string    `json:"requester"`
 	Status    JobStatus `json:"status"`
 	// Stats is the live progress while RUNNING (updated per statsInterval
@@ -111,6 +115,12 @@ func (s *Service) CreateJob(ctx context.Context, requester, source string, filte
 	job := Job{
 		ID: hex.EncodeToString(suffix), Source: source, Filters: filters, Hosts: hosts,
 		Requester: requester, Status: JobQueued, CreatedAt: s.jobNow().UTC(),
+	}
+	// Stamp what the run will talk to, as configured right now.
+	if scoped, err := s.scopedEnricher(src, source, hosts); err == nil {
+		if d, ok := scoped.(Describer); ok {
+			job.Target = d.Describe()
+		}
 	}
 	if err := s.putJob(ctx, job, store.CondIfAbsent); err != nil {
 		return Job{}, err

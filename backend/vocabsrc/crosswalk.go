@@ -55,6 +55,9 @@ func NewCrosswalk(ix *vocab.Index, target string) *CrosswalkEnricher {
 // Name implements ingest.Enricher; the registry key and enrichment graph.
 func (e *CrosswalkEnricher) Name() string { return "crosswalk-" + e.Target }
 
+// Describe names what the source talks to: the loaded target vocabulary.
+func (e *CrosswalkEnricher) Describe() string { return "loaded " + e.Target + " vocabulary" }
+
 // Enrich implements ingest.Enricher: for each work, every controlled
 // subject's match links resolving in the target scheme (and not already on
 // the work) become subject candidates, and each candidate's skos:broader

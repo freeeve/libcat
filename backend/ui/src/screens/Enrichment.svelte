@@ -19,6 +19,7 @@
   const POLL_MS = 3000;
 
   let sources = $state<string[]>([]);
+  let targets = $state<Record<string, string>>({});
   let jobs = $state<EnrichJob[]>([]);
   let source = $state("");
   let scope = $state("");
@@ -48,6 +49,7 @@
     try {
       const [s, j] = await Promise.all([fetchEnrichSources(), fetchEnrichJobs()]);
       sources = (s.sources ?? []).sort();
+      targets = s.targets ?? {};
       if (!source && sources.length > 0) source = sources[0];
       jobs = j.jobs ?? [];
       error = "";
@@ -164,7 +166,7 @@
         <label for="enr-source">Source</label>
         <select id="enr-source" bind:value={source}>
           {#each sources as s (s)}
-            <option value={s}>{s}</option>
+            <option value={s}>{s}{targets[s] ? ` — ${targets[s]}` : ""}</option>
           {/each}
         </select>
         <label for="enr-scope">Scope</label>
@@ -210,7 +212,7 @@
               <div class="head">
                 <span class="src">{j.source}</span>
                 {#if scopeOf(j)}<span class="scope">{scopeOf(j)}</span>{/if}
-                {#if j.hosts?.length}<span class="scope">{j.hosts.join(", ")}</span>{/if}
+                {#if j.target || j.hosts?.length}<span class="scope" title="what this run talks to">{j.target || j.hosts?.join(", ")}</span>{/if}
                 <span class={`status s-${j.status.toLowerCase()}`}>{j.status}</span>
                 <span class="muted meta">
                   {j.requester} · queued {when(j.createdAt)}{#if j.startedAt}

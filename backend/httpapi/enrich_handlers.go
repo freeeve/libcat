@@ -24,7 +24,7 @@ func registerEnrich(mux *http.ServeMux, svc *enrich.Service, verifier auth.Token
 	}
 
 	mux.Handle("GET /v1/enrich", admin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"sources": svc.Names()})
+		writeJSON(w, http.StatusOK, map[string]any{"sources": svc.Names(), "targets": svc.Targets()})
 	})))
 
 	// ?filter=key=value (repeatable, ANDed; comma-joined extras match per

@@ -3,6 +3,7 @@ package enrich
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,13 @@ func (e *hostedEnricher) ForHosts(hosts []string) ingest.Enricher {
 	return &hostedEnricher{hosts: hosts}
 }
 
+func (e *hostedEnricher) Describe() string {
+	if len(e.hosts) == 0 {
+		return "configured-peer"
+	}
+	return strings.Join(e.hosts, ", ")
+}
+
 // TestJobHostOverride pins the per-job peer-host seam (task 446): hosts on
 // a HostScoped source validate at kick time and reach the run; hosts on any
 // other source, or URL-shaped hosts, refuse with ErrValidation.
@@ -230,6 +238,15 @@ func TestJobHostOverride(t *testing.T) {
 	}
 	if len(job.Hosts) != 2 {
 		t.Fatalf("job = %+v, want the hosts recorded", job)
+	}
+	// The record says what the run talks to, host override applied
+	// (task 450) -- and without one, the configured descriptor.
+	if job.Target != "seattle, sfpl" {
+		t.Fatalf("target = %q, want the override hosts", job.Target)
+	}
+	plain, err := svc.CreateJob(t.Context(), "a", "hosted", nil, nil)
+	if err != nil || plain.Target != "configured-peer" {
+		t.Fatalf("plain job target = %q, %v; want the configured descriptor", plain.Target, err)
 	}
 	if _, err := svc.RunQueuedJobs(t.Context()); err != nil {
 		t.Fatal(err)

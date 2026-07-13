@@ -870,6 +870,8 @@ export interface EnrichJob {
   filters?: [string, string][];
   /** Per-job peer-host override (sources that take one). */
   hosts?: string[];
+  /** What the run talks to (the source's descriptor at creation). */
+  target?: string;
   requester: string;
   status: "QUEUED" | "RUNNING" | "DONE" | "FAILED";
   stats?: EnrichStats;

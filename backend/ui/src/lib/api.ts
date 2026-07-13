@@ -354,7 +354,7 @@ export function previewDiversityCrosswalk(
 }
 
 /** The configured enrichment sources (admin). */
-export function fetchEnrichSources(): Promise<{ sources: string[] }> {
+export function fetchEnrichSources(): Promise<{ sources: string[]; targets?: Record<string, string> }> {
   return call("GET", "/v1/enrich");
 }
 

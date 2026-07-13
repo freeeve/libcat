@@ -165,6 +165,9 @@ func (e *Enricher) ForHosts(hosts []string) ingest.Enricher {
 // Name implements ingest.Enricher.
 func (e *Enricher) Name() string { return Name }
 
+// Describe names the peer libraries this view pulls from.
+func (e *Enricher) Describe() string { return strings.Join(e.hosts, ", ") }
+
 // RunStats implements ingest.StatsReporter: Total is hosts x driver terms
 // (known at construction), Batches the (host, term) crawls completed so far
 // -- so Batches/Total is a true progress fraction, cache-warm hosts counted

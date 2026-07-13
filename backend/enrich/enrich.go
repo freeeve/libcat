@@ -84,6 +84,14 @@ type Result struct {
 	Stats *ingest.EnrichStats `json:"stats,omitempty"`
 }
 
+// Describer is an optional Enricher capability: Describe names what the
+// source talks to, for humans -- the bibliocommons peer subdomains, a
+// crosswalk's target vocabulary -- so a job card can say which library a
+// three-hour run is pulling from.
+type Describer interface {
+	Describe() string
+}
+
 // HostScoped is an optional Enricher capability: ForHosts returns a
 // per-run view of the enricher scoped to the given peer hosts (the
 // bibliocommons harvest), so one job can sweep a different peer list
@@ -144,6 +152,20 @@ func (s *Service) scopedEnricher(src Source, name string, hosts []string) (inges
 		return nil, fmt.Errorf("%w: source %q does not take hosts", ErrValidation, name)
 	}
 	return hs.ForHosts(hosts), nil
+}
+
+// Targets maps each configured source to its human descriptor (what it
+// talks to), for the sources that expose one.
+func (s *Service) Targets() map[string]string {
+	out := map[string]string{}
+	for name, src := range s.Sources {
+		if d, ok := src.Enricher.(Describer); ok {
+			if t := d.Describe(); t != "" {
+				out[name] = t
+			}
+		}
+	}
+	return out
 }
 
 // Names lists the configured sources.
