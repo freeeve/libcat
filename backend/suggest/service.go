@@ -239,6 +239,11 @@ func (s *Service) mutateFolk(ctx context.Context, norm string, mutate func(*Folk
 	})
 }
 
+// errCASNoWrite lets a casUpdate mutate abort the write when it finds the
+// record already in the wanted state, so a lost race resolves to a clean
+// no-op instead of a redundant rewrite.
+var errCASNoWrite = errors.New("suggest: cas no write needed")
+
 // casRetries bounds optimistic-concurrency retry loops; contention on a hot
 // aggregate is short-lived, so back off briefly between attempts.
 const casRetries = 24
@@ -272,6 +277,12 @@ func (s *Service) casUpdate(ctx context.Context, key store.Key, conflict string,
 		}
 		data, err := apply(rec.Data, found)
 		if err != nil {
+			// A mutate that finds nothing to change signals errCASNoWrite: the
+			// record is already in the wanted state, so skip the write (and the
+			// version bump) rather than rewrite identical bytes.
+			if errors.Is(err, errCASNoWrite) {
+				return nil
+			}
 			return err
 		}
 		rec.Data = data

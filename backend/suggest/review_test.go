@@ -161,8 +161,12 @@ func TestManualTermAndPublishList(t *testing.T) {
 		t.Fatalf("worklist = %+v, %v", pending, err)
 	}
 	// Publishing stamps and removes from the worklist.
-	if err := svc.MarkPublished(t.Context(), pending, "etag-123"); err != nil {
+	carried, err := svc.MarkPublished(t.Context(), pending, "etag-123")
+	if err != nil {
 		t.Fatalf("MarkPublished: %v", err)
+	}
+	if len(carried) != len(pending) {
+		t.Fatalf("MarkPublished carried %d, want %d (first stamp of every row)", len(carried), len(pending))
 	}
 	pending, _ = svc.ApprovedUnpublished(t.Context())
 	if len(pending) != 0 {
@@ -171,6 +175,20 @@ func TestManualTermAndPublishList(t *testing.T) {
 	items, _ := svc.ForWork(t.Context(), "wabc123def456")
 	if items[0].PublishedETag != "etag-123" {
 		t.Fatalf("published stamp = %+v", items[0])
+	}
+	// A second run against the same already-stamped row (the concurrent-publish
+	// race, task 477) carries nothing and leaves the first writer's stamp intact
+	// -- so only the run that first carried the term audits and counts it.
+	again, err := svc.MarkPublished(t.Context(), carried, "etag-999")
+	if err != nil {
+		t.Fatalf("second MarkPublished: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("second MarkPublished carried %d, want 0 (row already stamped)", len(again))
+	}
+	items, _ = svc.ForWork(t.Context(), "wabc123def456")
+	if items[0].PublishedETag != "etag-123" {
+		t.Fatalf("stamp overwritten by loser = %+v, want etag-123 (first writer wins)", items[0])
 	}
 }
 

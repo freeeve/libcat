@@ -165,6 +165,72 @@ func TestPublishApproved(t *testing.T) {
 	}
 }
 
+// TestPublishApprovedConcurrentSingleAudit is the regression for the
+// concurrent-publish audit-duplication race (task 477): several publish runs
+// firing at once against one approved-unpublished row must together write
+// exactly ONE PUBLISH_DONE entry and report a combined published count of one.
+// The grain already dedups the statement (one quad regardless), so only the run
+// that first stamps the row may audit and count it; before the fix every racing
+// run stamped by blind overwrite and audited, giving one entry per run.
+func TestPublishApprovedConcurrentSingleAudit(t *testing.T) {
+	pub, grains, queue, _ := newPublisher(t)
+	path := seedGrain(t, grains)
+	if err := queue.ManualTerm(t.Context(), workID, vocab.TermRef{Scheme: "homosaurus", ID: transURI}, "A Book", "lib"); err != nil {
+		t.Fatal(err)
+	}
+
+	const runs = 3
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	published := make([]int, runs)
+	errs := make([]error, runs)
+	for i := 0; i < runs; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			res, err := pub.PublishApproved(context.Background(), "lib")
+			published[i], errs[i] = res.Published, err
+		}(i)
+	}
+	close(start) // release all runs at the same instant
+	wg.Wait()
+
+	total := 0
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+		total += published[i]
+	}
+	if total != 1 {
+		t.Fatalf("combined published = %d across %v, want 1 (one run carries the term)", total, published)
+	}
+
+	month := time.Now().UTC().Format("2006-01")
+	audit, _ := queue.Audit(t.Context(), month)
+	done := 0
+	for _, e := range audit {
+		if e.Action == "PUBLISH_DONE" {
+			done++
+		}
+	}
+	if done != 1 {
+		t.Fatalf("PUBLISH_DONE entries = %d, want 1 (audit trail must not triple-count a race)", done)
+	}
+	grain, _, _ := grains.Get(t.Context(), path)
+	// Count the subject-LINK quad specifically -- the term URI also appears in
+	// its ride-along authority statements (prefLabel, broader), so a raw URI
+	// count would overcount.
+	subjectLink := "http://id.loc.gov/ontologies/bibframe/subject> <" + transURI + ">"
+	if n := strings.Count(string(grain), subjectLink); n != 1 {
+		t.Fatalf("grain carries the subject link %d times, want 1:\n%s", n, grain)
+	}
+	if pending, _ := queue.ApprovedUnpublished(t.Context()); len(pending) != 0 {
+		t.Fatalf("worklist not drained: %+v", pending)
+	}
+}
+
 func TestPublishDefersDuringIngest(t *testing.T) {
 	pub, grains, queue, _ := newPublisher(t)
 	seedGrain(t, grains)

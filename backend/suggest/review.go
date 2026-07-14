@@ -689,20 +689,40 @@ func (s *Service) ApprovedUnpublished(ctx context.Context) ([]Suggestion, error)
 	return out, nil
 }
 
-// MarkPublished stamps aggregates with the grain etag that carried them.
-func (s *Service) MarkPublished(ctx context.Context, items []Suggestion, etag string) error {
+// MarkPublished stamps each aggregate with the grain etag that carried it, but
+// only the FIRST run to reach an unstamped row wins it: a row already carrying
+// a PublishedETag is left untouched. It returns the subset of items this call
+// actually stamped -- the rows it truly carried -- so a caller racing other
+// publish runs against the same worklist audits and counts each published term
+// exactly once instead of once per racing run.
+func (s *Service) MarkPublished(ctx context.Context, items []Suggestion, etag string) ([]Suggestion, error) {
 	now := s.now().UTC()
+	var carried []Suggestion
 	for _, sg := range items {
 		key := store.Key{PK: workPK(sg.WorkID), SK: suggSK(sg.Term, sg.Type)}
-		err := s.mutateSuggestion(ctx, key, func(cur *Suggestion) {
+		stamped := false
+		err := s.casUpdate(ctx, key, "suggest: mark published conflict", false, func(data []byte, _ bool) ([]byte, error) {
+			cur, err := unmarshalSuggestion(data)
+			if err != nil {
+				return nil, err
+			}
+			if cur.PublishedETag != "" {
+				stamped = false
+				return nil, errCASNoWrite
+			}
 			cur.PublishedAt = now
 			cur.PublishedETag = etag
+			stamped = true
+			return marshalSuggestion(cur)
 		})
 		if err != nil {
-			return fmt.Errorf("suggest: mark published %s/%s: %w", sg.WorkID, sg.Term.ID, err)
+			return carried, fmt.Errorf("suggest: mark published %s/%s: %w", sg.WorkID, sg.Term.ID, err)
+		}
+		if stamped {
+			carried = append(carried, sg)
 		}
 	}
-	return nil
+	return carried, nil
 }
 
 // mutateSuggestion applies mutate to an aggregate under optimistic

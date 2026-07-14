@@ -109,7 +109,7 @@ func TestRejectClearsApprovedUnpublishedGhost(t *testing.T) {
 			pub = append(pub, sg)
 		}
 	}
-	if err := svc.MarkPublished(t.Context(), pub, "etag-1"); err != nil {
+	if _, err := svc.MarkPublished(t.Context(), pub, "etag-1"); err != nil {
 		t.Fatal(err)
 	}
 

@@ -182,17 +182,27 @@ func (p *Publisher) PublishApproved(ctx context.Context, actor string) (Result, 
 		if p.Index != nil {
 			p.Index.Apply(path, etag, updated)
 		}
-		if err := p.Queue.MarkPublished(ctx, group, etag); err != nil {
+		carried, err := p.Queue.MarkPublished(ctx, group, etag)
+		if err != nil {
 			return result, err
 		}
-		terms := make([]string, 0, len(group))
-		for _, sg := range group {
+		if len(carried) == 0 {
+			// A concurrent publish run already carried and audited every term in
+			// this group. This run re-applied the same idempotent statements to
+			// the grain (canonicalization dedups them), so it must not write a
+			// second PUBLISH_DONE entry or count the terms again -- the audit
+			// trail and the published count belong to the run that first stamped
+			// the rows.
+			continue
+		}
+		terms := make([]string, 0, len(carried))
+		for _, sg := range carried {
 			terms = append(terms, sg.Term.Scheme+":"+sg.Term.ID)
 		}
 		p.Queue.WriteAudit(ctx, suggest.AuditEntry{
 			WorkID: workID, Action: "PUBLISH_DONE", Actor: actor, Terms: terms, ETag: etag,
 		})
-		result.Published += len(group)
+		result.Published += len(carried)
 		result.Paths = append(result.Paths, path)
 	}
 	// Publish the writes to the index feed so other containers
