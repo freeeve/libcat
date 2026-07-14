@@ -80,6 +80,32 @@ type auditPage struct {
 			} `json:"values"`
 		} `json:"properties"`
 	} `json:"creators"`
+	Simulation *struct {
+		Filter    string `json:"filter"`
+		Applied   int    `json:"applied"`
+		Works     int    `json:"works"`
+		Projected struct {
+			TotalWorks   int `json:"totalWorks"`
+			CoveredWorks int `json:"coveredWorks"`
+			Categories   []struct {
+				ID    string `json:"id"`
+				Works int    `json:"works"`
+			} `json:"categories"`
+		} `json:"projected"`
+	} `json:"simulation"`
+}
+
+// projCat reads a category's work count from a simulation's projected report.
+func projCat(p auditPage, id string) int {
+	if p.Simulation == nil {
+		return -1
+	}
+	for _, c := range p.Simulation.Projected.Categories {
+		if c.ID == id {
+			return c.Works
+		}
+	}
+	return -1
 }
 
 func getAudit(t *testing.T, h http.Handler, query string) auditPage {

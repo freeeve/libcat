@@ -214,6 +214,28 @@ func (s *Service) Queue(ctx context.Context, q QueueQuery) (QueuePage, error) {
 	return page, nil
 }
 
+// EachQueued visits every aggregate matching q, ignoring paging -- the
+// read-only full scan the audit's queue simulation and the filter-scoped bulk
+// actions read from. It honours the same status/scheme/provenance/type and
+// confidence-floor filters as Queue; visit order is the status index's. Return
+// an error from visit to stop early; that error is returned.
+func (s *Service) EachQueued(ctx context.Context, q QueueQuery, visit func(Suggestion) error) error {
+	if q.Status == "" {
+		q.Status = StatusPending
+	}
+	var verr error
+	err := s.scanQueue(ctx, q, "", func(sg Suggestion, _ string) bool {
+		if verr = visit(sg); verr != nil {
+			return false
+		}
+		return true
+	})
+	if err != nil {
+		return err
+	}
+	return verr
+}
+
 // scanQueue walks the status index from after cursor, hydrating and
 // filtering per the query, calling visit for each match until it returns
 // false. Index items whose aggregate moved on self-heal in passing.

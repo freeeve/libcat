@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -14,6 +16,8 @@ import (
 	"github.com/freeeve/libcat/project"
 
 	"github.com/freeeve/libcat/backend/auth"
+	"github.com/freeeve/libcat/backend/suggest"
+	"github.com/freeeve/libcat/backend/vocab"
 	"github.com/freeeve/libcat/backend/workindex"
 )
 
@@ -25,6 +29,26 @@ type auditResponse struct {
 	Scope string `json:"scope,omitempty"`
 	diversity.Report
 	Creators *creatorAudit `json:"creators,omitempty"`
+	// Simulation is the read-only "if we accepted the queue" projection,
+	// present only when ?simulate=queue was asked. The top-level report stays
+	// the current corpus so the screen can diff current vs projected.
+	Simulation *auditSimulation `json:"simulation,omitempty"`
+}
+
+// auditSimulation reports what the diversity audit WOULD look like if every
+// pending ADD suggestion matching the queue filter were accepted -- a read-only
+// union of each work's current subjects with its pending suggested terms, run
+// through the same crosswalk. It touches no grains and no queue statuses.
+type auditSimulation struct {
+	// Filter echoes the queue scope the projection honoured (the review
+	// screen's own filters: confidence floor, provenance, scheme).
+	Filter string `json:"filter"`
+	// Applied is how many pending ADD suggestions were unioned in; Works is the
+	// distinct works they touched.
+	Applied int `json:"applied"`
+	Works   int `json:"works"`
+	// Projected is the audit over the current subjects PLUS those suggestions.
+	Projected diversity.Report `json:"projected"`
 }
 
 // creatorAudit is the aggregate creator-demographics report: match rate first,
@@ -203,7 +227,7 @@ func (f auditFilterSet) cacheKey() string {
 // semantics as `lcat audit --filter/--source`.
 // registerAudit returns its compute path so the snapshot recorder reuses the
 // same filters/cache/aggregation (registerAuditSnapshots).
-func registerAudit(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenVerifier, cws *crosswalkSource) func(*http.Request) (auditResponse, auditFilterSet, int, error) {
+func registerAudit(mux *http.ServeMux, ix *workindex.Index, svc *suggest.Service, verifier auth.TokenVerifier, cws *crosswalkSource) func(*http.Request) (auditResponse, auditFilterSet, int, error) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 	cache := &auditCache{}
 
@@ -211,6 +235,13 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenV
 		filters, err := auditFilters(r)
 		if err != nil {
 			return auditResponse{}, nil, http.StatusBadRequest, err
+		}
+		simQ, wantSim, err := simulateQuery(r)
+		if err != nil {
+			return auditResponse{}, nil, http.StatusBadRequest, err
+		}
+		if wantSim && svc == nil {
+			return auditResponse{}, nil, http.StatusServiceUnavailable, errors.New("queue simulation unavailable")
 		}
 		sums, gen, err := ix.SummariesWithGeneration(r.Context())
 		if err != nil {
@@ -220,28 +251,61 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, verifier auth.TokenV
 		if err != nil {
 			return auditResponse{}, nil, http.StatusInternalServerError, errScanFailed
 		}
+		// The plain audit caches on (crosswalk, filters, corpus generation).
+		// A queue simulation also depends on queue state, which the generation
+		// counter does not track, so it is computed fresh every time -- it is a
+		// read-only, explicitly-requested projection.
 		key := cwHash + "\x00" + filters.cacheKey()
-		if resp, ok := cache.get(gen, key); ok {
-			return resp, filters, http.StatusOK, nil
+		if !wantSim {
+			if resp, ok := cache.get(gen, key); ok {
+				return resp, filters, http.StatusOK, nil
+			}
 		}
-		a := diversity.NewAuditor(cw)
 		include := func(s *ingest.WorkSummary) bool {
 			return includeInAudit(s, filters)
 		}
-		for i := range sums {
-			s := &sums[i]
-			if !include(s) {
-				continue
+		a := diversity.NewAuditor(cw)
+		var sim *auditSimulation
+		if wantSim {
+			suggested, applied, works, serr := queuedRefsByWork(r.Context(), svc, simQ)
+			if serr != nil {
+				return auditResponse{}, nil, http.StatusInternalServerError, errScanFailed
 			}
-			a.Add(summaryRefs(s))
+			proj := diversity.NewAuditor(cw)
+			for i := range sums {
+				s := &sums[i]
+				if !include(s) {
+					continue
+				}
+				refs := summaryRefs(s)
+				a.Add(refs)
+				proj.Add(append(refs, suggested[s.WorkID]...))
+			}
+			sim = &auditSimulation{
+				Filter:    describeSimQuery(simQ),
+				Applied:   applied,
+				Works:     works,
+				Projected: proj.Report(),
+			}
+		} else {
+			for i := range sums {
+				s := &sums[i]
+				if !include(s) {
+					continue
+				}
+				a.Add(summaryRefs(s))
+			}
 		}
 		resp := auditResponse{
-			Input:    "work index (cataloging corpus: suppressed included, tombstoned excluded)",
-			Scope:    filters.String(),
-			Report:   a.Report(),
-			Creators: aggregateCreators(sums, include),
+			Input:      "work index (cataloging corpus: suppressed included, tombstoned excluded)",
+			Scope:      filters.String(),
+			Report:     a.Report(),
+			Creators:   aggregateCreators(sums, include),
+			Simulation: sim,
 		}
-		cache.put(gen, key, resp)
+		if !wantSim {
+			cache.put(gen, key, resp)
+		}
 		return resp, filters, http.StatusOK, nil
 	}
 
@@ -313,4 +377,82 @@ func summaryRefs(s *ingest.WorkSummary) []diversity.SubjectRef {
 		refs = append(refs, diversity.SubjectRef{Labels: []string{t}})
 	}
 	return refs
+}
+
+// simulateQuery reads the queue-simulation params off the audit request. It
+// returns wantSim=false when ?simulate is absent; only "queue" is a valid
+// value. The scope mirrors the review screen's queue filters -- confidence
+// floor (the interesting "everything above 0.85" question), provenance, and
+// scheme -- always over PENDING ADD suggestions, since only an accepted ADD
+// broadens what a work is about.
+func simulateQuery(r *http.Request) (suggest.QueueQuery, bool, error) {
+	mode := r.URL.Query().Get("simulate")
+	if mode == "" {
+		return suggest.QueueQuery{}, false, nil
+	}
+	if mode != "queue" {
+		return suggest.QueueQuery{}, false, fmt.Errorf("simulate wants 'queue', got %q", mode)
+	}
+	q := suggest.QueueQuery{Status: suggest.StatusPending, Type: suggest.TypeAdd}
+	if v := r.URL.Query().Get("minConfidence"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f < 0 || f > 1 {
+			return suggest.QueueQuery{}, false, fmt.Errorf("minConfidence wants a number in [0,1], got %q", v)
+		}
+		q.MinConfidence = f
+	}
+	if v := r.URL.Query().Get("provenance"); v != "" {
+		q.Provenance = suggest.Provenance(v)
+	}
+	if v := r.URL.Query().Get("scheme"); v != "" {
+		q.Scheme = v
+	}
+	return q, true, nil
+}
+
+// queuedRefsByWork walks every pending ADD suggestion matching q and groups
+// them into per-work audit refs, so the projection can union them with each
+// work's current subjects. It also returns how many suggestions were folded in
+// and how many distinct works they touched. Read-only: it never mutates a
+// suggestion or a grain.
+func queuedRefsByWork(ctx context.Context, svc *suggest.Service, q suggest.QueueQuery) (map[string][]diversity.SubjectRef, int, int, error) {
+	byWork := map[string][]diversity.SubjectRef{}
+	applied := 0
+	err := svc.EachQueued(ctx, q, func(sg suggest.Suggestion) error {
+		byWork[sg.WorkID] = append(byWork[sg.WorkID], termToSubjectRef(sg.Term))
+		applied++
+		return nil
+	})
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return byWork, applied, len(byWork), nil
+}
+
+// termToSubjectRef adapts a suggestion's TermRef (scheme,id,label) to the audit's
+// SubjectRef (uri,labels,scheme): the term id is the authority IRI for a
+// controlled term, the label feeds keyword matching, and the scheme rides along.
+// A work gains coverage from an accepted term, which is the projection's point.
+func termToSubjectRef(t vocab.TermRef) diversity.SubjectRef {
+	ref := diversity.SubjectRef{URI: t.ID, Scheme: t.Scheme}
+	if strings.TrimSpace(t.Label) != "" {
+		ref.Labels = []string{t.Label}
+	}
+	return ref
+}
+
+// describeSimQuery renders the applied queue scope for the response's Filter
+// field: always PENDING ADD, plus whichever optional filters were set.
+func describeSimQuery(q suggest.QueueQuery) string {
+	parts := []string{"status=PENDING", "type=ADD"}
+	if q.MinConfidence > 0 {
+		parts = append(parts, fmt.Sprintf("minConfidence>=%g", q.MinConfidence))
+	}
+	if q.Provenance != "" {
+		parts = append(parts, "provenance="+string(q.Provenance))
+	}
+	if q.Scheme != "" {
+		parts = append(parts, "scheme="+q.Scheme)
+	}
+	return strings.Join(parts, " AND ")
 }
