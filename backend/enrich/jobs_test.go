@@ -188,6 +188,16 @@ func TestClassifyPeerUnreachable(t *testing.T) {
 	}
 }
 
+// TestClassifyPeerRejected: a peer that resolves via wildcard DNS and rejects
+// every request (a mistyped siteCode) surfaces the same host-and-status naming
+// message, not the opaque upstream class (task 471).
+func TestClassifyPeerRejected(t *testing.T) {
+	err := fmt.Errorf("%w (HTTP 404): zze2edead.na2", ingest.ErrPeerRejected)
+	if got := classifyJobError(err); got != "peer rejected every request (HTTP 404): zze2edead.na2" {
+		t.Fatalf("classify = %q, want a clean host-and-status message", got)
+	}
+}
+
 // TestJobFailureClassified proves a failed run lands FAILED with the same
 // generic client-facing classification the synchronous endpoint uses -- no
 // raw upstream detail in the record.

@@ -288,18 +288,29 @@ is English-only regardless: it resolves each label to an EXPLICIT Homosaurus
 concept (`source=homoit`), and those concepts are English-labeled, so a
 Spanish query would resolve to a non-homoit concept and be gated out.
 
-## Unreachable-host circuit break
+## Misconfigured-host circuit break
 
-All four peer harvests fail fast on a misconfigured host. A per-term miss (a
-404, no concept in a region, an empty result) is normal and the run
-continues, but a host that does not resolve, refuses the connection, or
-times out is a configuration error: after a bounded number of CONSECUTIVE
-connection-class failures the harvest aborts and the job goes FAILED with
-`peer unreachable: <host>`, naming the offending entry. So a typo in a
-multi-host list surfaces in seconds -- the operator is told which host --
-instead of grinding every driver term (hours) to produce nothing. The
-per-request timeout bounds one request; this bounds a run where every
-request fails.
+All four peer harvests fail fast on a misconfigured host, under two guards. A
+term the peer ANSWERS -- a match or a clean no-match -- resets both streaks, so
+a healthy but sparse peer never trips either, and one produced candidate
+disarms the reject guard for the rest of the run.
+
+- **Unreachable** -- a host that does not resolve, refuses the connection, or
+  times out. After a bounded number of consecutive connection-class failures
+  the harvest aborts and the job goes FAILED with `peer unreachable: <host>`.
+
+- **Rejected** -- a host that resolves and reaches a live API but answers every
+  request with an error (HTTP 403/404). This is the signature of a mistyped
+  tenant or siteCode against a wildcard-DNS provider: the guess resolves, so no
+  connection ever fails, yet nothing is found. After a bounded number of
+  consecutive failures of any class with zero candidates produced the harvest
+  aborts with `peer rejected every request (<status>): <host>`, naming the
+  rejecting status so the operator knows to check the siteCode/host.
+
+Either way a typo surfaces in seconds -- the operator is told which host and
+why -- instead of grinding every driver term (hours) to produce nothing. The
+per-request timeout bounds one request; these bound a run where every request
+fails.
 
 ## Scheme filtering
 

@@ -274,6 +274,40 @@ func manyTerms(n int) []Term {
 	return terms
 }
 
+// rejectDoer answers every request with HTTP 404 -- a host that resolves but
+// rejects each request rather than failing to connect.
+type rejectDoer struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (d *rejectDoer) Do(req *http.Request) (*http.Response, error) {
+	d.mu.Lock()
+	d.calls++
+	d.mu.Unlock()
+	return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found",
+		Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header), Request: req}, nil
+}
+
+// TestSirsiDynixCircuitBreaksOnWholesaleRejection pins the second guard (task
+// 471): a host that 404s every term -- never a connection error -- still aborts
+// fast with ErrPeerRejected, naming the host and status, not after every term.
+func TestSirsiDynixCircuitBreaksOnWholesaleRejection(t *testing.T) {
+	doer := &rejectDoer{}
+	e := New([]Tenant{{Host: "zze2edead.ent.sirsidynix.net", Profile: "default"}}, manyTerms(200),
+		WithClient(doer), WithDelay(0), WithMaxRetries(0), WithRetryBase(0))
+	_, err := e.Enrich(context.Background(), nil)
+	if !errors.Is(err, ingest.ErrPeerRejected) {
+		t.Fatalf("err = %v, want ErrPeerRejected", err)
+	}
+	if !strings.Contains(err.Error(), "zze2edead") || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("err = %v, want the host and status named", err)
+	}
+	if doer.calls > ingest.RejectAbortAfter+2 {
+		t.Fatalf("calls = %d, want ~%d (aborted early, not all 200 terms)", doer.calls, ingest.RejectAbortAfter)
+	}
+}
+
 // TestSirsiDynixCircuitBreaksOnUnreachable pins the fast-fail (task 469): an
 // unresolvable host aborts the run after a bounded number of consecutive
 // connection failures with a host-naming error, not after grinding every

@@ -305,6 +305,89 @@ func IsUnreachable(err error) bool {
 	return false
 }
 
+// ErrPeerRejected marks a peer harvest that gave up because the host answered
+// every request with an error while producing no candidates -- the signature
+// of a wildcard-DNS host reached with a mistyped tenant/siteCode. Such a host
+// resolves and reaches a live API, which then rejects each request (HTTP
+// 403/404) rather than failing to connect, so the connection guard never
+// trips. It wraps ErrEnricher like ErrPeerUnreachable, and its message names
+// the rejecting status and the host so the misconfigured entry is identified.
+var ErrPeerRejected = fmt.Errorf("%w: peer rejected every request", ErrEnricher)
+
+// RejectAbortAfter is how many CONSECUTIVE failures of ANY class a peer harvest
+// tolerates, while it has produced zero candidates, before failing the run
+// fast. Unlike UnreachableAbortAfter this counts HTTP rejections (403/404) too:
+// a wildcard-DNS host reached with a bad siteCode connects fine and so never
+// trips the connection guard, yet rejects every term. One term the peer
+// answers -- even a clean no-match -- resets the streak, so a healthy but
+// sparse peer never trips it, and one produced candidate disarms the guard for
+// the rest of the run.
+const RejectAbortAfter = 25
+
+// Breaker bounds a peer harvest that is failing wholesale. It carries two
+// streaks over a run's driver terms: consecutive connection-class failures
+// (ErrPeerUnreachable) and consecutive failures of any class before the peer
+// has produced a candidate (ErrPeerRejected). The reset rule is the fix for a
+// subtle grind: the streak resets on a term the peer ANSWERS, not on "an error
+// of a different class" -- so a host that 404s every request (never a
+// connection error) still trips instead of running every term to no end. A
+// zero Breaker is not usable; construct with NewBreaker so the host name
+// reaches the abort message.
+type Breaker struct {
+	host        string
+	unreachable int
+	failed      int
+	produced    bool
+}
+
+// NewBreaker returns a Breaker whose abort messages name host.
+func NewBreaker(host string) *Breaker { return &Breaker{host: host} }
+
+// Fail records one failed driver term and returns a non-nil abort error once a
+// guard trips: ErrPeerUnreachable after UnreachableAbortAfter consecutive
+// connection-class failures, or ErrPeerRejected after RejectAbortAfter
+// consecutive failures of any class with no candidate ever produced. It returns
+// nil while both streaks are below their thresholds, so the caller skips the
+// term and continues.
+func (b *Breaker) Fail(err error) error {
+	b.failed++
+	if IsUnreachable(err) {
+		b.unreachable++
+		if b.unreachable >= UnreachableAbortAfter {
+			return fmt.Errorf("%w: %s", ErrPeerUnreachable, b.host)
+		}
+	} else {
+		b.unreachable = 0
+	}
+	if !b.produced && b.failed >= RejectAbortAfter {
+		return fmt.Errorf("%w (%s): %s", ErrPeerRejected, rejectStatus(err), b.host)
+	}
+	return nil
+}
+
+// Ok records a driver term the peer answered -- a match or a clean no-match --
+// resetting both failure streaks so a healthy but sparse peer never trips.
+func (b *Breaker) Ok() {
+	b.unreachable = 0
+	b.failed = 0
+}
+
+// Candidate notes the peer has produced real output, disarming the reject
+// guard for the rest of the run: a peer that works cannot be "rejecting every
+// request", so a later failure streak reports as unreachable (if it is) or is
+// simply tolerated.
+func (b *Breaker) Candidate() { b.produced = true }
+
+// rejectStatus renders a compact description of the error that tripped the
+// reject guard, the ErrEnricher prefix stripped so an "enricher failed: HTTP
+// 404" reads as "HTTP 404" in the abort message.
+func rejectStatus(err error) string {
+	if err == nil {
+		return "no response"
+	}
+	return strings.TrimPrefix(err.Error(), ErrEnricher.Error()+": ")
+}
+
 // MatchExtras reports whether a summary's extras satisfy every [key, value]
 // filter term, ANDed; a comma-joined extra (the sources convention) matches
 // on any element. This is the one scoping semantic shared by the audit

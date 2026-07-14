@@ -394,7 +394,7 @@ func (e *Enricher) ensureTenantHarvest(ctx context.Context, tenant Tenant, start
 	}
 
 	items := map[string][]record{}
-	unreachable := 0
+	br := ingest.NewBreaker(key)
 	for _, term := range e.terms {
 		if term.Query == "" || term.URI == "" {
 			continue
@@ -404,12 +404,8 @@ func (e *Enricher) ensureTenantHarvest(ctx context.Context, tenant Tenant, start
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			if ingest.IsUnreachable(err) {
-				if unreachable++; unreachable >= ingest.UnreachableAbortAfter {
-					return nil, fmt.Errorf("%w: %s", ingest.ErrPeerUnreachable, key)
-				}
-			} else {
-				unreachable = 0
+			if abort := br.Fail(err); abort != nil {
+				return nil, abort
 			}
 			e.bump(started, func(st *ingest.EnrichStats) { st.SkippedBatches++ })
 			if e.log != nil {
@@ -418,7 +414,10 @@ func (e *Enricher) ensureTenantHarvest(ctx context.Context, tenant Tenant, start
 			e.bump(started, func(st *ingest.EnrichStats) { st.Batches++ })
 			continue
 		}
-		unreachable = 0
+		br.Ok()
+		if len(recs) > 0 {
+			br.Candidate()
+		}
 		// Union, not overwrite: several driver terms can share one URI (the
 		// same concept searched in more than one language), and each adds
 		// its own matches.

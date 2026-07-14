@@ -372,7 +372,7 @@ func (e *Enricher) ensureTenantHarvest(ctx context.Context, tenant Tenant, start
 	}
 
 	items := map[string][]fgItem{}
-	unreachable := 0
+	br := ingest.NewBreaker(tenant.Key())
 	for _, term := range e.terms {
 		if term.Query == "" || term.URI == "" {
 			continue
@@ -382,12 +382,8 @@ func (e *Enricher) ensureTenantHarvest(ctx context.Context, tenant Tenant, start
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			if ingest.IsUnreachable(err) {
-				if unreachable++; unreachable >= ingest.UnreachableAbortAfter {
-					return nil, fmt.Errorf("%w: %s", ingest.ErrPeerUnreachable, tenant.Key())
-				}
-			} else {
-				unreachable = 0
+			if abort := br.Fail(err); abort != nil {
+				return nil, abort
 			}
 			e.bump(started, func(st *ingest.EnrichStats) { st.Batches++; st.SkippedBatches++ })
 			if e.log != nil {
@@ -395,7 +391,7 @@ func (e *Enricher) ensureTenantHarvest(ctx context.Context, tenant Tenant, start
 			}
 			continue
 		}
-		unreachable = 0
+		br.Ok()
 		if conceptID == "" {
 			// The region has no homoit concept for this label; done.
 			e.bump(started, func(st *ingest.EnrichStats) { st.Batches++ })
@@ -426,6 +422,9 @@ func (e *Enricher) ensureTenantHarvest(ctx context.Context, tenant Tenant, start
 		}
 		if !failed {
 			items[term.URI] = fgs
+			if len(fgs) > 0 {
+				br.Candidate()
+			}
 		}
 		e.bump(started, func(st *ingest.EnrichStats) { st.Batches++ })
 	}

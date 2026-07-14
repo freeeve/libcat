@@ -545,7 +545,7 @@ func (e *Enricher) ensureHostHarvest(ctx context.Context, host string, started t
 
 	var harvest []harvested
 	first := true
-	unreachable := 0
+	br := ingest.NewBreaker(host)
 	for _, term := range e.terms {
 		if term.Query == "" || term.URI == "" {
 			continue
@@ -565,12 +565,8 @@ func (e *Enricher) ensureHostHarvest(ctx context.Context, host string, started t
 			first = false
 			items, err := e.fetchPage(ctx, host, term.Query, page)
 			if err != nil {
-				if ingest.IsUnreachable(err) {
-					if unreachable++; unreachable >= ingest.UnreachableAbortAfter {
-						return nil, fmt.Errorf("%w: %s", ingest.ErrPeerUnreachable, host)
-					}
-				} else {
-					unreachable = 0
+				if abort := br.Fail(err); abort != nil {
+					return nil, abort
 				}
 				e.bump(started, func(st *ingest.EnrichStats) { st.SkippedBatches++ })
 				if e.log != nil {
@@ -578,7 +574,10 @@ func (e *Enricher) ensureHostHarvest(ctx context.Context, host string, started t
 				}
 				break // abandon this term on this host; the next run backfills
 			}
-			unreachable = 0
+			br.Ok()
+			if len(items) > 0 {
+				br.Candidate()
+			}
 			h.items = append(h.items, items...)
 			if len(items) < e.displayQuantity {
 				break // short page = the term's last page
