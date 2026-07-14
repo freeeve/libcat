@@ -7,7 +7,8 @@ configuration, same probes.
 
 For the AWS Lambda + API Gateway reference stack, see
 `backend/deploy/terraform/` (tasks/040). For the no-cloud local loop, see
-[local-dev.md](local-dev.md).
+[local-dev.md](local-dev.md). Deploying the **static site** (the public OPAC,
+which is not lcatd) is covered [at the end of this page](#deploying-the-static-site-the-opac).
 
 ## The image
 
@@ -254,3 +255,52 @@ DYNAMO_ENDPOINT=http://localhost:8000 go test ./store/dynamo/   # from backend/
 
 (Run one Scylla node at a time: two exhaust the host's `fs.aio-max-nr` and the
 second fails to boot, which looks like a test failure.)
+
+## Deploying the static site (the OPAC)
+
+The public OPAC is not lcatd: it is the `public/` directory `lcat build`
+produces (ingest -> serialize -> project -> export -> index -> hugo,
+[build-pipeline.md](build-pipeline.md)), and it deploys to any static host.
+S3 behind CloudFront is the common shape.
+
+### Do not publish with `aws s3 sync`
+
+Hugo rewrites **every** output file on every build, so every file's mtime
+changes even when its content did not -- and `aws s3 sync` decides "changed"
+from size + mtime. Each publish therefore re-uploads the whole site: slow and
+costly at catalog scale (a work page per record), and if you invalidate or
+version by upload, it churns the entire CDN cache for a one-record edit.
+
+Use [s3deploy](https://github.com/bep/s3deploy) instead. It compares content
+MD5 against the S3 ETag and uploads only files whose bytes actually changed:
+
+```sh
+s3deploy -source public/ -bucket my-opac-bucket -region us-east-1
+```
+
+Its `.s3deploy.yml` routes also set per-path cache headers, which the site's
+asset shape wants: Hugo fingerprints assets (`lcat.<sha256>.css`,
+`lcat-search.<sha256>.js`), so those are immutable and can cache forever, while
+HTML pages should revalidate:
+
+```yaml
+routes:
+  - route: "^.+\\.(js|css|svg|ttf|wasm)$"
+    headers:
+      Cache-Control: "max-age=31536000, immutable"
+    gzip: true
+  - route: "^.+\\.(html|xml|json)$"
+    headers:
+      Cache-Control: "max-age=0, must-revalidate"
+    gzip: true
+```
+
+### The origin must answer HTTP Range requests
+
+The client-side browse engine (the roaringrange WASM reader) fetches its index
+artifacts with `Range` requests and silently breaks on origins that ignore them
+-- this is why local preview is `lcat serve`, not `python -m http.server`. S3
+and CloudFront answer `Range` (206) natively, so the plain S3 + CloudFront shape
+just works; anything you interpose (a rewriting proxy, an edge function that
+buffers bodies, a host that serves pre-compressed whole responses) must preserve
+`Range` for the browse index paths.
