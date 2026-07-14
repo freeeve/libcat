@@ -450,10 +450,16 @@ type atomLink struct {
 // carrying an ISBN. Enterprise returns the whole result set in one response
 // (ps=1000), so there is no pagination.
 func (e *Enricher) hitlist(ctx context.Context, tenant Tenant, label string) ([]record, error) {
-	// The query lives in the path segment: qu=<label> with the SUBJECT
-	// index selector (pipes percent-encoded), ps=1000 for the full hitlist.
-	q := "qu=" + strings.ReplaceAll(url.QueryEscape(label), "+", "%20") +
-		"&rt=false%7C%7C%7CSUBJECT%7C%7C%7CSubject&ps=1000"
+	// The query lives in the PATH segment: qu=<label> with the SUBJECT index
+	// selector (pipes percent-encoded), ps=1000 for the full hitlist.
+	// url.QueryEscape targets query strings, so its output needs two fixups for
+	// a path segment: a space is %20 (not +), and a slash must stay raw -- the
+	// Enterprise RSS 404s on %2F in the path (it wants the literal '/'), which
+	// otherwise silently drops every slash-bearing heading (the Latino/a/x
+	// identity family, Ae/Aer/Aerself pronouns).
+	enc := strings.ReplaceAll(url.QueryEscape(label), "+", "%20")
+	enc = strings.ReplaceAll(enc, "%2F", "/")
+	q := "qu=" + enc + "&rt=false%7C%7C%7CSUBJECT%7C%7C%7CSubject&ps=1000"
 	target := "https://" + tenant.Host + "/client/rss/hitlist/" + tenant.Profile + "/" + q
 	body, err := e.fetch(ctx, tenant, target)
 	if err != nil {

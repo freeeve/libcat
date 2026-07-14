@@ -124,6 +124,34 @@ func TestSirsiDynixChain(t *testing.T) {
 	}
 }
 
+// TestSirsiDynixSlashTermUsesRawSlash pins the path-segment encoding (task
+// 472): a slash-bearing heading (the Latino/a/x identity family, Ae/Aer/Aerself
+// pronouns) must reach the Enterprise RSS as a raw '/', not %2F -- that path
+// 404s on %2F, silently skipping exactly the culturally-relevant terms the
+// harvest exists to reach. The space stays %20 (a path segment, not a +).
+func TestSirsiDynixSlashTermUsesRawSlash(t *testing.T) {
+	doer := &tenantDoer{pages: map[string]string{}}
+	terms := []Term{{
+		URI:    "https://homosaurus.org/v5/homoit0000900",
+		Labels: map[string]string{"en": "Latino/a/x lesbians"},
+		Query:  "Latino/a/x lesbians",
+	}}
+	e := New([]Tenant{{Host: "winca.ent.sirsidynix.net", Profile: "default"}}, terms, WithClient(doer), WithDelay(0))
+	if _, err := e.Enrich(context.Background(), nil); err != nil {
+		t.Fatalf("Enrich: %v", err)
+	}
+	if len(doer.urls) == 0 {
+		t.Fatalf("no request captured")
+	}
+	u := doer.urls[0]
+	if strings.Contains(u, "%2F") || strings.Contains(u, "%2f") {
+		t.Fatalf("request URL = %s, still encodes the slash as %%2F (Enterprise 404s on that)", u)
+	}
+	if !strings.Contains(u, "qu=Latino/a/x%20lesbians") {
+		t.Fatalf("request URL = %s, want a raw slash and %%20 for the space", u)
+	}
+}
+
 // TestSirsiDynixExtractsISBN10AndEAN: an ISBN-10 preceded by the &#160;
 // entity (whose own digits would defeat a naive matcher) is extracted, and
 // so is a bare EAN-13. The input is the post-XML-decode form extractISBNs
