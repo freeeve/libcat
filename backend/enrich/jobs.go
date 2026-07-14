@@ -547,11 +547,19 @@ func (s *Service) runJob(ctx context.Context, id string) error {
 	// record so GET shows batches advancing. Best effort: a lost update is
 	// the next tick's problem. The tick runs even for a source with no
 	// counters to report: each write refreshes the heartbeat that keeps the
-	// drain's orphan reaper off a live run. A host-scoped job reads the
-	// scoped view's counters -- RunHosted builds the same view from the
-	// same job fields.
-	src := s.Sources[job.Source]
-	scoped, scopeErr := s.scopedEnricher(src, job.Source, job.Hosts)
+	// drain's orphan reaper off a live run. The scoped enricher is resolved
+	// ONCE here and handed to the run below (runWith), so the counters this
+	// goroutine polls belong to the instance the harvest advances: a
+	// host-scoped view is a fresh instance per ForHosts call, so resolving it
+	// separately for the run would leave this observer watching a dead view.
+	src, ok := s.Sources[job.Source]
+	var scoped ingest.Enricher
+	var scopeErr error
+	if !ok {
+		scopeErr = fmt.Errorf("%w: %q", ErrUnknownSource, job.Source)
+	} else {
+		scoped, scopeErr = s.scopedEnricher(src, job.Source, job.Hosts)
+	}
 	if scopeErr != nil {
 		job.FinishedAt = s.jobNow().UTC()
 		job.Status = JobFailed
@@ -582,7 +590,7 @@ func (s *Service) runJob(ctx context.Context, id string) error {
 		}
 	}()
 
-	result, runErr := s.RunHosted(ctx, job.Source, keep, job.Hosts)
+	result, runErr := s.runWith(ctx, job.Source, src, scoped, keep)
 	close(stopStats)
 	<-statsDone
 

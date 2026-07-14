@@ -138,6 +138,16 @@ func (s *Service) RunHosted(ctx context.Context, name string, keep func(*ingest.
 	if err != nil {
 		return Result{}, err
 	}
+	return s.runWith(ctx, name, src, enr, keep)
+}
+
+// runWith executes an already-resolved enricher instance. Callers that also
+// need to observe the run's live counters (the async job worker) resolve the
+// scoped enricher once and hand the same instance here, so the stats they poll
+// belong to the object the harvest actually advances -- a fresh host-scoped
+// view (HostScoped.ForHosts) is a distinct instance per call, so resolving it
+// twice would leave the observer watching a view that never runs.
+func (s *Service) runWith(ctx context.Context, name string, src Source, enr ingest.Enricher, keep func(*ingest.WorkSummary) bool) (Result, error) {
 	stats := func() *ingest.EnrichStats {
 		if sr, ok := enr.(ingest.StatsReporter); ok {
 			st := sr.RunStats()

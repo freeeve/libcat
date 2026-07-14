@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -328,6 +329,72 @@ func TestJobHostOverride(t *testing.T) {
 	}
 	if _, err := svc.CreateJob(t.Context(), "a", "hosted", nil, []string{"https://seattle.example"}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("URL-shaped host err = %v, want ErrValidation", err)
+	}
+}
+
+// hostView is a per-host scoped enricher that reports live counters only once
+// its own Enrich has run, so a test can tell whether a job's stats reporter is
+// polling the instance that actually harvested or a different one.
+type hostView struct{ ran int32 }
+
+func (v *hostView) Name() string { return "counthost" }
+func (v *hostView) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]ingest.Enrichment, error) {
+	atomic.AddInt32(&v.ran, 1)
+	return nil, nil
+}
+func (v *hostView) RunStats() ingest.EnrichStats {
+	if atomic.LoadInt32(&v.ran) > 0 {
+		return ingest.EnrichStats{Batches: 42}
+	}
+	return ingest.EnrichStats{}
+}
+
+// countingHostEnricher is a HostScoped source that counts how many times a run
+// resolves a per-host view. Each ForHosts returns a fresh hostView, so counting
+// the calls tells whether a job resolved its view once (reporter and run share
+// it) or more than once (they diverge).
+type countingHostEnricher struct{ forHostsCalls int32 }
+
+func (e *countingHostEnricher) Name() string { return "counthost" }
+func (e *countingHostEnricher) Enrich(ctx context.Context, works []ingest.WorkSummary) ([]ingest.Enrichment, error) {
+	return nil, nil
+}
+func (e *countingHostEnricher) Describe() string { return "counthost-peer" }
+func (e *countingHostEnricher) ForHosts(hosts []string) ingest.Enricher {
+	atomic.AddInt32(&e.forHostsCalls, 1)
+	return &hostView{}
+}
+
+// TestJobHostOverrideStatsWatchTheRunningInstance is the regression for the
+// host-override stats-stuck-at-0 bug (task 476): a ?hosts= job must resolve its
+// per-host view ONCE for the run and let the stats reporter poll that very
+// instance. The buggy path resolved ForHosts twice at run time -- once to build
+// the reporter, once again inside RunHosted for the harvest -- so the reporter
+// watched a fresh view that never ran and live stats stayed zero for the whole
+// run. Here the run-time resolution must be exactly one, and the job's final
+// stats must come from the instance that harvested.
+func TestJobHostOverrideStatsWatchTheRunningInstance(t *testing.T) {
+	svc := jobService(t)
+	base := &countingHostEnricher{}
+	svc.Sources["counthost"] = Source{Enricher: base, Mode: ModeDirect}
+
+	job, err := svc.CreateJob(t.Context(), "a", "counthost", nil, []string{"hclib"})
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	// Kick resolves the view once to describe the target; only the run-time
+	// resolutions are under test.
+	atomic.StoreInt32(&base.forHostsCalls, 0)
+
+	if _, err := svc.RunQueuedJobs(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&base.forHostsCalls); got != 1 {
+		t.Fatalf("run resolved ForHosts %d times, want 1 (reporter and harvest must share one host view)", got)
+	}
+	got, _ := svc.GetJob(t.Context(), job.ID)
+	if got.Status != JobDone || got.Stats == nil || got.Stats.Batches != 42 {
+		t.Fatalf("job = %+v, want DONE with the running instance's stats (batches 42)", got)
 	}
 }
 
