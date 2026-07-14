@@ -68,3 +68,25 @@ The test is *what does the adoption note say?* If it says "and also...", it is
 a minor. **Do not reach for a minor by reflex** -- most bug fixes are patches,
 and an inflated minor stops carrying information. Patch releases are ordinary
 here (`v0.4.1`, `v0.7.2`, `v0.100.1`, `v0.103.1`).
+
+### The backend tag is built by CI (since v0.229.4)
+
+`release.sh` tags root and `hugo/` itself but does **not** tag `backend/`
+locally. It pushes the `go.mod`-bump commit, then `gh workflow run
+release-backend.yml`, then **polls origin up to 5m** for the CI-created
+`backend/v<V>` tag before reporting success. The workflow `npm ci && npm run
+build`s `backend/ui`, commits the real `ui/dist` on top of the release commit,
+tags THAT, and pushes only the tag -- so `main` keeps its committed placeholder
+but `go install .../backend/cmd/lcatd@<tag>` ships the real SPA. Rationale (Go
+tags are immutable once proxied; `go install` can't run npm) is in
+[docs/versioning.md](docs/versioning.md).
+
+Operational notes when cutting a release:
+- `release.sh` now **requires `gh`** (workflow scope) and blocks ~1-2m on the CI
+  poll -- that is normal, not a hang.
+- root/hugo are tagged before the CI dispatch, so a CI failure leaves them tagged
+  with no backend tag; check `gh run list --workflow=release-backend.yml`.
+- **Never hand-tag `backend/`** to "unstick" a release -- a local tag embeds the
+  placeholder SPA.
+- Wrap `release.sh` in the shared-machine resource lock (it runs the full Go
+  suites + the hugo build before dispatching).
