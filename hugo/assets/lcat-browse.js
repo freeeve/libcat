@@ -581,6 +581,52 @@ function start() {
     return li;
   }
 
+  /** flatDimRow builds one hydrated plain-dimension facet row (contributor,
+   * language, classification, tag, format) matching adoptSidebar's structure so
+   * selected(), live counts, and the exclude toggle treat it identically to a
+   * row the fragment printed. No caret (these dimensions are flat) and no
+   * syncTwins (a value appears once in its one field). */
+  function flatDimRow(field, cat, labelText, n) {
+    const li = document.createElement("li");
+    li.setAttribute("data-lcat-field", field);
+    li.setAttribute("data-lcat-cat", cat);
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.setAttribute("data-field", field);
+    cb.setAttribute("data-cat", cat);
+    const value = document.createElement("span");
+    value.className = "lcat-facet-value";
+    value.textContent = labelText;
+    const count = document.createElement("span");
+    count.className = "lcat-count";
+    count.textContent = String(n);
+    label.appendChild(cb);
+    label.appendChild(value);
+    label.appendChild(count);
+    li.appendChild(label);
+    let not = null;
+    if (negativesOn()) {
+      not = document.createElement("button");
+      not.type = "button";
+      not.className = "lcat-facet-not";
+      not.textContent = "−";
+      li.appendChild(not);
+      setNot(li, not, false);
+      not.addEventListener("click", () => {
+        const pressed = not.getAttribute("aria-pressed") !== "true";
+        if (pressed) cb.checked = false;
+        setNot(li, not, pressed);
+        refresh();
+      });
+    }
+    li.addEventListener("change", () => {
+      if (cb.checked && not) setNot(li, not, false);
+      refresh();
+    });
+    return li;
+  }
+
   /** toggleKids lazily builds (then shows/hides) a row's child list. */
   function toggleKids(eng, li, caret) {
     let ul = li.querySelector(":scope > ul");
@@ -741,26 +787,123 @@ function start() {
     );
   }
 
-  /** treeifySidebar upgrades hydrated subject groups whose scheme carries
-   * broader links into expandable trees over the full vocabulary
-   *. Flat schemes keep their hydrated rows and the fragment's
-   * rendered-rows filter. Idempotent per group. */
+  /** wireFlatFilter repoints a flat group's type-to-filter at its field's FULL
+   * category set from the reader, replacing lcat-facets.js's rendered-rows
+   * filter (which can only ever match the truncated slice the fragment
+   * printed). A query renders every match, capped at MATCHES_SHOWN results --
+   * capping the RESULT list, not the search space; clearing it restores the
+   * original top rows. Selections survive a rebuild. The original rows stay
+   * untouched until the first keystroke, so the default view is unchanged.
+   * rowFor builds one hydrated row for a category; displayFor returns its
+   * filter/display text -- subjects supply vocabulary labels, plain dimensions
+   * the label already rendered (falling back to the raw value the reader holds
+   * for a category outside the printed rows). */
+  function wireFlatFilter(details, ul, cats, rowFor, displayFor) {
+    const origCount = ul.querySelectorAll("li[data-lcat-cat]").length || 20;
+    const labels = new Map();
+    ul.querySelectorAll("li[data-lcat-cat]").forEach((li) => {
+      const v = li.querySelector(".lcat-facet-value");
+      if (v) labels.set(li.getAttribute("data-lcat-cat"), v.textContent);
+    });
+    const sorted = cats.slice().sort((a, b) => b.count - a.count);
+    const render = (q) => {
+      const state = treeState(ul);
+      ul.innerHTML = "";
+      let list;
+      if (q) {
+        const needle = q.toLowerCase();
+        list = [];
+        for (let i = 0; i < sorted.length && list.length < MATCHES_SHOWN; i++) {
+          if (
+            displayFor(sorted[i].name, labels).toLowerCase().indexOf(needle) !==
+            -1
+          )
+            list.push(sorted[i]);
+        }
+      } else {
+        list = sorted.slice(0, origCount);
+      }
+      list.forEach((c) => ul.appendChild(rowFor(c, labels)));
+      applyTreeState(ul, state);
+      applyLiveCounts();
+    };
+    let input = details.querySelector("[data-lcat-facet-filter]");
+    if (!input) {
+      input = document.createElement("input");
+      input.type = "search";
+      input.className = "lcat-facet-filter";
+      input.setAttribute("placeholder", "…");
+      details.insertBefore(input, ul);
+    }
+    // Replacing the node drops lcat-facets.js's rendered-rows listener; the
+    // clone filters the whole category set instead.
+    const clone = input.cloneNode(true);
+    input.replaceWith(clone);
+    clone.addEventListener("input", () => render(clone.value.trim()));
+  }
+
+  /** treeifySidebar upgrades every hydrated facet group's type-to-filter to
+   * search its FULL category set from the reader instead of the truncated rows
+   * the fragment printed. A subject scheme that carries broader links becomes
+   * an expandable tree; every other group -- a flat subject scheme, or a plain
+   * dimension (contributors, classifications, languages, ...) -- keeps its rows
+   * but gains a full-vocabulary filter. Idempotent per group. A linked
+   * (non-hydrated) group has no reader field to search and keeps the fragment's
+   * rendered-rows filter. */
   function treeifySidebar() {
     return subjectEngine().then((eng) => {
+      const fieldCats = new Map();
+      (facets ? facets.facets() || [] : []).forEach((f) =>
+        fieldCats.set(f.field, f.cats || []),
+      );
       document.querySelectorAll(".lcat-facets details").forEach((details) => {
-        if (details.dataset.lcatTree) return;
-        const first = details.querySelector('li[data-lcat-field="subject"]');
-        if (!first) return;
-        const scheme =
-          (eng.meta[first.getAttribute("data-lcat-cat")] || {}).scheme || "";
-        if (!eng.treeSchemes.has(scheme)) return;
+        if (details.dataset.lcatFilter) return;
         const ul = details.querySelector("ul");
         if (!ul) return;
-        details.dataset.lcatTree = "1";
-        renderTree(eng, scheme, ul, "");
-        wireTreeFilter(eng, scheme, details, ul);
+        const first = ul.querySelector("li[data-lcat-field]");
+        if (!first) return;
+        const field = first.getAttribute("data-lcat-field");
+        details.dataset.lcatFilter = "1";
+        if (field === "subject") {
+          const scheme =
+            (eng.meta[first.getAttribute("data-lcat-cat")] || {}).scheme || "";
+          if (eng.treeSchemes.has(scheme)) {
+            renderTree(eng, scheme, ul, "");
+            wireTreeFilter(eng, scheme, details, ul);
+            return;
+          }
+          const cats = (fieldCats.get("subject") || []).filter((c) => {
+            if (eng.meta[c.name] && !eng.displayable(c.name)) return false;
+            return (
+              ((eng.meta[c.name] && eng.meta[c.name].scheme) || "") === scheme
+            );
+          });
+          // Only take the filter over when the reader holds more categories
+          // than the fragment printed; a fully-rendered group's own filter
+          // already searches every row.
+          if (cats.length > ul.querySelectorAll("li[data-lcat-cat]").length)
+            wireFlatFilter(
+              details,
+              ul,
+              cats,
+              (c) => subjectRow(eng, c.name),
+              (name) => eng.label(name),
+            );
+          return;
+        }
+        const cats = fieldCats.get(field) || [];
+        if (cats.length <= ul.querySelectorAll("li[data-lcat-cat]").length)
+          return;
+        wireFlatFilter(
+          details,
+          ul,
+          cats,
+          (c, labels) =>
+            flatDimRow(field, c.name, labels.get(c.name) || c.name, c.count),
+          (name, labels) => labels.get(name) || name,
+        );
       });
-      // Trees now rendered; apply a pending facet deep link.
+      // Groups now upgraded; apply a pending facet deep link.
       reconstructFacets();
     });
   }
