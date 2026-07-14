@@ -11,8 +11,8 @@ import (
 )
 
 // Abuse pseudonymizes source IPs and issues the anonymous challenge tokens
-// that gate patron submissions -- qllpoc's IPHasher, ported intact. The API
-// stores HMAC(secret, ip), never the address itself.
+// that gate patron submissions. The API stores HMAC(secret, ip), never the
+// address itself.
 type Abuse struct {
 	secret []byte
 	now    func() time.Time

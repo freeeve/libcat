@@ -26,7 +26,7 @@ type Config struct {
 	Issuer string
 	// JWKSURL overrides key discovery. Empty = try OIDC discovery
 	// ({issuer}/.well-known/openid-configuration), falling back to
-	// {issuer}/jwks.json (the qllauthpoc convention).
+	// {issuer}/jwks.json (a common fallback convention).
 	JWKSURL string
 	// Audience, when set, must appear in the token's aud.
 	Audience string

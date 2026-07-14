@@ -16,7 +16,7 @@
   let recording = $state(false);
   let error = $state("");
   // The scope input: space-separated key=value terms matched against work
-  // extras (e.g. "inQll=true"), ANDed -- the endpoint's ?filter semantics.
+  // extras (e.g. "language=eng"), ANDed -- the endpoint's ?filter semantics.
   // svelte-ignore state_referenced_locally
   let filterText = $state(initialFilter);
 
@@ -155,7 +155,7 @@
     <input
       id="div-scope"
       type="text"
-      placeholder="key=value extras, e.g. inQll=true"
+      placeholder="key=value extras, e.g. language=eng"
       bind:value={filterText}
     />
     <button type="submit" disabled={loading}>Apply</button>

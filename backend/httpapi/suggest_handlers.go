@@ -11,7 +11,7 @@ import (
 	"github.com/freeeve/libcat/backend/vocab"
 )
 
-// Input patterns, ported from qllpoc: every field is enum- or pattern-gated.
+// Input patterns: every field is enum- or pattern-gated.
 var (
 	workIDPattern    = regexp.MustCompile(`^w[a-z0-9]{6,20}$`)
 	sourceRefPattern = regexp.MustCompile(`^[a-z]{1,20}:[A-Za-z0-9-]{1,40}$`)

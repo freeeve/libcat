@@ -208,7 +208,7 @@ func (s *Service) Queue(ctx context.Context, q QueueQuery) (QueuePage, error) {
 	if err != nil {
 		return QueuePage{}, err
 	}
-	// Highest support first within the page (qllpoc's presentation order).
+	// Highest support first within the page.
 	sort.SliceStable(page.Items, func(i, j int) bool {
 		return page.Items[i].SupporterCount > page.Items[j].SupporterCount
 	})

@@ -274,7 +274,7 @@
           </label>
           <label>
             Schemes <span class="hint">comma-separated vocabulary codes; every term of the scheme matches</span>
-            <input bind:value={d.schemes} placeholder="homosaurus" />
+            <input bind:value={d.schemes} placeholder="lcsh" />
           </label>
           <div class="benchrow">
             <label>

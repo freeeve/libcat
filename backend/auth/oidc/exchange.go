@@ -12,8 +12,8 @@ import (
 // ExchangeConfig wires the PKCE token-exchange proxy: the SPA is a public
 // OIDC client, so the confidential client secret lives only server-side and
 // the SPA exchanges its authorization code (and rotates refresh tokens)
-// through this endpoint instead of calling the issuer directly -- the qllpoc
-// pattern, which also sidesteps issuer CORS.
+// through this endpoint instead of calling the issuer directly, which also
+// sidesteps issuer CORS.
 type ExchangeConfig struct {
 	// TokenEndpoint is the issuer's token URL. Empty = resolve via OIDC
 	// discovery at first use.

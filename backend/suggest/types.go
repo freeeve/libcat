@@ -1,7 +1,6 @@
 // Package suggest implements the community suggestion queue: an ephemeral
 // store aggregating anonymous patron suggestions and flags per (work, term)
-// pair for staff review, generalized from qllpoc's single-vocabulary
-// DynamoDB implementation onto the portable document store and arbitrary
+// pair for staff review, over the portable document store and arbitrary
 // vocabularies (controlled TermRefs or folksonomy tags). The BIBFRAME graph
 // remains the source of truth for approved assignments; nothing here is
 // durable except the audit trail.

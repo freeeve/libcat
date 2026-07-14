@@ -3,8 +3,8 @@
 // autocomplete, and neighborhood browsing. A vocabulary's quads live in its
 // authority:<vocab> named graph (ARCHITECTURE §5), so the loader routes terms
 // to schemes by graph name -- one authorities tree can carry homosaurus, lcsh,
-// and local terms side by side. This replaces qllpoc's embedded
-// homosaurus-min.json with a vocabulary-agnostic store-backed load.
+// and local terms side by side. The load is vocabulary-agnostic and
+// store-backed, not a single embedded vocabulary file.
 package vocab
 
 import (

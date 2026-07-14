@@ -68,8 +68,8 @@ func (s *Service) bumpRate(ctx context.Context, supporterHash string, now time.T
 
 // Submit records one anonymous suggestion/flag: term validation, tombstone
 // and folk-lifecycle gates, per-supporter rate caps, supporter dedup, then
-// the aggregate bump and dispute reconciliation. Unlike qllpoc's single
-// TransactWriteItems this is a sequence of conditional writes -- a crash
+// the aggregate bump and dispute reconciliation. This is a sequence of
+// conditional writes rather than one atomic transaction -- a crash
 // mid-sequence can lose one vote's count bump, which is acceptable for
 // approximate supporter tallies (review is the arbiter); it can never
 // double-count (the dedup marker is first) or corrupt review state.
