@@ -251,3 +251,86 @@ func TestEmptyKeyNeverClusters(t *testing.T) {
 		t.Error("empty seeded key must not attract title-less records")
 	}
 }
+
+// seedPriorWork seeds a committed Work under an un-namespaced key from a feed,
+// the shape SeedResolver builds from a prior grain.
+func seedPriorWork(r *Resolver, key, workID, feed string) {
+	r.SeedWorkKey(key, workID)
+	r.SeedWorkFeed(workID, feed)
+}
+
+// TestCrossFeedMergeBridgesToOtherFeed checks the core dedup: a namespaced
+// feed's freshly minted Work bridges onto the one prior Work from another feed
+// that shares its un-namespaced match key.
+func TestCrossFeedMergeBridgesToOtherFeed(t *testing.T) {
+	r := NewResolver()
+	r.SetFeed("coll")
+	key := WorkKeySet("Byron, Grace", "Herculine", []string{"eng"})
+	seedPriorWork(r, key, "wover", "overdrive")
+
+	merges := r.CrossFeedMerges(map[string]string{"wcoll": key})
+	if len(merges) != 1 || merges[0].From != "wcoll" || merges[0].To != "wover" {
+		t.Fatalf("merges = %+v, want wcoll->wover", merges)
+	}
+}
+
+// TestCrossFeedMergeSkipsSameFeed checks a feed never bridges onto its own prior
+// Work: coll's namespaced key deliberately kept its records distinct, and the
+// dedup must honour that rather than re-merge them via the shared match key.
+func TestCrossFeedMergeSkipsSameFeed(t *testing.T) {
+	r := NewResolver()
+	r.SetFeed("coll")
+	key := WorkKeySet("A", "T", []string{"eng"})
+	seedPriorWork(r, key, "wcollprev", "coll")
+
+	if merges := r.CrossFeedMerges(map[string]string{"wcollnew": key}); len(merges) != 0 {
+		t.Fatalf("merges = %+v, want none (same-feed prior work is not a bridge target)", merges)
+	}
+}
+
+// TestCrossFeedMergeRefusesAmbiguousTarget checks the dedup does not guess when
+// two distinct prior Works from other feeds answer to the match key.
+func TestCrossFeedMergeRefusesAmbiguousTarget(t *testing.T) {
+	r := NewResolver()
+	r.SetFeed("coll")
+	key := WorkKeySet("A", "T", []string{"eng"})
+	seedPriorWork(r, key, "wover", "overdrive")
+	seedPriorWork(r, key, "wmarc", "marc")
+
+	if merges := r.CrossFeedMerges(map[string]string{"wcoll": key}); len(merges) != 0 {
+		t.Fatalf("merges = %+v, want none (two distinct prior targets are ambiguous)", merges)
+	}
+}
+
+// TestCrossFeedMergeRefusesAmbiguousClaimant checks the namespaced feed's own
+// genuine collision -- two of this run's Works claiming one match key -- refuses
+// to bridge either onto the prior Work rather than co-merging the two.
+func TestCrossFeedMergeRefusesAmbiguousClaimant(t *testing.T) {
+	r := NewResolver()
+	r.SetFeed("coll")
+	key := WorkKeySet("A", "T", []string{"eng"})
+	seedPriorWork(r, key, "wover", "overdrive")
+
+	merges := r.CrossFeedMerges(map[string]string{"wcoll1": key, "wcoll2": key})
+	if len(merges) != 0 {
+		t.Fatalf("merges = %+v, want none (two claimants for one key is ambiguous)", merges)
+	}
+}
+
+// TestCrossFeedMergeMultiFeedTargetExcludesOwnFeed checks that a prior Work
+// already carrying this feed's contribution is not a bridge target -- the
+// records already live there, so bridging would be a no-op self-merge, and a
+// genuinely new same-key record must stay distinct.
+func TestCrossFeedMergeMultiFeedTargetExcludesOwnFeed(t *testing.T) {
+	r := NewResolver()
+	r.SetFeed("coll")
+	key := WorkKeySet("A", "T", []string{"eng"})
+	// A Work both coll and overdrive already contribute to.
+	r.SeedWorkKey(key, "wshared")
+	r.SeedWorkFeed("wshared", "coll")
+	r.SeedWorkFeed("wshared", "overdrive")
+
+	if merges := r.CrossFeedMerges(map[string]string{"wcollnew": key}); len(merges) != 0 {
+		t.Fatalf("merges = %+v, want none (target already includes this feed)", merges)
+	}
+}

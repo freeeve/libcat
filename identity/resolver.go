@@ -21,6 +21,12 @@ type Record struct {
 	// flattened multi-language node keys on a stable set, not an arbitrary first
 	// language.
 	Langs []string
+	// MatchKey is the un-namespaced cross-feed clustering key a feed that
+	// namespaces its intra-feed key (so its own records never re-merge) sets to
+	// opt this record into the cross-feed dedup: the raw author+title+language-set
+	// key, computed with WorkKeySet. Empty for a feed whose cluster key is
+	// already un-namespaced -- it clusters cross-feed on the cluster key directly.
+	MatchKey string
 }
 
 // Assignment is the resolved identity for a record: its stable Instance and Work
@@ -67,6 +73,16 @@ type Resolver struct {
 	pinByInst      map[string]string // instance id -> pinned work id (editorial split overlay)
 	usedInst       map[string]bool
 	usedWork       map[string]bool
+	// feed is the provenance feed of the run currently resolving, so the
+	// cross-feed dedup never bridges a namespaced feed's record onto its own
+	// prior work (which its intra-feed key deliberately kept distinct).
+	feed string
+	// seedKeyWorks maps a committed Work's (un-namespaced) cluster key to the set
+	// of prior work ids under it, and seedWorkFeeds the feeds each prior work
+	// came from -- the cross-feed dedup bridges an un-namespaced match key to a
+	// single prior work from a different feed.
+	seedKeyWorks  map[string]map[string]bool
+	seedWorkFeeds map[string]map[string]bool
 	// conflicts records provider keys seen mapped to more than one instance
 	//: surfaced rather than silently remapped.
 	conflicts []string
@@ -83,6 +99,8 @@ func NewResolver() *Resolver {
 		pinByInst:      map[string]string{},
 		usedInst:       map[string]bool{},
 		usedWork:       map[string]bool{},
+		seedKeyWorks:   map[string]map[string]bool{},
+		seedWorkFeeds:  map[string]map[string]bool{},
 	}
 }
 
@@ -100,13 +118,37 @@ func (r *Resolver) SeedInstance(instanceID, workID string, providerKeys []string
 
 // SeedWorkKey records the computed clustering key of a committed Work, so a new
 // record with the same key clusters onto it. The caller recomputes the key from
-// the Work's data with WorkKey.
+// the Work's data with WorkKeySet. The key->works multiplicity is tracked so the
+// cross-feed dedup can tell an unambiguous bridge target from a key several
+// distinct prior works share.
 func (r *Resolver) SeedWorkKey(clusterKey, workID string) {
 	r.usedWork[workID] = true
 	if clusterKey != "" {
 		r.workByKey[clusterKey] = workID
+		if r.seedKeyWorks[clusterKey] == nil {
+			r.seedKeyWorks[clusterKey] = map[string]bool{}
+		}
+		r.seedKeyWorks[clusterKey][workID] = true
 	}
 }
+
+// SeedWorkFeed tags a committed Work with a feed it was recovered from (empty
+// feeds are ignored). A multi-feed Work is tagged once per feed, so the
+// cross-feed dedup can exclude bridge targets a namespaced feed already
+// contributes to.
+func (r *Resolver) SeedWorkFeed(workID, feed string) {
+	if feed == "" {
+		return
+	}
+	if r.seedWorkFeeds[workID] == nil {
+		r.seedWorkFeeds[workID] = map[string]bool{}
+	}
+	r.seedWorkFeeds[workID][feed] = true
+}
+
+// SetFeed records the feed of the run currently resolving, so CrossFeedMerges
+// never bridges one of this feed's records onto a prior Work from the same feed.
+func (r *Resolver) SetFeed(feed string) { r.feed = feed }
 
 // SeedMerge records an editorial merge: every reference to from
 // resolves to to. Merges override the computed key, so a re-ingest cannot undo a
@@ -266,6 +308,71 @@ func (r *Resolver) Merges() []Merge {
 	})
 	return out
 }
+
+// CrossFeedMerges computes the cross-feed dedup: each of this run's freshly
+// minted Works whose un-namespaced match key resolves to exactly one prior Work
+// from a DIFFERENT feed is merged onto that prior Work. This lets a feed that
+// namespaces its intra-feed key (so its own records never re-merge) still
+// deduplicate against the other providers -- the same title arriving from
+// OverDrive and coll clusters into one Work. It refuses to bridge an ambiguous
+// key rather than guess: two of this run's Works claiming one match key (the
+// namespaced feed's own genuine collision), or two distinct prior Works from
+// other feeds answering to it. workMatch maps each candidate Work id to its
+// match key; a "" match key is skipped.
+func (r *Resolver) CrossFeedMerges(workMatch map[string]string) []Merge {
+	perMatch := map[string]int{}
+	for _, m := range workMatch {
+		if m != "" {
+			perMatch[m]++
+		}
+	}
+	ids := make([]string, 0, len(workMatch))
+	for id := range workMatch {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	var out []Merge
+	for _, wid := range ids {
+		m := workMatch[wid]
+		if m == "" || perMatch[m] >= 2 {
+			continue
+		}
+		target, ok := r.singleOtherFeedTarget(m)
+		if !ok || target == r.canonical(wid) {
+			continue
+		}
+		out = append(out, Merge{From: wid, To: target})
+	}
+	return out
+}
+
+// singleOtherFeedTarget returns the one prior Work under match key that belongs
+// to a feed other than the current run's -- the unambiguous cross-feed bridge
+// target -- or false when there is none or several distinct ones (a same-key
+// collision the dedup must not guess through).
+func (r *Resolver) singleOtherFeedTarget(matchKey string) (string, bool) {
+	found := ""
+	for wid := range r.seedKeyWorks[matchKey] {
+		if r.seedWorkFeeds[wid][r.feed] {
+			continue // this feed's own prior work: never a bridge target
+		}
+		switch c := r.canonical(wid); {
+		case found == "":
+			found = c
+		case found != c:
+			return "", false // two distinct prior works: ambiguous
+		}
+	}
+	if found == "" {
+		return "", false
+	}
+	return found, true
+}
+
+// Canonical returns the surviving Work id for a (possibly merged-away) Work,
+// following the merge overlay -- the id an ingest run must key a bridged Work's
+// grain and presence entry by.
+func (r *Resolver) Canonical(workID string) string { return r.canonical(workID) }
 
 // canonical follows the editorial merge chain to the surviving Work id.
 func (r *Resolver) canonical(workID string) string {

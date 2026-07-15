@@ -63,6 +63,12 @@ type InstanceIdentity struct {
 type WorkIdentity struct {
 	WorkID     string
 	ClusterKey string
+	// Feed is the provenance feed this Work occurrence was recovered from (the
+	// local name of its feed:<name> graph), or "" for a non-feed graph. A
+	// multi-feed Work yields one WorkIdentity per feed graph, so the cross-feed
+	// dedup can tell which feeds already contribute a Work under a cluster key
+	// and never bridge a namespaced feed's record onto its own prior work.
+	Feed string
 }
 
 // GrainIdentity is the identity recovered from one grain -- the Work(s) it
@@ -99,6 +105,7 @@ func ScanDataset(ds *rdf.Dataset) GrainIdentity {
 		// per-graph query semantics -- feed vs editorial separation -- are
 		// unchanged; only the materialized []Triple copy per graph is gone.
 		g := ds.GraphView(gt)
+		feed := feedName(gt)
 		for _, work := range g.SubjectsOfType(bfWork) {
 			if !minted(work, "Work") {
 				continue
@@ -106,6 +113,7 @@ func ScanDataset(ds *rdf.Dataset) GrainIdentity {
 			gi.Works = append(gi.Works, WorkIdentity{
 				WorkID:     fragID(work.Value, "Work"),
 				ClusterKey: WorkKeySet(workAuthor(g, work), workTitle(g, work), workLangs(g, work)),
+				Feed:       feed,
 			})
 		}
 		for _, inst := range g.SubjectsOfType(bfInstance) {
@@ -127,6 +135,20 @@ func ScanDataset(ds *rdf.Dataset) GrainIdentity {
 	return gi
 }
 
+// feedGraphPrefix is the IRI prefix of a provenance feed graph (feed:<name>);
+// the local name after it is the provider feed the statements belong to.
+const feedGraphPrefix = "feed:"
+
+// feedName returns the provider feed of a graph term -- the local name of a
+// feed:<name> IRI -- or "" for the default graph or a non-feed graph (e.g. the
+// editorial graph).
+func feedName(gt rdf.Term) string {
+	if gt.IsIRI() && strings.HasPrefix(gt.Value, feedGraphPrefix) {
+		return strings.TrimPrefix(gt.Value, feedGraphPrefix)
+	}
+	return ""
+}
+
 // minted reports whether a node is a catalog-minted entity: the "#<id>Work" /
 // "#<id>Instance" fragment-IRI convention, id non-empty.
 func minted(t rdf.Term, suffix string) bool {
@@ -140,6 +162,7 @@ func SeedResolver(r *Resolver, grains []GrainIdentity) {
 	for _, gi := range grains {
 		for _, w := range gi.Works {
 			r.SeedWorkKey(w.ClusterKey, w.WorkID)
+			r.SeedWorkFeed(w.WorkID, w.Feed)
 		}
 		for _, inst := range gi.Instances {
 			r.SeedInstance(inst.InstanceID, inst.WorkID, inst.ProviderKeys)

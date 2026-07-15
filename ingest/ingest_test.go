@@ -25,10 +25,18 @@ type stubRecord struct {
 	// recovers its provider key from the grain (as the coll feed does); off by
 	// default so existing tests keep their grain bytes.
 	localID bool
+	// group, when set, namespaces the identity Author (as the coll/csvmap feeds
+	// do, so the export's own records never re-merge on a shared access point) and
+	// sets the un-namespaced MatchKey opting the record into the cross-feed dedup.
+	group string
 }
 
 func (r stubRecord) Identity() identity.Record {
 	rec := identity.Record{Author: r.author, Title: r.title, Langs: []string{r.lang}}
+	if r.group != "" {
+		rec.Author = r.group + " " + r.author
+		rec.MatchKey = identity.WorkKeySet(r.author, r.title, []string{r.lang})
+	}
 	rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, r.id))
 	if r.isbn != "" {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeISBN, r.isbn))
@@ -501,6 +509,94 @@ func TestRunChangedRecordKeepsId(t *testing.T) {
 
 // grainFiles maps each per-Work grain's dir-relative path to its bytes (skipping the
 // bulk catalog.nq), so a test can detect which grains persisted, changed, or appeared.
+// TestCrossFeedDedupFoldsNamespacedFeed is the end-to-end cross-feed dedup: a
+// namespaced feed (coll-style: namespaced author + un-namespaced MatchKey) with
+// no shared identifier folds onto a prior Work from another feed that shares its
+// author+title+language, yielding one multi-feed Work rather than a duplicate.
+func TestCrossFeedDedupFoldsNamespacedFeed(t *testing.T) {
+	out := t.TempDir()
+	works := filepath.Join(out, "data", "works")
+
+	// A clean feed (un-namespaced) commits one Work.
+	over := stubProvider{feed: "overdrive", role: ingest.RoleIngest, recs: []ingest.Record{
+		stubRecord{id: "over1", author: "Byron, Grace", title: "Herculine", lang: "eng", isbn: "111", localID: true},
+	}}
+	res1, err := ingest.Run(over, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res1.WorkIDs) != 1 {
+		t.Fatalf("overdrive run works = %v, want one", res1.WorkIDs)
+	}
+	wover := res1.WorkIDs[0]
+
+	// The coll feed carries the same title with NO shared ISBN. It must dedup
+	// onto the overdrive Work, not mint a duplicate.
+	coll := stubProvider{feed: "coll", role: ingest.RoleIngest, recs: []ingest.Record{
+		stubRecord{id: "coll1", group: "coll:7", author: "Byron, Grace", title: "Herculine", lang: "eng", localID: true},
+	}}
+	res2, err := ingest.Run(coll, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res2.WorkIDs) != 1 || res2.WorkIDs[0] != wover {
+		t.Fatalf("coll run works = %v, want [%s] (folded onto the overdrive Work)", res2.WorkIDs, wover)
+	}
+
+	// One Work grain survives, carrying both feeds' Instances.
+	grains := grainFiles(t, works)
+	if len(grains) != 1 {
+		t.Fatalf("grain files = %d, want 1 (a single merged Work)", len(grains))
+	}
+	var nq []byte
+	for _, b := range grains {
+		nq = b
+	}
+	gi, err := identity.ScanGrain(nq)
+	if err != nil {
+		t.Fatalf("ScanGrain: %v", err)
+	}
+	insts := map[string]bool{}
+	for _, in := range gi.Instances {
+		insts[in.InstanceID] = true
+		if in.WorkID != wover {
+			t.Errorf("instance %s -> work %s, want %s", in.InstanceID, in.WorkID, wover)
+		}
+	}
+	if len(insts) != 2 {
+		t.Fatalf("distinct instances in merged grain = %d, want 2 (overdrive + coll)", len(insts))
+	}
+}
+
+// TestCrossFeedDedupKeepsDistinctLanguagesApart checks a translation is NOT
+// folded: same author+title but a different language is a distinct Work (one
+// Work per language), related later by bf:translationOf, never merged.
+func TestCrossFeedDedupKeepsDistinctLanguagesApart(t *testing.T) {
+	out := t.TempDir()
+	works := filepath.Join(out, "data", "works")
+
+	over := stubProvider{feed: "overdrive", role: ingest.RoleIngest, recs: []ingest.Record{
+		stubRecord{id: "over1", author: "Byron, Grace", title: "Herculine", lang: "eng", isbn: "111", localID: true},
+	}}
+	if _, err := ingest.Run(over, out); err != nil {
+		t.Fatal(err)
+	}
+	// A Spanish coll record: same author+title, different language.
+	coll := stubProvider{feed: "coll", role: ingest.RoleIngest, recs: []ingest.Record{
+		stubRecord{id: "coll1", group: "coll:7", author: "Byron, Grace", title: "Herculine", lang: "spa", localID: true},
+	}}
+	res2, err := ingest.Run(coll, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res2.WorkIDs) != 1 {
+		t.Fatalf("coll run works = %v, want its own Work", res2.WorkIDs)
+	}
+	if grains := grainFiles(t, works); len(grains) != 2 {
+		t.Fatalf("grain files = %d, want 2 (English and Spanish are distinct Works)", len(grains))
+	}
+}
+
 func grainFiles(t *testing.T, dir string) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{}

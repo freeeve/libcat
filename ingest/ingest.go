@@ -55,7 +55,7 @@ func Run(prov Provider, out string) (Result, error) {
 	if ms, ok := prov.(MergeSeeder); ok {
 		seeds = ms.MergeSeeds()
 	}
-	works, res, r := cluster(recs, prior, seeds)
+	works, res, r := cluster(recs, prior, seeds, feed)
 
 	stats, err := bibframe.BuildWorks(storage.Dir(out), works, feed)
 	if err != nil {
@@ -79,8 +79,9 @@ func Run(prov Provider, out string) (Result, error) {
 // capabilities; duplicate Instances emit once), and carries each Work's
 // preserved editorial statements. Shared by the directory Run and the
 // store-backed RunStore.
-func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed) ([]bibframe.WorkGroup, Result, *identity.Resolver) {
+func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed, feed string) ([]bibframe.WorkGroup, Result, *identity.Resolver) {
 	r := identity.NewResolver()
+	r.SetFeed(feed)
 	identity.SeedResolver(r, prior.Grains)
 	// Seed editorial merges and split pins: a merge resolves a retired
 	// Work's Instances onto the survivor; a pin forces an over-merged Instance onto
@@ -106,11 +107,17 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed) ([]bib
 
 	byWork := map[string]*bibframe.WorkGroup{}
 	seenInstance := map[string]bool{}
+	// workMatch records each freshly minted Work's un-namespaced cross-feed match
+	// key, so the cross-feed dedup pass can bridge it onto an unambiguous prior
+	// Work from another provider.
+	workMatch := map[string]string{}
 	var res Result
 	for _, rec := range recs {
-		a := r.Resolve(rec.Identity())
+		im := rec.Identity()
+		a := r.Resolve(im)
 		if a.MintedWork {
 			res.MintedWorks++
+			workMatch[a.WorkID] = crossFeedMatchKey(im)
 		}
 		if a.MintedInstance {
 			res.MintedInstances++
@@ -160,21 +167,60 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed) ([]bib
 		wg.Instances = append(wg.Instances, gi)
 	}
 
-	ids := make([]string, 0, len(byWork))
-	for id := range byWork {
-		ids = append(ids, id)
+	// Cross-feed dedup: fold each freshly minted Work onto an unambiguous prior
+	// Work from another feed sharing its un-namespaced match key, so a namespaced
+	// feed (coll) deduplicates against the other providers. Applied as merges, so
+	// the folded records land in the surviving Work's grain (multi-feed) and a
+	// later re-ingest resolves them by instance id with no re-bridging.
+	for _, m := range r.CrossFeedMerges(workMatch) {
+		r.SeedMerge(m.From, m.To)
 	}
-	sort.Strings(ids)
-	res.WorkIDs = ids
-	works := make([]bibframe.WorkGroup, 0, len(ids))
-	for _, id := range ids {
+
+	// Fold the run's Work groups through the merge overlay: a bridged group's
+	// instances move onto the surviving (canonical) Work id, first source id
+	// winning the shared Work metadata for determinism.
+	byCanon := map[string]*bibframe.WorkGroup{}
+	canonOrder := make([]string, 0, len(byWork))
+	srcIDs := make([]string, 0, len(byWork))
+	for id := range byWork {
+		srcIDs = append(srcIDs, id)
+	}
+	sort.Strings(srcIDs)
+	for _, id := range srcIDs {
 		wg := byWork[id]
+		canon := r.Canonical(id)
+		wg.WorkID = canon
+		if existing, ok := byCanon[canon]; ok {
+			existing.Instances = append(existing.Instances, wg.Instances...)
+			continue
+		}
+		byCanon[canon] = wg
+		canonOrder = append(canonOrder, canon)
+	}
+	sort.Strings(canonOrder)
+	res.WorkIDs = canonOrder
+	works := make([]bibframe.WorkGroup, 0, len(canonOrder))
+	for _, id := range canonOrder {
+		wg := byCanon[id]
 		// Carry the Work's committed editorial statements across the re-ingest so the
-		// feed rewrite does not clobber them (ARCHITECTURE §5).
+		// feed rewrite does not clobber them (ARCHITECTURE §5). For a bridged Work the
+		// canonical id keys the other feed's preserved grain, so its statements ride
+		// along and the grain stays multi-feed.
 		wg.Editorial = prior.Editorial[id]
 		works = append(works, *wg)
 	}
 	return works, res, r
+}
+
+// crossFeedMatchKey is a record's un-namespaced cross-feed clustering key: the
+// explicit MatchKey a namespacing feed sets, else its cluster key (already
+// un-namespaced for a feed that does not namespace). It is what the cross-feed
+// dedup bridges on.
+func crossFeedMatchKey(im identity.Record) string {
+	if im.MatchKey != "" {
+		return im.MatchKey
+	}
+	return identity.WorkKeySet(im.Author, im.Title, im.Langs)
 }
 
 // removeRetiredGrains deletes the per-Work grain file of every Work retired by a

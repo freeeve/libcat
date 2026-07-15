@@ -96,10 +96,16 @@ func (r record) Identity() identity.Record {
 	if len(r.w.creators) > 0 {
 		author = lastFirst(r.w.creators[0])
 	}
+	langs := r.identityLangs()
 	rec := identity.Record{
 		Author: r.idScheme + ":" + r.w.group + " " + author,
 		Title:  title,
-		Langs:  r.identityLangs(),
+		Langs:  langs,
+		// The intra-feed Author is namespaced so the export's own works never
+		// re-merge on a shared access point; the un-namespaced MatchKey opts the
+		// record into the cross-feed dedup, so the same title from another
+		// provider deduplicates onto it.
+		MatchKey: identity.WorkKeySet(author, title, langs),
 	}
 	rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, r.providerID()))
 	for _, isbn := range r.w.isbns {

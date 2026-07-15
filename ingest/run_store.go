@@ -35,7 +35,7 @@ func RunStore(ctx context.Context, prov Provider, st blob.Store, prefix string) 
 	if ms, ok := prov.(MergeSeeder); ok {
 		seeds = ms.MergeSeeds()
 	}
-	works, res, r := cluster(recs, prior, seeds)
+	works, res, r := cluster(recs, prior, seeds, feed)
 
 	var changed []string
 	for _, wg := range works {

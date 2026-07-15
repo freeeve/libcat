@@ -30,10 +30,14 @@ type record struct {
 // sharing an access point never re-merge -- the export's own rows are taken
 // as already deduped, mirroring the nquads provider.
 func (r record) Identity() identity.Record {
+	langs := []string{r.language()}
 	rec := identity.Record{
 		Author: r.idKey() + " " + firstAuthor(r.creators),
 		Title:  r.title,
-		Langs:  []string{r.language()},
+		Langs:  langs,
+		// Un-namespaced key opting the row into the cross-feed dedup, while the
+		// namespaced Author keeps the export's own rows distinct (see nquads).
+		MatchKey: identity.WorkKeySet(firstAuthor(r.creators), r.title, langs),
 	}
 	if r.id != "" {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, r.providerID()))
