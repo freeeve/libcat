@@ -334,3 +334,33 @@ func TestCrossFeedMergeMultiFeedTargetExcludesOwnFeed(t *testing.T) {
 		t.Fatalf("merges = %+v, want none (target already includes this feed)", merges)
 	}
 }
+
+// TestTranslationTargetsLinksToPrimaryExpression checks the bf:translationOf
+// computation: a language sibling links to the group representative (smallest
+// language set, so English leads), the representative links to nothing, a
+// same-language pair is not a translation, and a lone Work has no sibling.
+func TestTranslationTargetsLinksToPrimaryExpression(t *testing.T) {
+	r := NewResolver()
+	engKey := WorkKeySet("Byron, Grace", "Herculine", []string{"eng"})
+	spaKey := WorkKeySet("Byron, Grace", "Herculine", []string{"spa"})
+	loneKey := WorkKeySet("Orwell, George", "1984", []string{"eng"})
+
+	// A prior English Work; this run resolves the Spanish sibling plus a lone Work.
+	seedPriorWork(r, engKey, "weng", "overdrive")
+	targets := r.TranslationTargets(map[string]string{"wspa": spaKey, "wlone": loneKey})
+
+	if targets["wspa"] != "weng" {
+		t.Errorf("spanish -> %q, want weng (English is the primary expression)", targets["wspa"])
+	}
+	if _, ok := targets["wlone"]; ok {
+		t.Errorf("a Work with no differing-language sibling must not link: %v", targets)
+	}
+
+	// The representative itself gets no outgoing link.
+	self := r.TranslationTargets(map[string]string{"weng2": engKey})
+	// weng2 shares the English key with the prior weng (same language) -> not a
+	// translation, no link.
+	if _, ok := self["weng2"]; ok {
+		t.Errorf("same-language Works are not translations: %v", self)
+	}
+}

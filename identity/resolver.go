@@ -374,6 +374,68 @@ func (r *Resolver) singleOtherFeedTarget(matchKey string) (string, bool) {
 // grain and presence entry by.
 func (r *Resolver) Canonical(workID string) string { return r.canonical(workID) }
 
+// TranslationTargets computes the bf:translationOf links for this run's Works.
+// Works that share an author+title base but carry different language sets are
+// language siblings (BIBFRAME one-Work-per-language: a translation is a distinct
+// Work). Each such sibling links to its group's representative -- the Work under
+// the lexicographically smallest language set (tie-broken by id), so the whole
+// language cluster points at one primary expression (English sorts ahead of most
+// translations). workKey maps each of this run's Work ids to its full cluster
+// key (author+title+language-set); prior Works from the committed grains are
+// folded in as sibling candidates. A Work that is its group's representative, is
+// language-less, or has no differing-language sibling gets no entry.
+//
+// The links are recomputed each ingest, so as a feed re-ingests they converge;
+// an edge can lag until then when a later ingest introduces a new representative.
+func (r *Resolver) TranslationTargets(workKey map[string]string) map[string]string {
+	type member struct{ workID, langs string }
+	base := map[string][]member{}
+	langsInBase := map[string]map[string]bool{}
+	add := func(fullKey, workID string) {
+		b, langs, ok := splitBaseLangs(fullKey)
+		if !ok || langs == "" {
+			return
+		}
+		cid := r.canonical(workID)
+		base[b] = append(base[b], member{cid, langs})
+		if langsInBase[b] == nil {
+			langsInBase[b] = map[string]bool{}
+		}
+		langsInBase[b][langs] = true
+	}
+	for fk, ids := range r.seedKeyWorks {
+		for id := range ids {
+			add(fk, id)
+		}
+	}
+	for id, fk := range workKey {
+		add(fk, id)
+	}
+
+	rep := map[string]member{}
+	for b, ms := range base {
+		best := member{}
+		for _, m := range ms {
+			if best.workID == "" || m.langs < best.langs || (m.langs == best.langs && m.workID < best.workID) {
+				best = m
+			}
+		}
+		rep[b] = best
+	}
+
+	out := map[string]string{}
+	for id, fk := range workKey {
+		b, langs, ok := splitBaseLangs(fk)
+		if !ok || langs == "" || len(langsInBase[b]) < 2 {
+			continue
+		}
+		if cid := r.canonical(id); cid != rep[b].workID {
+			out[id] = rep[b].workID
+		}
+	}
+	return out
+}
+
 // canonical follows the editorial merge chain to the surviving Work id.
 func (r *Resolver) canonical(workID string) string {
 	seen := map[string]bool{}

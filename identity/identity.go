@@ -87,6 +87,18 @@ func WorkKeySet(author, title string, langs []string) string {
 	return NormalizeKey(author) + keySep + t + keySep + normalizeLangs(langs)
 }
 
+// splitBaseLangs splits a work cluster key into its language-agnostic base
+// (author + title) and its language-set component, so language-sibling Works
+// (same base, different languages) can be found. It fails on a key with no title
+// (which WorkKeySet returns as ""), since a title-less key names no work.
+func splitBaseLangs(fullKey string) (base, langs string, ok bool) {
+	parts := strings.SplitN(fullKey, keySep, 3)
+	if len(parts) != 3 || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0] + keySep + parts[1], parts[2], true
+}
+
 // normalizeLangs lowercases, trims, dedupes, and sorts a language set, joining
 // it with spaces into the language component of a work key. An empty set (or one
 // of only blanks) yields "", matching the old empty-language key.

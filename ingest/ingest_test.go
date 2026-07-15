@@ -3,12 +3,14 @@ package ingest_test
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/freeeve/libcat/bibframe"
 	"github.com/freeeve/libcat/identity"
 	"github.com/freeeve/libcat/ingest"
 	"github.com/freeeve/libcat/ingest/overdrive"
@@ -594,6 +596,43 @@ func TestCrossFeedDedupKeepsDistinctLanguagesApart(t *testing.T) {
 	}
 	if grains := grainFiles(t, works); len(grains) != 2 {
 		t.Fatalf("grain files = %d, want 2 (English and Spanish are distinct Works)", len(grains))
+	}
+}
+
+// TestTranslationOfLinksLanguageSiblings checks the bf:translationOf link: the
+// Spanish Work of a title whose English Work already exists is emitted as a
+// translation of the English (primary-expression) Work, relating the two
+// language editions without merging them.
+func TestTranslationOfLinksLanguageSiblings(t *testing.T) {
+	out := t.TempDir()
+	works := filepath.Join(out, "data", "works")
+
+	over := stubProvider{feed: "overdrive", role: ingest.RoleIngest, recs: []ingest.Record{
+		stubRecord{id: "over1", author: "Byron, Grace", title: "Herculine", lang: "eng", isbn: "111", localID: true},
+	}}
+	res1, err := ingest.Run(over, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	weng := res1.WorkIDs[0]
+
+	coll := stubProvider{feed: "coll", role: ingest.RoleIngest, recs: []ingest.Record{
+		stubRecord{id: "coll1", group: "coll:7", author: "Byron, Grace", title: "Herculine", lang: "spa", localID: true},
+	}}
+	res2, err := ingest.Run(coll, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wspa := res2.WorkIDs[0]
+	if wspa == weng {
+		t.Fatal("Spanish and English must be distinct Works")
+	}
+
+	// The Spanish Work's grain links it to the English primary expression.
+	nq := readNQuads(t, works)
+	want := fmt.Sprintf("<%s> <%s> <%s>", bibframe.WorkIRI(wspa), bibframe.PredTranslationOf, bibframe.WorkIRI(weng))
+	if !strings.Contains(nq, want) {
+		t.Errorf("grain missing translationOf link\n  want triple: %s", want)
 	}
 }
 

@@ -46,6 +46,11 @@ type WorkGroup struct {
 	// owl:sameAs statements on that node -- the shape the summary scan folds
 	// into ContributorIDs. Empty when the provider supplies none.
 	Agents []AgentIdentity
+	// TranslationOf are the Work ids this Work is a translation of -- its
+	// language-sibling primary expressions (bf:translationOf), emitted into the
+	// feed graph as Work->Work links using the #<id>Work fragment convention.
+	// Empty when the Work has no differing-language sibling.
+	TranslationOf []string
 }
 
 // AgentIdentity is one contributor's authority identity for graph emission;
@@ -195,6 +200,31 @@ func addWorkExtras(g *rdf.Graph, workID string, extras map[string]string) {
 	}
 }
 
+// addWorkTranslations links a Work to its language-sibling primary expressions
+// with bf:translationOf, in the feed graph, using the #<id>Work fragment IRIs the
+// merge and part-of markers share. Targets are deduped and emitted in sorted
+// order for deterministic grains; a self-link or empty target is skipped. It is a
+// no-op for a Work with no siblings, leaving the grain unchanged.
+func addWorkTranslations(g *rdf.Graph, workID string, targets []string) {
+	if len(targets) == 0 {
+		return
+	}
+	src := rdf.NewIRI(WorkIRI(workID))
+	seen := map[string]bool{}
+	ordered := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if t == "" || t == workID || seen[t] {
+			continue
+		}
+		seen[t] = true
+		ordered = append(ordered, t)
+	}
+	sort.Strings(ordered)
+	for _, t := range ordered {
+		g.Add(src, rdf.NewIRI(PredTranslationOf), rdf.NewIRI(WorkIRI(t)))
+	}
+}
+
 // GroupInstance is one Instance of a WorkGroup: its minted id and Instance-level
 // BIBFRAME.
 type GroupInstance struct {
@@ -226,6 +256,7 @@ func (wg WorkGroup) graph() *rdf.Graph {
 	}
 	g := wi.Graph(wg.WorkID, bases)
 	addWorkExtras(g, wg.WorkID, wg.Extras)
+	addWorkTranslations(g, wg.WorkID, wg.TranslationOf)
 	addControlledSubjects(g, wg.WorkID, wg.Subjects)
 	addDescribedTerms(g, wg.Terms)
 	addAgentIdentities(g, wg.Agents)

@@ -19,6 +19,13 @@ const (
 	PredPartOf  = "http://id.loc.gov/ontologies/bibframe/partOf"
 )
 
+// PredTranslationOf links a translation Work to the primary-expression Work of
+// the same title in another language (BIBFRAME one-Work-per-language). Unlike
+// the editorial whole/part links, it is feed-derived -- the ingest recomputes it
+// from language-sibling clustering -- so it is written into the feed graph, not
+// the editorial graph.
+const PredTranslationOf = "http://id.loc.gov/ontologies/bibframe/translationOf"
+
 // WorkRelations lists one work's editorial work-to-work links as work ids.
 type WorkRelations struct {
 	HasPart []string `json:"hasPart"`

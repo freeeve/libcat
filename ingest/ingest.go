@@ -109,8 +109,11 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed, feed s
 	seenInstance := map[string]bool{}
 	// workMatch records each freshly minted Work's un-namespaced cross-feed match
 	// key, so the cross-feed dedup pass can bridge it onto an unambiguous prior
-	// Work from another provider.
+	// Work from another provider. firstKey records every Work's un-namespaced
+	// full cluster key (author+title+language-set) for the bf:translationOf pass,
+	// first record winning.
 	workMatch := map[string]string{}
+	firstKey := map[string]string{}
 	var res Result
 	for _, rec := range recs {
 		im := rec.Identity()
@@ -124,6 +127,7 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed, feed s
 		}
 		wg, ok := byWork[a.WorkID]
 		if !ok {
+			firstKey[a.WorkID] = crossFeedMatchKey(im)
 			wg = &bibframe.WorkGroup{WorkID: a.WorkID, Work: rec.Work()}
 			// The first record of a clustered Work also supplies its non-BIBFRAME
 			// display extras (cover/rating/dateRead), carried through to catalog.json's
@@ -180,6 +184,7 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed, feed s
 	// instances move onto the surviving (canonical) Work id, first source id
 	// winning the shared Work metadata for determinism.
 	byCanon := map[string]*bibframe.WorkGroup{}
+	canonKey := map[string]string{}
 	canonOrder := make([]string, 0, len(byWork))
 	srcIDs := make([]string, 0, len(byWork))
 	for id := range byWork {
@@ -195,10 +200,17 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed, feed s
 			continue
 		}
 		byCanon[canon] = wg
+		canonKey[canon] = firstKey[id]
 		canonOrder = append(canonOrder, canon)
 	}
 	sort.Strings(canonOrder)
 	res.WorkIDs = canonOrder
+
+	// Link each Work to its language-sibling primary expression (bf:translationOf):
+	// same author+title, different language set -- distinct Works under
+	// one-Work-per-language, related rather than merged.
+	translations := r.TranslationTargets(canonKey)
+
 	works := make([]bibframe.WorkGroup, 0, len(canonOrder))
 	for _, id := range canonOrder {
 		wg := byCanon[id]
@@ -207,6 +219,9 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed, feed s
 		// canonical id keys the other feed's preserved grain, so its statements ride
 		// along and the grain stays multi-feed.
 		wg.Editorial = prior.Editorial[id]
+		if target := translations[id]; target != "" {
+			wg.TranslationOf = []string{target}
+		}
 		works = append(works, *wg)
 	}
 	return works, res, r
