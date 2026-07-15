@@ -35,6 +35,11 @@ type auditResponse struct {
 	// book's own language.
 	LabelLanguages []string      `json:"labelLanguages,omitempty"`
 	Creators       *creatorAudit `json:"creators,omitempty"`
+	// ResourceLanguages is the distribution of the scope's works by the language
+	// the works are IN (bf:language), distinct from the subject-label columns
+	// (which are heading reachability). nil when no scoped work declares a
+	// language, so "not carried" reads differently from "0".
+	ResourceLanguages *resourceLanguageAudit `json:"resourceLanguages,omitempty"`
 	// Simulation is the read-only "if we accepted the queue" projection,
 	// present only when ?simulate=queue was asked. The top-level report stays
 	// the current corpus so the screen can diff current vs projected.
@@ -167,6 +172,70 @@ func aggregateCreators(sums []ingest.WorkSummary, include func(*ingest.WorkSumma
 		ca.Properties = append(ca.Properties, cp)
 	}
 	return ca
+}
+
+// resourceLanguageAudit is the scope's distribution of works by the language
+// the works are IN (bf:language / Work.Languages), the real book language --
+// deliberately separate from the subject-label reachability columns. Following
+// BIBFRAME practice, language is a Work attribute (a translation is its own
+// Work), so this counts at the Work level. WithLanguage is the honest
+// denominator: works declaring no language are common and must not read as a
+// language.
+type resourceLanguageAudit struct {
+	// TotalWorks is every scoped work; WithLanguage is those declaring at least
+	// one bf:language.
+	TotalWorks   int `json:"totalWorks"`
+	WithLanguage int `json:"withLanguage"`
+	// Languages is the per-language work count, most works first. A work counts
+	// once per distinct language it declares (a bilingual edition counts in
+	// both), so the counts can exceed WithLanguage.
+	Languages []resourceLanguageCount `json:"languages"`
+}
+
+// resourceLanguageCount is one language and how many scoped works are in it.
+// Code is the ISO 639-2/B code as stored (bf:language local name), e.g. "spa".
+type resourceLanguageCount struct {
+	Code  string `json:"code"`
+	Works int    `json:"works"`
+}
+
+// aggregateResourceLanguages folds the scoped summaries' Work.Languages into the
+// resource-language distribution; nil when no scoped work declares a language,
+// so "no language data carried" reads differently from "0 in this language".
+func aggregateResourceLanguages(sums []ingest.WorkSummary, include func(*ingest.WorkSummary) bool) *resourceLanguageAudit {
+	ra := &resourceLanguageAudit{}
+	counts := map[string]int{}
+	for i := range sums {
+		s := &sums[i]
+		if !include(s) {
+			continue
+		}
+		ra.TotalWorks++
+		seen := map[string]bool{}
+		for _, code := range s.Languages {
+			if code == "" || seen[code] {
+				continue
+			}
+			seen[code] = true
+			counts[code]++
+		}
+		if len(seen) > 0 {
+			ra.WithLanguage++
+		}
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	for code, n := range counts {
+		ra.Languages = append(ra.Languages, resourceLanguageCount{Code: code, Works: n})
+	}
+	sort.Slice(ra.Languages, func(i, j int) bool {
+		if ra.Languages[i].Works != ra.Languages[j].Works {
+			return ra.Languages[i].Works > ra.Languages[j].Works
+		}
+		return ra.Languages[i].Code < ra.Languages[j].Code
+	})
+	return ra
 }
 
 // auditCache memoizes computed reports against the work index generation: the
@@ -303,12 +372,13 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, au
 			}
 		}
 		resp := auditResponse{
-			Input:          "work index (cataloging corpus: suppressed included, tombstoned excluded)",
-			Scope:          filters.String(),
-			Report:         a.Report(),
-			LabelLanguages: auditLangs,
-			Creators:       aggregateCreators(sums, include),
-			Simulation:     sim,
+			Input:             "work index (cataloging corpus: suppressed included, tombstoned excluded)",
+			Scope:             filters.String(),
+			Report:            a.Report(),
+			LabelLanguages:    auditLangs,
+			Creators:          aggregateCreators(sums, include),
+			ResourceLanguages: aggregateResourceLanguages(sums, include),
+			Simulation:        sim,
 		}
 		if !wantSim {
 			cache.put(gen, key, resp)

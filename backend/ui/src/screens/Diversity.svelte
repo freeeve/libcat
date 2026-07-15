@@ -340,6 +340,44 @@
       </p>
     {/if}
 
+    {#if report.resourceLanguages}
+      {@const rl = report.resourceLanguages}
+      <section class="reslang" aria-label="Resource languages">
+        <h3>Resource languages</h3>
+        <p class="muted hint">
+          What language the works are written <em>in</em> (bf:language) --
+          the real book language, <strong>not</strong> the subject-heading
+          reachability the label columns above measure.
+          {rl.withLanguage.toLocaleString()} of {rl.totalWorks.toLocaleString()} scoped
+          work{rl.totalWorks === 1 ? "" : "s"} declare a language.
+        </p>
+        <table class="reslang-table">
+          <thead>
+            <tr>
+              <th scope="col">Language</th>
+              <th scope="col" class="bar-col"><span class="visually-hidden">Share of works with a language</span></th>
+              <th scope="col" class="n">Works</th>
+              <th scope="col" class="n">% of langs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each rl.languages as l (l.code)}
+              <tr>
+                <th scope="row">{l.code.toUpperCase()}</th>
+                <td class="bar-col" aria-hidden="true">
+                  <div class="bar-track">
+                    <div class="bar" style={`width:${rl.withLanguage > 0 ? ((l.works / rl.withLanguage) * 100).toFixed(2) : 0}%`}></div>
+                  </div>
+                </td>
+                <td class="n">{l.works.toLocaleString()}</td>
+                <td class="n">{rl.withLanguage > 0 ? pct(l.works / rl.withLanguage) : "--"}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </section>
+    {/if}
+
     <section class="trends" aria-label="Trends">
       <div class="trends-head">
         <h3>Over time</h3>
@@ -673,6 +711,16 @@
     margin: 0.35rem 0 0;
   }
 
+  .reslang {
+    margin-top: 1.75rem;
+  }
+  .reslang h3 {
+    margin-bottom: 0.25rem;
+  }
+  .reslang-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
   .trends {
     margin-top: 1.75rem;
   }

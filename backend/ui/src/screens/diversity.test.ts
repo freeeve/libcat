@@ -187,6 +187,39 @@ describe("Diversity audit screen", () => {
     expect(document.querySelector(".labellang-note")).toBeNull();
   });
 
+  it("renders the resource-language section as book language, distinct from label reachability", async () => {
+    fetchDiversityAudit.mockResolvedValue({
+      ...REPORT,
+      resourceLanguages: {
+        totalWorks: 500,
+        withLanguage: 480,
+        languages: [
+          { code: "eng", works: 400 },
+          { code: "spa", works: 80 },
+        ],
+      },
+    });
+    fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
+    await render();
+    const section = document.querySelector(".reslang");
+    expect(section).not.toBeNull();
+    // The denominator and the not-book-language disambiguation are both stated.
+    expect(section?.textContent).toContain("480 of 500");
+    expect(section?.textContent).toContain("not");
+    const rows = [...document.querySelectorAll(".reslang-table tbody tr")];
+    expect(rows[0]?.textContent).toContain("ENG");
+    expect(rows[0]?.textContent).toContain("400");
+    // eng share of works-with-language: 400/480 = 83.3%.
+    expect(rows[0]?.textContent).toContain("83.3%");
+    expect(rows[1]?.textContent).toContain("SPA");
+  });
+
+  it("omits the resource-language section when no work declares a language", async () => {
+    arm();
+    await render();
+    expect(document.querySelector(".reslang")).toBeNull();
+  });
+
   it("passes the applied key=value terms to both endpoints", async () => {
     arm();
     await render();

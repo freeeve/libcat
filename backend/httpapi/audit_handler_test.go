@@ -254,6 +254,142 @@ func TestAuditDiversityLanguageCoverage(t *testing.T) {
 	}
 }
 
+// seedAuditWorkLangs writes a work grain carrying bf:language IRIs (LoC
+// vocabulary, three-letter codes) plus optional extras -- the resource language
+// the audit's resource-language dimension counts at the Work level.
+func seedAuditWorkLangs(t *testing.T, bs blob.Store, workID string, langs []string, extras map[string]string) {
+	t.Helper()
+	const bfNS = "http://id.loc.gov/ontologies/bibframe/"
+	const rdfType = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+	ds := &rdf.Dataset{}
+	feed := bibframe.FeedGraph("coll")
+	work := rdf.NewIRI(bibframe.WorkIRI(workID))
+	ds.Add(work, rdf.NewIRI(rdfType), rdf.NewIRI(bfNS+"Work"), feed)
+	titleNode := rdf.NewIRI("#" + workID + "Title")
+	ds.Add(work, rdf.NewIRI(bfNS+"title"), titleNode, feed)
+	ds.Add(titleNode, rdf.NewIRI(bfNS+"mainTitle"), rdf.NewLiteral("T "+workID, "", ""), feed)
+	for _, code := range langs {
+		ds.Add(work, rdf.NewIRI(bfNS+"language"), rdf.NewIRI("http://id.loc.gov/vocabulary/languages/"+code), feed)
+	}
+	for k, v := range extras {
+		ds.Add(work, rdf.NewIRI(bibframe.ExtraPred+k), rdf.NewLiteral(v, "", ""), feed)
+	}
+	nq, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), bibframe.GrainPath(workID), nq, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// resLangs pulls the resource-language block out of an audit response.
+type resLangPage struct {
+	ResourceLanguages *struct {
+		TotalWorks   int `json:"totalWorks"`
+		WithLanguage int `json:"withLanguage"`
+		Languages    []struct {
+			Code  string `json:"code"`
+			Works int    `json:"works"`
+		} `json:"languages"`
+	} `json:"resourceLanguages"`
+}
+
+// TestAuditDiversityResourceLanguages checks the Work-level resource-language
+// distribution: it counts the language works are IN (bf:language), honours the
+// audit's collection scope, reports WithLanguage as the honest denominator, and
+// is absent entirely when no scoped work declares a language.
+func TestAuditDiversityResourceLanguages(t *testing.T) {
+	bs := blob.NewMem()
+	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Verifier: verifier})
+
+	inQll := map[string]string{"inQll": "true"}
+	seedAuditWorkLangs(t, bs, "wreslang001", []string{"spa"}, inQll)
+	seedAuditWorkLangs(t, bs, "wreslang002", []string{"eng"}, inQll)
+	seedAuditWorkLangs(t, bs, "wreslang003", []string{"eng"}, inQll)
+	seedAuditWorkLangs(t, bs, "wreslang004", nil, inQll)                    // in scope, no language
+	seedAuditWorkLangs(t, bs, "wreslang005", []string{"fre"}, nil)          // out of the QLL scope
+	seedAuditWorkLangs(t, bs, "wreslang006", []string{"eng", "spa"}, inQll) // bilingual edition
+
+	// Full corpus: every work counted, fre included.
+	full := getResLangs(t, h, "")
+	if full.ResourceLanguages == nil {
+		t.Fatal("resource-language block missing on the full corpus")
+	}
+	if full.ResourceLanguages.TotalWorks != 6 || full.ResourceLanguages.WithLanguage != 5 {
+		t.Errorf("full totals = %d/%d, want 6 total / 5 with language", full.ResourceLanguages.TotalWorks, full.ResourceLanguages.WithLanguage)
+	}
+	if got := resLangCount(full, "eng"); got != 3 {
+		t.Errorf("full eng = %d, want 3 (002, 003, 006)", got)
+	}
+	if got := resLangCount(full, "spa"); got != 2 {
+		t.Errorf("full spa = %d, want 2 (001, 006 bilingual)", got)
+	}
+	if got := resLangCount(full, "fre"); got != 1 {
+		t.Errorf("full fre = %d, want 1 (005)", got)
+	}
+	// Most works first: eng leads.
+	if full.ResourceLanguages.Languages[0].Code != "eng" {
+		t.Errorf("languages should be ranked by works, got %+v", full.ResourceLanguages.Languages)
+	}
+
+	// Scoped to the QLL collection: fre (out of scope) drops out.
+	scoped := getResLangs(t, h, "filter=inQll%3Dtrue")
+	if scoped.ResourceLanguages == nil {
+		t.Fatal("resource-language block missing on the scoped corpus")
+	}
+	if scoped.ResourceLanguages.TotalWorks != 5 || scoped.ResourceLanguages.WithLanguage != 4 {
+		t.Errorf("scoped totals = %d/%d, want 5 total / 4 with language", scoped.ResourceLanguages.TotalWorks, scoped.ResourceLanguages.WithLanguage)
+	}
+	if got := resLangCount(scoped, "fre"); got != 0 {
+		t.Errorf("scoped fre = %d, want 0 (005 is outside inQll)", got)
+	}
+	if got := resLangCount(scoped, "eng"); got != 3 {
+		t.Errorf("scoped eng = %d, want 3", got)
+	}
+
+	// A corpus with no language data at all omits the block.
+	bs2 := blob.NewMem()
+	h2 := New(Deps{Blob: bs2, DB: store.NewMem(), Verifier: verifier})
+	seedAuditWorkLangs(t, bs2, "wnolang0001", nil, inQll)
+	none := getResLangs(t, h2, "")
+	if none.ResourceLanguages != nil {
+		t.Errorf("resource-language block should be absent with no language data: %+v", none.ResourceLanguages)
+	}
+}
+
+// getResLangs fetches the audit and decodes only its resource-language block.
+func getResLangs(t *testing.T, h http.Handler, query string) resLangPage {
+	t.Helper()
+	url := "/v1/audit/diversity"
+	if query != "" {
+		url += "?" + query
+	}
+	rec := request(t, h, http.MethodGet, url, "lib-token", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200 (%s)", url, rec.Code, rec.Body.String())
+	}
+	var page resLangPage
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	return page
+}
+
+// resLangCount reads one language's work count from a resource-language page.
+func resLangCount(p resLangPage, code string) int {
+	if p.ResourceLanguages == nil {
+		return -1
+	}
+	for _, l := range p.ResourceLanguages.Languages {
+		if l.Code == code {
+			return l.Works
+		}
+	}
+	return 0
+}
+
 // seedCreatorClaims adds an enrichment:wikidata graph to a work's grain: the
 // creator-identity link plus one explicit P21 claim, the shape the wikidata
 // enricher writes.

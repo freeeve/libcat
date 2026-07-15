@@ -793,6 +793,18 @@ export interface DiversityCategory {
   benchmarkSource?: string;
 }
 
+/** The Work-level distribution of the audited scope by resource (book)
+ *  language -- what language the works are in, not subject-heading reachability. */
+export interface ResourceLanguageAudit {
+  /** Every scoped work; withLanguage is those declaring at least one language --
+   *  the honest denominator, since declaring none is common. */
+  totalWorks: number;
+  withLanguage: number;
+  /** Per-language work counts, most works first. A work counts once per distinct
+   *  language it declares, so counts can exceed withLanguage. */
+  languages: { code: string; works: number }[];
+}
+
 /** GET /v1/audit/diversity -- the coverage-first content-diversity report. */
 export interface DiversityReport {
   input: string;
@@ -810,6 +822,10 @@ export interface DiversityReport {
    *  remainder to totalWorks, so it stacks honestly. */
   multiplicity?: { uncategorized: number; matchedOne: number; matchedMulti: number };
   creators?: CreatorAudit;
+  /** The scope's distribution by the language the works are IN (bf:language) --
+   *  real book language, distinct from the subject-label reachability columns.
+   *  Absent when no scoped work declares a language. */
+  resourceLanguages?: ResourceLanguageAudit;
   /** The read-only "if we accepted the pending ADD queue" projection, present
    *  only when the audit was requested with simulate=queue. The top-level report
    *  stays the current corpus so the screen can diff current vs projected. */
