@@ -19,7 +19,7 @@ func runOverdrive(args []string) error {
 	cache := fs.String("cache", "", "OverDrive page-cache directory (contains page-*.json); omit to fetch live via --library")
 	library := fs.String("library", "", "OverDrive library key to fetch live from the thunder API (when --cache is omitted)")
 	writeCache := fs.String("write-cache", "", "with --library, also mirror fetched pages into this directory (reusable page cache)")
-	perPage := fs.Int("per-page", 0, "live page size (default 200)")
+	perPage := fs.Int("per-page", 0, "live page size (default 100, the thunder API maximum; larger is clamped)")
 	out := fs.String("out", "", "output directory for canonical grains (direct JSON->BIBFRAME)")
 	provider := fs.String("provider", overdrive.ProviderName, "provenance graph feed:<provider> for the records")
 	reconcile := fs.String("reconcile", "", "flag feed-only works this scan no longer lists: review | auto-suppress")

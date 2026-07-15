@@ -16,8 +16,13 @@ import (
 // through GET {base}/libraries/{library}/media.
 const DefaultBaseURL = "https://thunder.api.overdrive.com/v2"
 
+// maxPerPage is the largest page size the thunder /media endpoint accepts; a
+// larger perPage is rejected with HTTP 400 (100 ok, 200/500 fail), so both the
+// default and any user value are clamped to it.
+const maxPerPage = 100
+
 // defaultPerPage is the page size requested when none is configured.
-const defaultPerPage = 200
+const defaultPerPage = maxPerPage
 
 // defaultRate is the polite minimum gap between live requests when none is set,
 // so a full crawl does not hammer the public API.
@@ -94,6 +99,9 @@ func (lf liveFetcher) fetchPage(ctx context.Context, client *http.Client, page i
 	perPage := lf.perPage
 	if perPage <= 0 {
 		perPage = defaultPerPage
+	}
+	if perPage > maxPerPage {
+		perPage = maxPerPage
 	}
 	q := u.Query()
 	q.Set("page", fmt.Sprintf("%d", page))

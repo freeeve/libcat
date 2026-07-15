@@ -24,8 +24,12 @@ func thunderStub(t *testing.T, library string, pages int) *httptest.Server {
 		if r.URL.Path != wantPath {
 			t.Errorf("path = %q, want %q", r.URL.Path, wantPath)
 		}
-		if r.URL.Query().Get("perPage") == "" {
+		perPage, _ := strconv.Atoi(r.URL.Query().Get("perPage"))
+		if perPage < 1 {
 			t.Error("perPage query missing")
+		}
+		if perPage > maxPerPage {
+			t.Errorf("perPage = %d, exceeds thunder max %d", perPage, maxPerPage)
 		}
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		if page < 1 {
@@ -84,6 +88,18 @@ func TestLiveFetcherWritesCache(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Errorf("ReadCache of the mirror = %d items, want 2", len(items))
+	}
+}
+
+// TestLiveFetcherClampsPerPage checks a configured page size above the thunder
+// maximum is clamped, not sent verbatim -- 200/500 draw an HTTP 400 (task 490).
+// The stub already fails if any request exceeds maxPerPage.
+func TestLiveFetcherClampsPerPage(t *testing.T) {
+	srv := thunderStub(t, "qll", 2)
+	defer srv.Close()
+	lf := liveFetcher{baseURL: srv.URL, library: "qll", perPage: 500, client: srv.Client()}
+	if _, err := lf.items(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
 
