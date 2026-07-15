@@ -184,9 +184,9 @@ func New(deps Deps) http.Handler {
 				return nil
 			}
 		}
-		computeAudit := registerAudit(mux, ix, deps.Suggest, deps.Verifier, cws)
+		computeAudit := registerAudit(mux, ix, deps.Vocab, deps.Suggest, deps.Verifier, cws)
 		registerAuditSnapshots(mux, deps.Blob, deps.Verifier, computeAudit)
-		registerAuditCrosswalk(mux, deps.Blob, ix, deps.Verifier, cws)
+		registerAuditCrosswalk(mux, deps.Blob, ix, deps.Vocab, deps.Verifier, cws)
 		registerAuditTerms(mux, ix, deps.Vocab, deps.Verifier)
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {

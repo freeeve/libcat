@@ -10,6 +10,11 @@ type SubjectRef struct {
 	URI    string
 	Labels []string
 	Scheme string
+	// Bilingual is true when this subject's controlled term is reachable in a
+	// second label language (a non-English prefLabel or altLabel), not just
+	// English -- the signal the language-coverage axis tallies per category. It
+	// is always false for an uncontrolled heading (no URI, so no term to consult).
+	Bilingual bool
 }
 
 // Report is a coverage-first content-diversity audit of a corpus. It reports what
@@ -55,6 +60,15 @@ type CategoryTally struct {
 	Works        int     `json:"works"`
 	ShareCovered float64 `json:"shareCovered"`
 	ShareTotal   float64 `json:"shareTotal"`
+	// Bilingual and EnglishOnly decompose Works by whether the work reached this
+	// category through at least one term carrying a second-language label
+	// (Bilingual) or only through English-only controlled terms and uncontrolled
+	// headings (EnglishOnly). They sum to Works, so a stacked bar reads how much
+	// of a subject category is discoverable beyond English -- the bilingual
+	// Homosaurus coverage the audit could not surface when language was only a
+	// scope filter.
+	Bilingual   int `json:"bilingual"`
+	EnglishOnly int `json:"englishOnly"`
 	// Benchmark/BenchmarkSource pass the operator's comparison share through
 	// from the crosswalk, when one was configured. The tool never grades the
 	// delta: a share against a benchmark is only as good as the coverage
@@ -67,16 +81,17 @@ type CategoryTally struct {
 // once from a crosswalk, Add each work's subjects, then read Report. It is not safe
 // for concurrent Add.
 type Auditor struct {
-	cw      *Crosswalk
-	total   int
-	covered int
-	multi   MultiplicityTally
-	perCat  map[string]int
+	cw          *Crosswalk
+	total       int
+	covered     int
+	multi       MultiplicityTally
+	perCat      map[string]int
+	perCatBilng map[string]int
 }
 
 // NewAuditor returns an Auditor over the given crosswalk.
 func NewAuditor(cw *Crosswalk) *Auditor {
-	return &Auditor{cw: cw, perCat: map[string]int{}}
+	return &Auditor{cw: cw, perCat: map[string]int{}, perCatBilng: map[string]int{}}
 }
 
 // Add folds one work's subjects into the tally. A work counts toward CoveredWorks
@@ -88,11 +103,18 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 	a.total++
 	covered := false
 	cats := map[string]bool{}
+	// bilng holds the categories this work reached through at least one
+	// second-language-labelled subject, so the per-category bilingual tally
+	// counts a work once even when several of its subjects carry es labels.
+	bilng := map[string]bool{}
 	for _, s := range subjects {
 		if s.URI != "" {
 			covered = true
 			for _, id := range a.cw.Categorize(s.URI, "", s.Scheme) {
 				cats[id] = true
+				if s.Bilingual {
+					bilng[id] = true
+				}
 			}
 		}
 		for _, l := range s.Labels {
@@ -102,6 +124,9 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 			covered = true
 			for _, id := range a.cw.Categorize("", l, "") {
 				cats[id] = true
+				if s.Bilingual {
+					bilng[id] = true
+				}
 			}
 		}
 	}
@@ -119,6 +144,9 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 	for id := range cats {
 		a.perCat[id]++
 	}
+	for id := range bilng {
+		a.perCatBilng[id]++
+	}
 }
 
 // Report snapshots the tally as a coverage-first Report, with categories in the
@@ -129,7 +157,9 @@ func (a *Auditor) Report() Report {
 		r.Coverage = float64(a.covered) / float64(a.total)
 	}
 	for _, c := range a.cw.Categories() {
-		t := CategoryTally{ID: c.ID, Label: c.Label, Works: a.perCat[c.ID], Benchmark: c.Benchmark, BenchmarkSource: c.BenchmarkSource}
+		works := a.perCat[c.ID]
+		bilingual := a.perCatBilng[c.ID]
+		t := CategoryTally{ID: c.ID, Label: c.Label, Works: works, Bilingual: bilingual, EnglishOnly: works - bilingual, Benchmark: c.Benchmark, BenchmarkSource: c.BenchmarkSource}
 		if a.covered > 0 {
 			t.ShareCovered = float64(t.Works) / float64(a.covered)
 		}

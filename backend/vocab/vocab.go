@@ -59,6 +59,25 @@ type Term struct {
 	MergedInto string `json:"mergedInto,omitempty"`
 }
 
+// HasLabelLang reports whether the term carries a non-empty pref or alt label
+// tagged with lang. It is the language-coverage probe the diversity audit uses
+// to tell a bilingual term (e.g. a Homosaurus concept with an es prefLabel)
+// from an English-only one; the untagged ("") bucket never counts as a language.
+func (t *Term) HasLabelLang(lang string) bool {
+	if lang == "" {
+		return false
+	}
+	if t.Labels[lang] != "" {
+		return true
+	}
+	for _, a := range t.AltLabels[lang] {
+		if a != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // Label returns the term's best label for lang: exact match, then English,
 // then untagged, then any; the term URI when no label exists.
 func (t *Term) Label(lang string) string {

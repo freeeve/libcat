@@ -6,7 +6,7 @@
   // only says what recorded snapshots can support.
   import { onMount } from "svelte";
   import { fetchDiversityAudit, fetchDiversitySnapshots, recordDiversitySnapshot, humanApiMessage } from "../lib/api";
-  import type { DiversityReport, DiversitySnapshot } from "../lib/types";
+  import type { DiversityCategory, DiversityReport, DiversitySnapshot } from "../lib/types";
 
   let { initialFilter = "" }: { initialFilter?: string } = $props();
 
@@ -70,6 +70,18 @@
    *  interpretation note only appear when one does. */
   function hasBenchmarks(r: DiversityReport): boolean {
     return r.categories.some((c) => c.benchmark != null);
+  }
+
+  /** Whether any category is reachable in a second label language; the
+   *  bilingual column only appears when the corpus carries such coverage, so an
+   *  English-only collection is not padded with a column of zeros. */
+  function hasBilingual(r: DiversityReport): boolean {
+    return r.categories.some((c) => c.bilingual > 0);
+  }
+
+  /** Share of a category's works reachable beyond English (0 when it has none). */
+  function bilingualShare(c: DiversityCategory): number {
+    return c.works > 0 ? c.bilingual / c.works : 0;
   }
 
   // Gauge: a donut whose stroke covers the coverage fraction.
@@ -217,6 +229,9 @@
           <th scope="col" class="n">Works</th>
           <th scope="col" class="n">% subj.</th>
           <th scope="col" class="n">% coll.</th>
+          {#if hasBilingual(report)}
+            <th scope="col" class="n" title="Works reachable in a second label language (en+es)">Bilingual</th>
+          {/if}
           {#if hasBenchmarks(report)}
             <th scope="col" class="n">Benchmark</th>
           {/if}
@@ -239,6 +254,13 @@
             <td class="n">{c.works.toLocaleString()}</td>
             <td class="n">{pct(c.shareCovered)}</td>
             <td class="n">{pct(c.shareTotal)}</td>
+            {#if hasBilingual(report)}
+              <td class="n bilingual-cell" title={`${c.bilingual.toLocaleString()} of ${c.works.toLocaleString()} works reachable in a second label language`}>
+                {#if c.works > 0}
+                  {c.bilingual.toLocaleString()} <span class="muted src">{pct(bilingualShare(c))}</span>
+                {/if}
+              </td>
+            {/if}
             {#if hasBenchmarks(report)}
               <td class="n bench-cell">
                 {#if c.benchmark != null}

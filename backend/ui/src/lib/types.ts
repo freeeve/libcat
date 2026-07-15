@@ -781,6 +781,12 @@ export interface DiversityCategory {
   works: number;
   shareCovered: number;
   shareTotal: number;
+  /** Label-language decomposition of works: bilingual reached this category
+   *  through at least one term carrying a second-language (es) label, englishOnly
+   *  only through English-only terms and uncontrolled headings. They sum to works,
+   *  surfacing how much of the category is discoverable beyond English. */
+  bilingual: number;
+  englishOnly: number;
   /** Operator-supplied comparison share in [0,1], with its named source --
    *  never a shipped target, never graded by the tool. */
   benchmark?: number;

@@ -24,8 +24,8 @@ const REPORT: DiversityReport = {
   coverage: 0.8,
   multiplicity: { uncategorized: 200, matchedOne: 450, matchedMulti: 150 },
   categories: [
-    { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4 },
-    { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0 },
+    { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, bilingual: 120, englishOnly: 280 },
+    { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0, bilingual: 0, englishOnly: 0 },
   ],
 };
 
@@ -127,8 +127,8 @@ describe("Diversity audit screen", () => {
     fetchDiversityAudit.mockResolvedValue({
       ...REPORT,
       categories: [
-        { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, benchmark: 0.41, benchmarkSource: "CCBC 2025" },
-        { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0 },
+        { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, bilingual: 120, englishOnly: 280, benchmark: 0.41, benchmarkSource: "CCBC 2025" },
+        { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0, bilingual: 0, englishOnly: 0 },
       ],
     });
     fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
@@ -152,6 +152,29 @@ describe("Diversity audit screen", () => {
     expect(document.querySelector(".bench-note")).toBeNull();
     const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
     expect(headers.join("|")).not.toContain("Benchmark");
+  });
+
+  it("surfaces the bilingual label-language column when the corpus has second-language coverage", async () => {
+    arm();
+    await render();
+    const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
+    expect(headers.join("|")).toContain("Bilingual");
+    const rows = [...document.querySelectorAll("table.cats tbody tr")];
+    // lgbtqia: 120 of 400 works reachable in a second language -> 30.0%.
+    expect(rows[0]?.querySelector(".bilingual-cell")?.textContent).toContain("120");
+    expect(rows[0]?.querySelector(".bilingual-cell")?.textContent).toContain("30.0%");
+  });
+
+  it("omits the bilingual column when no category is reachable beyond English", async () => {
+    fetchDiversityAudit.mockResolvedValue({
+      ...REPORT,
+      categories: [{ id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, bilingual: 0, englishOnly: 400 }],
+    });
+    fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
+    await render();
+    const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
+    expect(headers.join("|")).not.toContain("Bilingual");
+    expect(document.querySelector(".bilingual-cell")).toBeNull();
   });
 
   it("passes the applied key=value terms to both endpoints", async () => {

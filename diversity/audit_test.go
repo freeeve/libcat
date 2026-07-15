@@ -85,6 +85,42 @@ func TestAuditorURIAndLabelBothCount(t *testing.T) {
 	}
 }
 
+// TestAuditorLanguageCoverage checks the per-category bilingual decomposition:
+// a category's Bilingual + EnglishOnly sum to Works, a work counts bilingual
+// once however many of its subjects carry a second-language label, and a work
+// matched only through English-only subjects lands entirely in EnglishOnly.
+func TestAuditorLanguageCoverage(t *testing.T) {
+	a := NewAuditor(Default())
+
+	// 1: lgbtqia via two bilingual subjects -> counted bilingual once.
+	a.Add([]SubjectRef{
+		{Labels: []string{"Lesbian fiction"}, Bilingual: true},
+		{Labels: []string{"Gay men"}, Bilingual: true},
+	})
+	// 2: lgbtqia via an English-only subject -> EnglishOnly.
+	a.Add([]SubjectRef{{Labels: []string{"Queer theory"}}})
+	// 3: lgbtqia through one bilingual and one English-only subject -> bilingual.
+	a.Add([]SubjectRef{
+		{Labels: []string{"Transgender people"}, Bilingual: true},
+		{Labels: []string{"Gay men"}},
+	})
+
+	r := a.Report()
+	lg := tally(r, "lgbtqia")
+	if lg.Works != 3 {
+		t.Fatalf("lgbtqia works = %d, want 3", lg.Works)
+	}
+	if lg.Bilingual != 2 {
+		t.Errorf("lgbtqia bilingual = %d, want 2 (works 1 and 3)", lg.Bilingual)
+	}
+	if lg.EnglishOnly != 1 {
+		t.Errorf("lgbtqia englishOnly = %d, want 1 (work 2)", lg.EnglishOnly)
+	}
+	if lg.Bilingual+lg.EnglishOnly != lg.Works {
+		t.Errorf("bilingual %d + englishOnly %d != works %d", lg.Bilingual, lg.EnglishOnly, lg.Works)
+	}
+}
+
 // TestAuditorEmptyCorpus checks the divide-by-zero guards: an empty corpus reports
 // zero coverage and zero shares, not NaN.
 func TestAuditorEmptyCorpus(t *testing.T) {
