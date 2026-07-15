@@ -262,6 +262,12 @@ type Config struct {
 	// still maps back to the concept's URI. A language with no label on a
 	// given term is skipped for that term.
 	EnrichLangs []string
+	// AuditLangs are the subject-label languages the diversity audit reports
+	// coverage for, comma-separated (default "en,es,fr"). Each is a column
+	// counting works whose controlled subject terms carry a label in that
+	// language -- subject-heading reachability, NOT the book's own language.
+	// Order is the column order; the first is the baseline (usually "en").
+	AuditLangs []string
 }
 
 // FromEnv reads configuration from LCATD_-prefixed environment variables.
@@ -418,6 +424,18 @@ func FromEnv() (Config, error) {
 		}
 		if len(cfg.EnrichLangs) == 0 {
 			cfg.EnrichLangs = []string{"en"}
+		}
+	}
+	cfg.AuditLangs = []string{"en", "es", "fr"}
+	if raw, ok := os.LookupEnv("LCATD_AUDIT_LANGS"); ok {
+		cfg.AuditLangs = nil
+		for s := range strings.SplitSeq(raw, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				cfg.AuditLangs = append(cfg.AuditLangs, s)
+			}
+		}
+		if len(cfg.AuditLangs) == 0 {
+			cfg.AuditLangs = []string{"en"}
 		}
 	}
 	cfg.ExtraFacets = []string{"sources"}

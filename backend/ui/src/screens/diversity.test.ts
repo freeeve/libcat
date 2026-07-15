@@ -23,9 +23,10 @@ const REPORT: DiversityReport = {
   coveredWorks: 800,
   coverage: 0.8,
   multiplicity: { uncategorized: 200, matchedOne: 450, matchedMulti: 150 },
+  labelLanguages: ["en", "es", "fr"],
   categories: [
-    { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, bilingual: 120, englishOnly: 280 },
-    { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0, bilingual: 0, englishOnly: 0 },
+    { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, labelLangWorks: { en: 400, es: 120 } },
+    { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0 },
   ],
 };
 
@@ -127,8 +128,8 @@ describe("Diversity audit screen", () => {
     fetchDiversityAudit.mockResolvedValue({
       ...REPORT,
       categories: [
-        { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, bilingual: 120, englishOnly: 280, benchmark: 0.41, benchmarkSource: "CCBC 2025" },
-        { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0, bilingual: 0, englishOnly: 0 },
+        { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, benchmark: 0.41, benchmarkSource: "CCBC 2025" },
+        { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0 },
       ],
     });
     fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
@@ -154,27 +155,36 @@ describe("Diversity audit screen", () => {
     expect(headers.join("|")).not.toContain("Benchmark");
   });
 
-  it("surfaces the bilingual label-language column when the corpus has second-language coverage", async () => {
+  it("renders one subject-label column per configured language that has coverage", async () => {
     arm();
     await render();
     const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
-    expect(headers.join("|")).toContain("Bilingual");
+    // en and es have coverage in the fixture; fr is configured but has none.
+    expect(headers.join("|")).toContain("EN labels");
+    expect(headers.join("|")).toContain("ES labels");
+    expect(headers.join("|")).not.toContain("FR labels");
     const rows = [...document.querySelectorAll("table.cats tbody tr")];
-    // lgbtqia: 120 of 400 works reachable in a second language -> 30.0%.
-    expect(rows[0]?.querySelector(".bilingual-cell")?.textContent).toContain("120");
-    expect(rows[0]?.querySelector(".bilingual-cell")?.textContent).toContain("30.0%");
+    const cells = [...(rows[0]?.querySelectorAll(".labellang-cell") ?? [])].map((c) => c.textContent);
+    // lgbtqia: en 400/400 = 100%, es 120/400 = 30.0%.
+    expect(cells[0]).toContain("400");
+    expect(cells[1]).toContain("120");
+    expect(cells[1]).toContain("30.0%");
+    // The note disambiguates from book language.
+    expect(document.querySelector(".labellang-note")?.textContent).toContain("not");
   });
 
-  it("omits the bilingual column when no category is reachable beyond English", async () => {
+  it("omits the subject-label columns when no category carries a configured language", async () => {
     fetchDiversityAudit.mockResolvedValue({
       ...REPORT,
-      categories: [{ id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, bilingual: 0, englishOnly: 400 }],
+      labelLanguages: ["en", "es", "fr"],
+      categories: [{ id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4 }],
     });
     fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
     await render();
     const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
-    expect(headers.join("|")).not.toContain("Bilingual");
-    expect(document.querySelector(".bilingual-cell")).toBeNull();
+    expect(headers.join("|")).not.toContain("labels");
+    expect(document.querySelector(".labellang-cell")).toBeNull();
+    expect(document.querySelector(".labellang-note")).toBeNull();
   });
 
   it("passes the applied key=value terms to both endpoints", async () => {
@@ -211,8 +221,8 @@ describe("Diversity audit screen", () => {
           ...REPORT,
           coverage: 0.85,
           categories: [
-            { id: "lgbtqia", label: "LGBTQIA+", works: 450, shareCovered: 0.56, shareTotal: 0.45, bilingual: 120, englishOnly: 330 },
-            { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0, bilingual: 0, englishOnly: 0 },
+            { id: "lgbtqia", label: "LGBTQIA+", works: 450, shareCovered: 0.56, shareTotal: 0.45, labelLangWorks: { en: 450, es: 120 } },
+            { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0 },
           ],
         },
       },

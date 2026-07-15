@@ -11,6 +11,9 @@
   let { initialFilter = "" }: { initialFilter?: string } = $props();
 
   let report = $state<DiversityReport | null>(null);
+  // The subject-label language columns for the current report (configured langs
+  // with any coverage). Empty for an English-only or unconfigured corpus.
+  const langCols = $derived(report ? labelLangs(report) : []);
   let snapshots = $state<DiversitySnapshot[]>([]);
   let loading = $state(true);
   let recording = $state(false);
@@ -88,16 +91,22 @@
     return r.categories.some((c) => c.benchmark != null);
   }
 
-  /** Whether any category is reachable in a second label language; the
-   *  bilingual column only appears when the corpus carries such coverage, so an
-   *  English-only collection is not padded with a column of zeros. */
-  function hasBilingual(r: DiversityReport): boolean {
-    return r.categories.some((c) => c.bilingual > 0);
+  /** The subject-label language columns to render: the audit's configured set,
+   *  restricted to languages some category actually carries coverage in, so an
+   *  English-only collection is not padded with es/fr columns of zeros. */
+  function labelLangs(r: DiversityReport): string[] {
+    const configured = r.labelLanguages ?? [];
+    return configured.filter((lang) => r.categories.some((c) => (c.labelLangWorks?.[lang] ?? 0) > 0));
   }
 
-  /** Share of a category's works reachable beyond English (0 when it has none). */
-  function bilingualShare(c: DiversityCategory): number {
-    return c.works > 0 ? c.bilingual / c.works : 0;
+  /** A category's work count reachable via a controlled subject label in lang. */
+  function langWorks(c: DiversityCategory, lang: string): number {
+    return c.labelLangWorks?.[lang] ?? 0;
+  }
+
+  /** Share of a category's works reachable via a subject label in lang. */
+  function langShare(c: DiversityCategory, lang: string): number {
+    return c.works > 0 ? langWorks(c, lang) / c.works : 0;
   }
 
   // Gauge: a donut whose stroke covers the coverage fraction.
@@ -262,9 +271,10 @@
           {#if report.simulation}
             <th scope="col" class="n" title="Works in this category if the pending queue were accepted">Projected</th>
           {/if}
-          {#if hasBilingual(report)}
-            <th scope="col" class="n" title="Works reachable in a second label language (en+es)">Bilingual</th>
-          {/if}
+          {#each langCols as lang (lang)}
+            <th scope="col" class="n" title={`Works whose controlled subject terms carry a ${lang.toUpperCase()} label -- subject-heading reachability, not the book's language`}
+              >{lang.toUpperCase()} labels</th>
+          {/each}
           {#if hasBenchmarks(report)}
             <th scope="col" class="n">Benchmark</th>
           {/if}
@@ -296,13 +306,13 @@
                 {/if}
               </td>
             {/if}
-            {#if hasBilingual(report)}
-              <td class="n bilingual-cell" title={`${c.bilingual.toLocaleString()} of ${c.works.toLocaleString()} works reachable in a second label language`}>
+            {#each langCols as lang (lang)}
+              <td class="n labellang-cell" title={`${langWorks(c, lang).toLocaleString()} of ${c.works.toLocaleString()} works carry a ${lang.toUpperCase()} subject label`}>
                 {#if c.works > 0}
-                  {c.bilingual.toLocaleString()} <span class="muted src">{pct(bilingualShare(c))}</span>
+                  {langWorks(c, lang).toLocaleString()} <span class="muted src">{pct(langShare(c, lang))}</span>
                 {/if}
               </td>
-            {/if}
+            {/each}
             {#if hasBenchmarks(report)}
               <td class="n bench-cell">
                 {#if c.benchmark != null}
@@ -314,6 +324,14 @@
         {/each}
       </tbody>
     </table>
+    {#if langCols.length > 0}
+      <p class="muted hint labellang-note">
+        The {langCols.map((l) => l.toUpperCase()).join(" / ")} label column{langCols.length === 1 ? "" : "s"}
+        count works whose <em>controlled subject terms</em> carry a heading label in that language --
+        how discoverable the category is by a searcher in that language, <strong>not</strong> the language the
+        books are written in.
+      </p>
+    {/if}
     {#if hasBenchmarks(report)}
       <p class="muted hint bench-note">
         Benchmarks are operator-supplied comparison points with their sources named

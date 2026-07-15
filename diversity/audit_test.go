@@ -85,24 +85,25 @@ func TestAuditorURIAndLabelBothCount(t *testing.T) {
 	}
 }
 
-// TestAuditorLanguageCoverage checks the per-category bilingual decomposition:
-// a category's Bilingual + EnglishOnly sum to Works, a work counts bilingual
-// once however many of its subjects carry a second-language label, and a work
-// matched only through English-only subjects lands entirely in EnglishOnly.
+// TestAuditorLanguageCoverage checks the per-language subject-label tally: a
+// work counts once per language however many of its subjects carry that
+// language, a work's languages union across its matching subjects, and a work
+// matched only through label-less subjects lands in no language column while
+// still counting toward Works.
 func TestAuditorLanguageCoverage(t *testing.T) {
 	a := NewAuditor(Default())
 
-	// 1: lgbtqia via two bilingual subjects -> counted bilingual once.
+	// 1: lgbtqia via two en+es subjects -> en:1, es:1 (counted once each).
 	a.Add([]SubjectRef{
-		{Labels: []string{"Lesbian fiction"}, Bilingual: true},
-		{Labels: []string{"Gay men"}, Bilingual: true},
+		{Labels: []string{"Lesbian fiction"}, Langs: []string{"en", "es"}},
+		{Labels: []string{"Gay men"}, Langs: []string{"en", "es"}},
 	})
-	// 2: lgbtqia via an English-only subject -> EnglishOnly.
-	a.Add([]SubjectRef{{Labels: []string{"Queer theory"}}})
-	// 3: lgbtqia through one bilingual and one English-only subject -> bilingual.
+	// 2: lgbtqia via an English-only subject -> en only.
+	a.Add([]SubjectRef{{Labels: []string{"Queer theory"}, Langs: []string{"en"}}})
+	// 3: lgbtqia through an en+fr and an English-only subject -> union en, fr.
 	a.Add([]SubjectRef{
-		{Labels: []string{"Transgender people"}, Bilingual: true},
-		{Labels: []string{"Gay men"}},
+		{Labels: []string{"Transgender people"}, Langs: []string{"en", "fr"}},
+		{Labels: []string{"Gay men"}, Langs: []string{"en"}},
 	})
 
 	r := a.Report()
@@ -110,14 +111,32 @@ func TestAuditorLanguageCoverage(t *testing.T) {
 	if lg.Works != 3 {
 		t.Fatalf("lgbtqia works = %d, want 3", lg.Works)
 	}
-	if lg.Bilingual != 2 {
-		t.Errorf("lgbtqia bilingual = %d, want 2 (works 1 and 3)", lg.Bilingual)
+	if lg.LabelLangWorks["en"] != 3 {
+		t.Errorf("lgbtqia en = %d, want 3 (all works carry an en label)", lg.LabelLangWorks["en"])
 	}
-	if lg.EnglishOnly != 1 {
-		t.Errorf("lgbtqia englishOnly = %d, want 1 (work 2)", lg.EnglishOnly)
+	if lg.LabelLangWorks["es"] != 1 {
+		t.Errorf("lgbtqia es = %d, want 1 (work 1)", lg.LabelLangWorks["es"])
 	}
-	if lg.Bilingual+lg.EnglishOnly != lg.Works {
-		t.Errorf("bilingual %d + englishOnly %d != works %d", lg.Bilingual, lg.EnglishOnly, lg.Works)
+	if lg.LabelLangWorks["fr"] != 1 {
+		t.Errorf("lgbtqia fr = %d, want 1 (work 3)", lg.LabelLangWorks["fr"])
+	}
+	// A language a term never carried is absent, not a zero entry.
+	if _, ok := lg.LabelLangWorks["de"]; ok {
+		t.Errorf("lgbtqia should carry no de entry, got %d", lg.LabelLangWorks["de"])
+	}
+}
+
+// TestAuditorLanglessSubject checks that a subject with no configured-language
+// labels (an uncontrolled heading) counts toward Works but no language column.
+func TestAuditorLanglessSubject(t *testing.T) {
+	a := NewAuditor(Default())
+	a.Add([]SubjectRef{{Labels: []string{"Gay men"}}}) // no Langs
+	lg := tally(a.Report(), "lgbtqia")
+	if lg.Works != 1 {
+		t.Fatalf("lgbtqia works = %d, want 1", lg.Works)
+	}
+	if len(lg.LabelLangWorks) != 0 {
+		t.Errorf("langless subject should populate no language column, got %v", lg.LabelLangWorks)
 	}
 }
 

@@ -137,7 +137,7 @@ describe("DiversityConfig", () => {
       totalWorks: 100,
       coveredWorks: 90,
       coverage: 0.9,
-      categories: [{ id: "lgbtqia-trans", label: "Transgender people", works: 82, shareCovered: 0.9, shareTotal: 0.82, bilingual: 0, englishOnly: 82 }],
+      categories: [{ id: "lgbtqia-trans", label: "Transgender people", works: 82, shareCovered: 0.9, shareTotal: 0.82 }],
     };
     previewDiversityCrosswalk.mockResolvedValue(previewReport);
     saveDiversityCrosswalk.mockResolvedValue({

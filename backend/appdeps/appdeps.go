@@ -356,6 +356,7 @@ func Build(ctx context.Context, cfg config.Config, logger *slog.Logger) (httpapi
 		logger.Warn("cataloging SPA not built into this binary; the browser UI shows a build notice (run 'npm run build' in backend/ui before 'go build'). The JSON API is unaffected.")
 	}
 	deps.ExtraFacets = cfg.ExtraFacets
+	deps.AuditLangs = cfg.AuditLangs
 	clientCfg := map[string]any{
 		"apiBase":   "", // same-origin
 		"localAuth": cfg.LocalAuth,

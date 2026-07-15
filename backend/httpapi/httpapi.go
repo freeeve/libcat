@@ -107,6 +107,10 @@ type Deps struct {
 	// ExtraFacets lists the extras keys the works view facets on
 	//, e.g. "sources" for provenance triage.
 	ExtraFacets []string
+	// AuditLangs lists the subject-label languages the diversity audit reports
+	// per-category coverage columns for, in column order (default en,es,fr).
+	// These count subject-heading reachability, not the book's own language.
+	AuditLangs []string
 	// ReadOnly puts the instance in demo mode: editorial and config writes are
 	// rejected (paired with a read-only blob store), while authentication,
 	// reads, search, and dry-run previews still work.
@@ -184,9 +188,9 @@ func New(deps Deps) http.Handler {
 				return nil
 			}
 		}
-		computeAudit := registerAudit(mux, ix, deps.Vocab, deps.Suggest, deps.Verifier, cws)
+		computeAudit := registerAudit(mux, ix, deps.Vocab, deps.AuditLangs, deps.Suggest, deps.Verifier, cws)
 		registerAuditSnapshots(mux, deps.Blob, deps.Verifier, computeAudit)
-		registerAuditCrosswalk(mux, deps.Blob, ix, deps.Vocab, deps.Verifier, cws)
+		registerAuditCrosswalk(mux, deps.Blob, ix, deps.Vocab, deps.AuditLangs, deps.Verifier, cws)
 		registerAuditTerms(mux, ix, deps.Vocab, deps.Verifier)
 	}
 	if deps.Authorities != nil && deps.Verifier != nil {

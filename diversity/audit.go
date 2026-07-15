@@ -1,6 +1,9 @@
 package diversity
 
-import "strings"
+import (
+	"maps"
+	"strings"
+)
 
 // SubjectRef is one of a work's subjects as the audit sees it: an authority URI
 // (may be empty for a bare-string ILS heading), its heading labels (may be empty
@@ -10,11 +13,12 @@ type SubjectRef struct {
 	URI    string
 	Labels []string
 	Scheme string
-	// Bilingual is true when this subject's controlled term is reachable in a
-	// second label language (a non-English prefLabel or altLabel), not just
-	// English -- the signal the language-coverage axis tallies per category. It
-	// is always false for an uncontrolled heading (no URI, so no term to consult).
-	Bilingual bool
+	// Langs are the label languages this subject's controlled term is reachable
+	// in -- the subset of the audit's configured languages for which the term
+	// carries a prefLabel or altLabel. It drives the per-language subject-label
+	// coverage columns (heading reachability, NOT the book's own language). It is
+	// empty for an uncontrolled heading (no URI, so no term to consult).
+	Langs []string
 }
 
 // Report is a coverage-first content-diversity audit of a corpus. It reports what
@@ -60,15 +64,14 @@ type CategoryTally struct {
 	Works        int     `json:"works"`
 	ShareCovered float64 `json:"shareCovered"`
 	ShareTotal   float64 `json:"shareTotal"`
-	// Bilingual and EnglishOnly decompose Works by whether the work reached this
-	// category through at least one term carrying a second-language label
-	// (Bilingual) or only through English-only controlled terms and uncontrolled
-	// headings (EnglishOnly). They sum to Works, so a stacked bar reads how much
-	// of a subject category is discoverable beyond English -- the bilingual
-	// Homosaurus coverage the audit could not surface when language was only a
-	// scope filter.
-	Bilingual   int `json:"bilingual"`
-	EnglishOnly int `json:"englishOnly"`
+	// LabelLangWorks counts, per configured subject-label language, how many of
+	// this category's works reached it through at least one controlled term
+	// carrying a label in that language -- subject-heading reachability, NOT the
+	// book's own language. A work counts once per language however many of its
+	// subjects carry it. The baseline language (usually "en") approaches Works;
+	// the gap to it is the collection's controlled-heading coverage in the other
+	// languages. Absent for a corpus audited with no configured languages.
+	LabelLangWorks map[string]int `json:"labelLangWorks,omitempty"`
 	// Benchmark/BenchmarkSource pass the operator's comparison share through
 	// from the crosswalk, when one was configured. The tool never grades the
 	// delta: a share against a benchmark is only as good as the coverage
@@ -81,17 +84,17 @@ type CategoryTally struct {
 // once from a crosswalk, Add each work's subjects, then read Report. It is not safe
 // for concurrent Add.
 type Auditor struct {
-	cw          *Crosswalk
-	total       int
-	covered     int
-	multi       MultiplicityTally
-	perCat      map[string]int
-	perCatBilng map[string]int
+	cw         *Crosswalk
+	total      int
+	covered    int
+	multi      MultiplicityTally
+	perCat     map[string]int
+	perCatLang map[string]map[string]int
 }
 
 // NewAuditor returns an Auditor over the given crosswalk.
 func NewAuditor(cw *Crosswalk) *Auditor {
-	return &Auditor{cw: cw, perCat: map[string]int{}, perCatBilng: map[string]int{}}
+	return &Auditor{cw: cw, perCat: map[string]int{}, perCatLang: map[string]map[string]int{}}
 }
 
 // Add folds one work's subjects into the tally. A work counts toward CoveredWorks
@@ -103,18 +106,29 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 	a.total++
 	covered := false
 	cats := map[string]bool{}
-	// bilng holds the categories this work reached through at least one
-	// second-language-labelled subject, so the per-category bilingual tally
-	// counts a work once even when several of its subjects carry es labels.
-	bilng := map[string]bool{}
+	// catLangs holds, per category this work reached, the set of subject-label
+	// languages it was reachable through, so the per-language tally counts a work
+	// once per language however many of its subjects carry that language.
+	catLangs := map[string]map[string]bool{}
+	note := func(id string, langs []string) {
+		cats[id] = true
+		if len(langs) == 0 {
+			return
+		}
+		seen := catLangs[id]
+		if seen == nil {
+			seen = map[string]bool{}
+			catLangs[id] = seen
+		}
+		for _, l := range langs {
+			seen[l] = true
+		}
+	}
 	for _, s := range subjects {
 		if s.URI != "" {
 			covered = true
 			for _, id := range a.cw.Categorize(s.URI, "", s.Scheme) {
-				cats[id] = true
-				if s.Bilingual {
-					bilng[id] = true
-				}
+				note(id, s.Langs)
 			}
 		}
 		for _, l := range s.Labels {
@@ -123,10 +137,7 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 			}
 			covered = true
 			for _, id := range a.cw.Categorize("", l, "") {
-				cats[id] = true
-				if s.Bilingual {
-					bilng[id] = true
-				}
+				note(id, s.Langs)
 			}
 		}
 	}
@@ -144,8 +155,15 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 	for id := range cats {
 		a.perCat[id]++
 	}
-	for id := range bilng {
-		a.perCatBilng[id]++
+	for id, langs := range catLangs {
+		perLang := a.perCatLang[id]
+		if perLang == nil {
+			perLang = map[string]int{}
+			a.perCatLang[id] = perLang
+		}
+		for l := range langs {
+			perLang[l]++
+		}
 	}
 }
 
@@ -158,8 +176,12 @@ func (a *Auditor) Report() Report {
 	}
 	for _, c := range a.cw.Categories() {
 		works := a.perCat[c.ID]
-		bilingual := a.perCatBilng[c.ID]
-		t := CategoryTally{ID: c.ID, Label: c.Label, Works: works, Bilingual: bilingual, EnglishOnly: works - bilingual, Benchmark: c.Benchmark, BenchmarkSource: c.BenchmarkSource}
+		var langWorks map[string]int
+		if perLang := a.perCatLang[c.ID]; len(perLang) > 0 {
+			langWorks = make(map[string]int, len(perLang))
+			maps.Copy(langWorks, perLang)
+		}
+		t := CategoryTally{ID: c.ID, Label: c.Label, Works: works, LabelLangWorks: langWorks, Benchmark: c.Benchmark, BenchmarkSource: c.BenchmarkSource}
 		if a.covered > 0 {
 			t.ShareCovered = float64(t.Works) / float64(a.covered)
 		}

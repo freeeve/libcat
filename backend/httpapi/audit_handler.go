@@ -28,7 +28,13 @@ type auditResponse struct {
 	Input string `json:"input"`
 	Scope string `json:"scope,omitempty"`
 	diversity.Report
-	Creators *creatorAudit `json:"creators,omitempty"`
+	// LabelLanguages is the configured subject-label language set, in column
+	// order -- the keys each category's LabelLangWorks map is reported against,
+	// so a consumer renders one column per language even where a category has
+	// zero coverage in it. These count subject-heading reachability, not the
+	// book's own language.
+	LabelLanguages []string      `json:"labelLanguages,omitempty"`
+	Creators       *creatorAudit `json:"creators,omitempty"`
 	// Simulation is the read-only "if we accepted the queue" projection,
 	// present only when ?simulate=queue was asked. The top-level report stays
 	// the current corpus so the screen can diff current vs projected.
@@ -227,13 +233,7 @@ func (f auditFilterSet) cacheKey() string {
 // semantics as `lcat audit --filter/--source`.
 // registerAudit returns its compute path so the snapshot recorder reuses the
 // same filters/cache/aggregation (registerAuditSnapshots).
-// bilingualLang is the second label language the audit counts as bilingual
-// coverage. Homosaurus publishes English and Spanish prefLabels, so a term
-// carrying an es label is discoverable beyond English; the axis reports en-only
-// vs en+es per subject category.
-const bilingualLang = "es"
-
-func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, svc *suggest.Service, verifier auth.TokenVerifier, cws *crosswalkSource) func(*http.Request) (auditResponse, auditFilterSet, int, error) {
+func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, auditLangs []string, svc *suggest.Service, verifier auth.TokenVerifier, cws *crosswalkSource) func(*http.Request) (auditResponse, auditFilterSet, int, error) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 	cache := &auditCache{}
 
@@ -273,7 +273,7 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, sv
 		a := diversity.NewAuditor(cw)
 		var sim *auditSimulation
 		if wantSim {
-			suggested, applied, works, serr := queuedRefsByWork(r.Context(), svc, simQ, vix)
+			suggested, applied, works, serr := queuedRefsByWork(r.Context(), svc, simQ, vix, auditLangs)
 			if serr != nil {
 				return auditResponse{}, nil, http.StatusInternalServerError, errScanFailed
 			}
@@ -283,7 +283,7 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, sv
 				if !include(s) {
 					continue
 				}
-				refs := summaryRefs(s, vix)
+				refs := summaryRefs(s, vix, auditLangs)
 				a.Add(refs)
 				proj.Add(append(refs, suggested[s.WorkID]...))
 			}
@@ -299,15 +299,16 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, sv
 				if !include(s) {
 					continue
 				}
-				a.Add(summaryRefs(s, vix))
+				a.Add(summaryRefs(s, vix, auditLangs))
 			}
 		}
 		resp := auditResponse{
-			Input:      "work index (cataloging corpus: suppressed included, tombstoned excluded)",
-			Scope:      filters.String(),
-			Report:     a.Report(),
-			Creators:   aggregateCreators(sums, include),
-			Simulation: sim,
+			Input:          "work index (cataloging corpus: suppressed included, tombstoned excluded)",
+			Scope:          filters.String(),
+			Report:         a.Report(),
+			LabelLanguages: auditLangs,
+			Creators:       aggregateCreators(sums, include),
+			Simulation:     sim,
 		}
 		if !wantSim {
 			cache.put(gen, key, resp)
@@ -371,10 +372,10 @@ func (f auditFilterSet) match(extra map[string]string) bool {
 // subject IRIs (scheme from the URI namespace), their heading labels, and the
 // uncontrolled tags -- the same three dimensions the CLI's json and graph inputs
 // feed, so all three surfaces measure the same thing.
-func summaryRefs(s *ingest.WorkSummary, vix *vocab.Index) []diversity.SubjectRef {
+func summaryRefs(s *ingest.WorkSummary, vix *vocab.Index, langs []string) []diversity.SubjectRef {
 	refs := make([]diversity.SubjectRef, 0, len(s.Subjects)+len(s.Headings)+len(s.Tags))
 	for _, uri := range s.Subjects {
-		refs = append(refs, diversity.SubjectRef{URI: uri, Scheme: project.SchemeForURI(uri), Bilingual: hasBilingualLabel(vix, uri)})
+		refs = append(refs, diversity.SubjectRef{URI: uri, Scheme: project.SchemeForURI(uri), Langs: subjectLabelLangs(vix, uri, langs)})
 	}
 	for _, h := range s.Headings {
 		refs = append(refs, diversity.SubjectRef{Labels: []string{h}})
@@ -421,11 +422,11 @@ func simulateQuery(r *http.Request) (suggest.QueueQuery, bool, error) {
 // work's current subjects. It also returns how many suggestions were folded in
 // and how many distinct works they touched. Read-only: it never mutates a
 // suggestion or a grain.
-func queuedRefsByWork(ctx context.Context, svc *suggest.Service, q suggest.QueueQuery, vix *vocab.Index) (map[string][]diversity.SubjectRef, int, int, error) {
+func queuedRefsByWork(ctx context.Context, svc *suggest.Service, q suggest.QueueQuery, vix *vocab.Index, langs []string) (map[string][]diversity.SubjectRef, int, int, error) {
 	byWork := map[string][]diversity.SubjectRef{}
 	applied := 0
 	err := svc.EachQueued(ctx, q, func(sg suggest.Suggestion) error {
-		byWork[sg.WorkID] = append(byWork[sg.WorkID], termToSubjectRef(sg.Term, vix))
+		byWork[sg.WorkID] = append(byWork[sg.WorkID], termToSubjectRef(sg.Term, vix, langs))
 		applied++
 		return nil
 	})
@@ -439,28 +440,34 @@ func queuedRefsByWork(ctx context.Context, svc *suggest.Service, q suggest.Queue
 // SubjectRef (uri,labels,scheme): the term id is the authority IRI for a
 // controlled term, the label feeds keyword matching, and the scheme rides along.
 // A work gains coverage from an accepted term, which is the projection's point.
-func termToSubjectRef(t vocab.TermRef, vix *vocab.Index) diversity.SubjectRef {
-	ref := diversity.SubjectRef{URI: t.ID, Scheme: t.Scheme, Bilingual: hasBilingualLabel(vix, t.ID)}
+func termToSubjectRef(t vocab.TermRef, vix *vocab.Index, langs []string) diversity.SubjectRef {
+	ref := diversity.SubjectRef{URI: t.ID, Scheme: t.Scheme, Langs: subjectLabelLangs(vix, t.ID, langs)}
 	if strings.TrimSpace(t.Label) != "" {
 		ref.Labels = []string{t.Label}
 	}
 	return ref
 }
 
-// hasBilingualLabel reports whether the controlled term at uri carries a label
-// in the audit's second language (bilingualLang), i.e. it is discoverable
-// beyond English. It is nil- and miss-safe: no vocab index, an empty uri, or an
-// unresolved term all read as English-only, so an uncontrolled heading never
-// counts as bilingual.
-func hasBilingualLabel(vix *vocab.Index, uri string) bool {
-	if vix == nil || uri == "" {
-		return false
+// subjectLabelLangs returns which of the configured audit languages the
+// controlled term at uri carries a label in -- the per-language subject-heading
+// reachability signal. It is nil- and miss-safe: no vocab index, an empty uri,
+// or an unresolved term all yield no languages, so an uncontrolled heading never
+// counts toward any language column. Order follows the configured list.
+func subjectLabelLangs(vix *vocab.Index, uri string, langs []string) []string {
+	if vix == nil || uri == "" || len(langs) == 0 {
+		return nil
 	}
 	t, ok := vix.Resolve(uri)
 	if !ok {
-		return false
+		return nil
 	}
-	return t.HasLabelLang(bilingualLang)
+	var out []string
+	for _, lang := range langs {
+		if t.HasLabelLang(lang) {
+			out = append(out, lang)
+		}
+	}
+	return out
 }
 
 // describeSimQuery renders the applied queue scope for the response's Filter

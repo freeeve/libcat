@@ -781,12 +781,12 @@ export interface DiversityCategory {
   works: number;
   shareCovered: number;
   shareTotal: number;
-  /** Label-language decomposition of works: bilingual reached this category
-   *  through at least one term carrying a second-language (es) label, englishOnly
-   *  only through English-only terms and uncontrolled headings. They sum to works,
-   *  surfacing how much of the category is discoverable beyond English. */
-  bilingual: number;
-  englishOnly: number;
+  /** Per subject-label language, the number of works in this category reached
+   *  through at least one controlled term carrying a label in that language --
+   *  subject-heading reachability, NOT the book's own language. Keys are the
+   *  audit's configured languages (see DiversityReport.labelLanguages); a
+   *  language a category has no coverage in is simply absent. */
+  labelLangWorks?: Record<string, number>;
   /** Operator-supplied comparison share in [0,1], with its named source --
    *  never a shipped target, never graded by the tool. */
   benchmark?: number;
@@ -801,6 +801,11 @@ export interface DiversityReport {
   coveredWorks: number;
   coverage: number;
   categories: DiversityCategory[];
+  /** The configured subject-label languages, in column order -- the keys each
+   *  category's labelLangWorks is reported against, so the UI renders one column
+   *  per language even where a category has zero coverage in it. Absent when the
+   *  deployment configured no audit languages. */
+  labelLanguages?: string[];
   /** Exclusive covered-works decomposition -- sums with the uncovered
    *  remainder to totalWorks, so it stacks honestly. */
   multiplicity?: { uncategorized: number; matchedOne: number; matchedMulti: number };

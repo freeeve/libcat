@@ -61,15 +61,15 @@ func seedAuditWork(t *testing.T, bs blob.Store, workID, uri, prefLabel, tag stri
 }
 
 type auditPage struct {
-	Input        string `json:"input"`
-	Scope        string `json:"scope"`
-	TotalWorks   int    `json:"totalWorks"`
-	CoveredWorks int    `json:"coveredWorks"`
-	Categories   []struct {
-		ID          string `json:"id"`
-		Works       int    `json:"works"`
-		Bilingual   int    `json:"bilingual"`
-		EnglishOnly int    `json:"englishOnly"`
+	Input          string   `json:"input"`
+	Scope          string   `json:"scope"`
+	TotalWorks     int      `json:"totalWorks"`
+	CoveredWorks   int      `json:"coveredWorks"`
+	LabelLanguages []string `json:"labelLanguages"`
+	Categories     []struct {
+		ID             string         `json:"id"`
+		Works          int            `json:"works"`
+		LabelLangWorks map[string]int `json:"labelLangWorks"`
 	} `json:"categories"`
 	Creators *struct {
 		TotalWorks       int     `json:"totalWorks"`
@@ -187,15 +187,16 @@ func TestAuditDiversity(t *testing.T) {
 	}
 }
 
-// homosaurusVocab loads a two-term Homosaurus index into a fresh blob: one
-// concept carrying an es prefLabel (bilingual) and one English-only, so the
-// audit's language-coverage axis has both a reachable-in-Spanish and an
-// English-only subject to tally.
+// homosaurusVocab loads a three-term Homosaurus index into a fresh blob: an
+// en+es concept, an en+fr concept, and an English-only one, so the audit's
+// per-language subject-label columns have distinct languages to tally.
 func homosaurusVocab(t *testing.T) *vocab.Index {
 	t.Helper()
 	const nq = `<https://homosaurus.org/v4/homoit0001235> <http://www.w3.org/2004/02/skos/core#prefLabel> "Transgender people"@en <authority:homosaurus> .
 <https://homosaurus.org/v4/homoit0001235> <http://www.w3.org/2004/02/skos/core#prefLabel> "Personas transgénero"@es <authority:homosaurus> .
 <https://homosaurus.org/v4/homoit0000900> <http://www.w3.org/2004/02/skos/core#prefLabel> "Genderqueer identity"@en <authority:homosaurus> .
+<https://homosaurus.org/v4/homoit0000901> <http://www.w3.org/2004/02/skos/core#prefLabel> "Two-spirit people"@en <authority:homosaurus> .
+<https://homosaurus.org/v4/homoit0000901> <http://www.w3.org/2004/02/skos/core#altLabel> "Personnes bispirituelles"@fr <authority:homosaurus> .
 `
 	bs := blob.NewMem()
 	if _, err := bs.Put(t.Context(), "auth/homosaurus.nq", []byte(nq), blob.PutOptions{}); err != nil {
@@ -208,45 +209,48 @@ func homosaurusVocab(t *testing.T) *vocab.Index {
 	return ix
 }
 
-// TestAuditDiversityLanguageCoverage checks the per-category bilingual axis: a
-// work subjected with a Homosaurus term that carries a Spanish label counts as
-// bilingual, one subjected with an English-only term counts as englishOnly, and
-// the two sum to the category's works -- the coverage language was only a scope
-// filter before, so it is asserted here as a reported axis.
+// TestAuditDiversityLanguageCoverage checks the per-language subject-label
+// columns: works subjected with Homosaurus terms carrying es / fr labels count
+// under those language keys, the baseline en counts every controlled subject,
+// and the response echoes the configured language column set.
 func TestAuditDiversityLanguageCoverage(t *testing.T) {
 	bs := blob.NewMem()
 	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
-	h := New(Deps{Blob: bs, DB: store.NewMem(), Vocab: homosaurusVocab(t), Verifier: verifier})
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Vocab: homosaurusVocab(t), AuditLangs: []string{"en", "es", "fr"}, Verifier: verifier})
 
-	// wA: bilingual Homosaurus subject (en+es) -> lgbtqia via scheme, bilingual.
+	// wA: en+es Homosaurus subject -> lgbtqia via scheme.
 	seedAuditWork(t, bs, "wauditlang0a", "https://homosaurus.org/v4/homoit0001235", "Transgender people", "", nil)
-	// wB: English-only Homosaurus subject -> lgbtqia via scheme, englishOnly.
+	// wB: English-only Homosaurus subject.
 	seedAuditWork(t, bs, "wauditlang0b", "https://homosaurus.org/v4/homoit0000900", "Genderqueer identity", "", nil)
+	// wC: en+fr Homosaurus subject.
+	seedAuditWork(t, bs, "wauditlang0c", "https://homosaurus.org/v4/homoit0000901", "Two-spirit people", "", nil)
 
 	p := getAudit(t, h, "")
-	var lg struct {
-		works, bilingual, englishOnly int
-		found                         bool
+	if got := p.LabelLanguages; len(got) != 3 || got[0] != "en" || got[1] != "es" || got[2] != "fr" {
+		t.Errorf("labelLanguages = %v, want [en es fr]", got)
 	}
+	var lg map[string]int
+	var works int
+	var found bool
 	for _, c := range p.Categories {
 		if c.ID == "lgbtqia" {
-			lg.works, lg.bilingual, lg.englishOnly, lg.found = c.Works, c.Bilingual, c.EnglishOnly, true
+			lg, works, found = c.LabelLangWorks, c.Works, true
 		}
 	}
-	if !lg.found {
+	if !found {
 		t.Fatal("lgbtqia category missing from report")
 	}
-	if lg.works != 2 {
-		t.Fatalf("lgbtqia works = %d, want 2", lg.works)
+	if works != 3 {
+		t.Fatalf("lgbtqia works = %d, want 3", works)
 	}
-	if lg.bilingual != 1 {
-		t.Errorf("lgbtqia bilingual = %d, want 1 (the en+es term)", lg.bilingual)
+	if lg["en"] != 3 {
+		t.Errorf("lgbtqia en = %d, want 3 (every controlled subject has an en label)", lg["en"])
 	}
-	if lg.englishOnly != 1 {
-		t.Errorf("lgbtqia englishOnly = %d, want 1 (the en-only term)", lg.englishOnly)
+	if lg["es"] != 1 {
+		t.Errorf("lgbtqia es = %d, want 1 (the en+es term)", lg["es"])
 	}
-	if lg.bilingual+lg.englishOnly != lg.works {
-		t.Errorf("bilingual %d + englishOnly %d != works %d", lg.bilingual, lg.englishOnly, lg.works)
+	if lg["fr"] != 1 {
+		t.Errorf("lgbtqia fr = %d, want 1 (the en+fr altLabel term)", lg["fr"])
 	}
 }
 
