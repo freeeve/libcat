@@ -74,7 +74,7 @@ func (r record) Instance() codexbf.Instance {
 // the primary author, the title, and the language, so a book's format records cluster
 // into one Work.
 func (r record) Identity() identity.Record {
-	rec := identity.Record{Author: r.primaryAuthor(), Title: r.ub.Book.Title, Lang: "eng"}
+	rec := identity.Record{Author: r.primaryAuthor(), Title: r.ub.Book.Title, Langs: []string{"eng"}}
 	key := "hardcover:" + strconv.Itoa(r.ub.Book.ID)
 	if r.fi.format != "" {
 		key += ":" + r.fi.format

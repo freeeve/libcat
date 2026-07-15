@@ -28,7 +28,7 @@ type stubRecord struct {
 }
 
 func (r stubRecord) Identity() identity.Record {
-	rec := identity.Record{Author: r.author, Title: r.title, Lang: r.lang}
+	rec := identity.Record{Author: r.author, Title: r.title, Langs: []string{r.lang}}
 	rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, r.id))
 	if r.isbn != "" {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeISBN, r.isbn))

@@ -94,8 +94,8 @@ func TestRecordsMappedFields(t *testing.T) {
 	if !strings.Contains(id0.Author, "nquads:2") || id0.Title != "Second Work" {
 		t.Fatalf("first record identity = %+v", id0)
 	}
-	if id0.Lang != "fre" {
-		t.Fatalf("language table not applied: %q", id0.Lang)
+	if len(id0.Langs) != 1 || id0.Langs[0] != "fre" {
+		t.Fatalf("language table not applied: %v", id0.Langs)
 	}
 	keys := map[string]bool{}
 	for _, k := range id0.ProviderKeys {
@@ -339,8 +339,8 @@ func TestCollFeedRecords(t *testing.T) {
 	if pid.Author != "coll:7 Feinberg, Leslie" || pid.Author != eid.Author || pid.Author != fid.Author {
 		t.Fatalf("group identity authors = %q / %q / %q", pid.Author, eid.Author, fid.Author)
 	}
-	if pid.Lang != "eng" {
-		t.Fatalf("identity language = %q, want the fixed eng (work carries fre first)", pid.Lang)
+	if len(pid.Langs) != 1 || pid.Langs[0] != "eng" {
+		t.Fatalf("identity language = %v, want the fixed eng (work carries fre first)", pid.Langs)
 	}
 	if !slices.Contains(pid.ProviderKeys, string(identity.ProviderKey(identity.SchemeID, "coll:7:physical"))) ||
 		!slices.Contains(eid.ProviderKeys, string(identity.ProviderKey(identity.SchemeID, "coll:7:ebook"))) ||

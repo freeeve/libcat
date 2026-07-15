@@ -43,7 +43,7 @@ func TestRecordsExplodeByFormat(t *testing.T) {
 		t.Fatalf("Herculine records = %d, want 2", len(herculine))
 	}
 	a, b := herculine[0].Identity(), herculine[1].Identity()
-	if a.Author != b.Author || a.Title != b.Title || a.Lang != b.Lang {
+	if a.Author != b.Author || a.Title != b.Title || !reflect.DeepEqual(a.Langs, b.Langs) {
 		t.Errorf("Herculine format records must share cluster fields: %+v vs %+v", a, b)
 	}
 	if a.Author != "Byron, Grace" {

@@ -12,8 +12,16 @@ import (
 const (
 	SchemeISBN = "isbn"
 	SchemeISSN = "issn"
-	SchemeID   = "id" // provider-local identifier (e.g. an OverDrive title/reserve id)
+	SchemeASIN = "asin" // Amazon Standard Identification Number (cross-provider edition key)
+	SchemeID   = "id"   // provider-local identifier (e.g. an OverDrive title/reserve id)
 )
+
+// SourceASIN is the bf:source label a provider stamps on an ASIN identifier so
+// the scanner recovers it as SchemeASIN (a cross-provider same-edition merge key)
+// rather than an opaque provider-local id. It names the assigning agency, so the
+// mapping is provider-neutral: any feed that carries an Amazon ASIN bridges to
+// any other on the shared asin: key.
+const SourceASIN = "amazon"
 
 // ProviderKey namespaces an identifier value by scheme, e.g.
 // ProviderKey(SchemeISBN, "978...") -> "isbn:978...".
@@ -29,6 +37,7 @@ const (
 	bfIdentifiedBy     = bfNS + "identifiedBy"
 	bfIsbn             = bfNS + "Isbn"
 	bfIssn             = bfNS + "Issn"
+	bfSource           = bfNS + "source"
 	bfTitle            = bfNS + "title"
 	bfMainTitle        = bfNS + "mainTitle"
 	bfContribution     = bfNS + "contribution"
@@ -96,7 +105,7 @@ func ScanDataset(ds *rdf.Dataset) GrainIdentity {
 			}
 			gi.Works = append(gi.Works, WorkIdentity{
 				WorkID:     fragID(work.Value, "Work"),
-				ClusterKey: WorkKey(workAuthor(g, work), workTitle(g, work), workLang(g, work)),
+				ClusterKey: WorkKeySet(workAuthor(g, work), workTitle(g, work), workLangs(g, work)),
 			})
 		}
 		for _, inst := range g.SubjectsOfType(bfInstance) {
@@ -144,16 +153,32 @@ func fragID(iri, suffix string) string {
 }
 
 // identifierScheme namespaces an identifier by its BIBFRAME type: bf:Isbn ->
-// isbn, bf:Issn -> issn, anything else -> id.
+// isbn, bf:Issn -> issn, a local identifier whose bf:source marks it as an ASIN
+// -> asin, anything else -> id.
 func identifierScheme(g rdf.GraphQuery, node rdf.Term) string {
 	switch {
 	case g.HasType(node, bfIsbn):
 		return SchemeISBN
 	case g.HasType(node, bfIssn):
 		return SchemeISSN
+	case identifierSourceLabel(g, node) == SourceASIN:
+		return SchemeASIN
 	default:
 		return SchemeID
 	}
+}
+
+// identifierSourceLabel returns the rdfs:label of an identifier node's bf:source
+// (the assigning agency), or "" when it has none. It distinguishes local
+// identifiers that share the bf:Identifier type but name different schemes
+// through their source (e.g. an ASIN vs an OverDrive title id).
+func identifierSourceLabel(g rdf.GraphQuery, node rdf.Term) string {
+	src, ok := g.Object(node, bfSource)
+	if !ok {
+		return ""
+	}
+	label, _ := g.Literal(src, rdfsLabel)
+	return label
 }
 
 // workAuthor returns the label of a Work's primary contribution agent, or "".
@@ -181,11 +206,15 @@ func workTitle(g rdf.GraphQuery, work rdf.Term) string {
 	return ""
 }
 
-// workLang returns a Work's language code (the local name of its language URI),
-// or "".
-func workLang(g rdf.GraphQuery, work rdf.Term) string {
-	if l, ok := g.Object(work, bfLanguage); ok {
-		return rdf.LocalName(l.Value)
+// workLangs returns a Work's language codes (the local names of its bf:language
+// URIs), in graph order. WorkKeySet sorts and dedupes them, so the recovered
+// cluster key matches the one ingest computes from the same language set.
+func workLangs(g rdf.GraphQuery, work rdf.Term) []string {
+	var out []string
+	for _, l := range g.Objects(work, bfLanguage) {
+		if name := rdf.LocalName(l.Value); name != "" {
+			out = append(out, name)
+		}
 	}
-	return ""
+	return out
 }

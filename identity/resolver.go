@@ -16,7 +16,11 @@ type Record struct {
 	ProviderKeys []string
 	Author       string
 	Title        string
-	Lang         string
+	// Langs is the work's full language set. The cluster key sorts and dedupes
+	// it, so translations stay distinct Works (one Work per language) while a
+	// flattened multi-language node keys on a stable set, not an arbitrary first
+	// language.
+	Langs []string
 }
 
 // Assignment is the resolved identity for a record: its stable Instance and Work
@@ -147,7 +151,7 @@ func (r *Resolver) Resolve(rec Record) Assignment {
 		var ok bool
 		workID, ok = r.workByInst[instanceID]
 		if !ok {
-			key := WorkKey(rec.Author, rec.Title, rec.Lang)
+			key := WorkKeySet(rec.Author, rec.Title, rec.Langs)
 			if wid, seen := r.workByKey[key]; key != "" && seen {
 				workID = wid
 			} else {

@@ -12,6 +12,7 @@ package identity
 import (
 	"crypto/rand"
 	"encoding/base32"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -53,22 +54,55 @@ func Mint(prefix string) string {
 const keySep = "\x1f"
 
 // WorkKey builds the computed clustering key from the primary author, the title,
-// and the original language -- the MARC 1XX+240 access-point key (ARCHITECTURE
-// §4). Two Instances with the same key cluster into one Work unless an external
-// work id or an editorial merge/split decision says otherwise. The title is the
-// main title only (not the subtitle), so editions that vary a subtitle still
+// and one language -- the single-language form of WorkKeySet, kept for callers
+// that carry exactly one language code (e.g. the LC Hub enricher). It equals
+// WorkKeySet(author, title, []string{lang}).
+func WorkKey(author, title, lang string) string {
+	return WorkKeySet(author, title, []string{lang})
+}
+
+// WorkKeySet builds the computed clustering key from the primary author, the
+// title, and the work's full language set -- the MARC 1XX+240 access-point key
+// (ARCHITECTURE §4), language-specific so translations stay distinct Works
+// (BIBFRAME one-Work-per-language). Two Instances with the same key cluster into
+// one Work unless an editorial merge/split decision says otherwise. The title is
+// the main title only (not the subtitle), so editions that vary a subtitle still
 // cluster.
 //
+// The languages are lowercased, trimmed, deduped, and sorted, so the key is
+// order-independent: a Work a source flattened to several languages keys on the
+// stable set rather than an arbitrary first language, and a genuinely
+// multilingual item (facing-page bilingual) keeps its own multi-language
+// identity instead of colliding with a single-language sibling. A single
+// language yields the same string as the old single-field key.
+//
 // A record with no main title has no usable access point: clustering title-less
-// records by author (or by nothing) would merge unrelated books, so WorkKey
+// records by author (or by nothing) would merge unrelated books, so WorkKeySet
 // returns "" and the caller must mint instead of clustering.
-func WorkKey(author, title, lang string) string {
+func WorkKeySet(author, title string, langs []string) string {
 	t := NormalizeKey(title)
 	if t == "" {
 		return ""
 	}
-	return NormalizeKey(author) + keySep + t + keySep +
-		strings.ToLower(strings.TrimSpace(lang))
+	return NormalizeKey(author) + keySep + t + keySep + normalizeLangs(langs)
+}
+
+// normalizeLangs lowercases, trims, dedupes, and sorts a language set, joining
+// it with spaces into the language component of a work key. An empty set (or one
+// of only blanks) yields "", matching the old empty-language key.
+func normalizeLangs(langs []string) string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(langs))
+	for _, l := range langs {
+		lc := strings.ToLower(strings.TrimSpace(l))
+		if lc == "" || seen[lc] {
+			continue
+		}
+		seen[lc] = true
+		out = append(out, lc)
+	}
+	sort.Strings(out)
+	return strings.Join(out, " ")
 }
 
 // NormalizeKey folds a string to its clustering-key form: Unicode-lowercased,

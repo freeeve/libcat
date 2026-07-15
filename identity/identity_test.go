@@ -75,3 +75,33 @@ func TestWorkKeyClustering(t *testing.T) {
 		t.Error("different title should not cluster")
 	}
 }
+
+// TestWorkKeySetLanguageSet locks the language-set clustering key: a single
+// language equals the old single-field key, the set is order-independent and
+// deduped, and a genuinely multilingual work keeps its own identity distinct
+// from a single-language sibling (one Work per language).
+func TestWorkKeySetLanguageSet(t *testing.T) {
+	// A single language yields the identical string to the old key, so callers
+	// that still pass one code (e.g. the LC Hub enricher) are unaffected.
+	if got, want := WorkKeySet("Byron, Grace", "Herculine", []string{"eng"}), WorkKey("Byron, Grace", "Herculine", "eng"); got != want {
+		t.Errorf("single-language set = %q, want %q", got, want)
+	}
+
+	// Order-independent and deduped: a source's language order (and repeats)
+	// must not change the key, so a flattened work re-ingests to a stable id.
+	if a, b := WorkKeySet("A", "T", []string{"spa", "eng", "eng"}), WorkKeySet("A", "T", []string{"eng", "spa"}); a != b {
+		t.Errorf("language set is order/dedup sensitive: %q vs %q", a, b)
+	}
+
+	// A legit multilingual work (facing-page bilingual) keeps its own identity:
+	// it must not collide with a single-language sibling.
+	multi := WorkKeySet("A", "T", []string{"eng", "spa"})
+	if multi == WorkKeySet("A", "T", []string{"eng"}) || multi == WorkKeySet("A", "T", []string{"spa"}) {
+		t.Error("multilingual work must not share a single-language sibling's key")
+	}
+
+	// Blank and empty language sets fold to the empty-language key.
+	if got, want := WorkKeySet("A", "T", []string{"  ", ""}), WorkKeySet("A", "T", nil); got != want {
+		t.Errorf("blank languages = %q, want empty-language key %q", got, want)
+	}
+}

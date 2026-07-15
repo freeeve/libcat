@@ -143,7 +143,7 @@ func TestIdentityRoundTrip(t *testing.T) {
 	}
 	// The recovered cluster key must match what ingest would compute.
 	rec := it.Identity()
-	if want := identity.WorkKey(rec.Author, rec.Title, rec.Lang); len(gi.Works) != 1 || gi.Works[0].ClusterKey != want {
+	if want := identity.WorkKeySet(rec.Author, rec.Title, rec.Langs); len(gi.Works) != 1 || gi.Works[0].ClusterKey != want {
 		t.Errorf("work cluster key = %+v, want %q", gi.Works, want)
 	}
 }

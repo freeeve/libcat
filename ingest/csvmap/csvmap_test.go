@@ -73,7 +73,7 @@ func TestRecordsMappedColumns(t *testing.T) {
 	}
 
 	id0 := recs[0].Identity()
-	if id0.Title != "First Book" || id0.Lang != "ger" {
+	if id0.Title != "First Book" || len(id0.Langs) != 1 || id0.Langs[0] != "ger" {
 		t.Fatalf("identity = %+v", id0)
 	}
 	if !strings.HasPrefix(id0.Author, "mylib:r1 ") || !strings.Contains(id0.Author, "Author, Ada") {
@@ -102,7 +102,7 @@ func TestRecordsMappedColumns(t *testing.T) {
 
 	// Quoted comma-formed name passes through; default language applies.
 	w1 := recs[1].Work()
-	if w1.Contributions[0].Label != "Carol, City" || recs[1].Identity().Lang != "eng" {
+	if id1 := recs[1].Identity(); w1.Contributions[0].Label != "Carol, City" || len(id1.Langs) != 1 || id1.Langs[0] != "eng" {
 		t.Fatalf("row 2 = %+v", w1.Contributions)
 	}
 

@@ -27,7 +27,7 @@ func sampleItem() Item {
 		Languages: []NamedID{{ID: "en", Name: "English"}},
 		Subjects:  []NamedID{{ID: "26", Name: "Fiction"}, {ID: "1224", Name: "LGBTQIA+ (Fiction)"}},
 		BISAC:     []BISAC{{Code: "FIC073000", Description: "Fiction / LGBTQ+ / Transgender"}},
-		Formats:   []Format{{Identifiers: []Identifier{{Type: "ISBN", Value: "9781668128251"}}}},
+		Formats:   []Format{{Identifiers: []Identifier{{Type: "ISBN", Value: "9781668128251"}, {Type: "ASIN", Value: "B0CXYZ1234"}}}},
 	}
 }
 

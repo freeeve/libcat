@@ -33,7 +33,7 @@ func (r record) Identity() identity.Record {
 	rec := identity.Record{
 		Author: r.idKey() + " " + firstAuthor(r.creators),
 		Title:  r.title,
-		Lang:   r.language(),
+		Langs:  []string{r.language()},
 	}
 	if r.id != "" {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, r.providerID()))

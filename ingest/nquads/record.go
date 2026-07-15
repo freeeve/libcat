@@ -96,14 +96,10 @@ func (r record) Identity() identity.Record {
 	if len(r.w.creators) > 0 {
 		author = lastFirst(r.w.creators[0])
 	}
-	lang := r.m.IdentityLanguage
-	if lang == "" {
-		lang = r.lang()
-	}
 	rec := identity.Record{
 		Author: r.idScheme + ":" + r.w.group + " " + author,
 		Title:  title,
-		Lang:   lang,
+		Langs:  r.identityLangs(),
 	}
 	rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, r.providerID()))
 	for _, isbn := range r.w.isbns {
@@ -117,13 +113,20 @@ func (r record) Identity() identity.Record {
 	return rec
 }
 
-// lang is the work's first ISO 639-2/B language, defaulting per the mapping
-// when the export carries none.
-func (r record) lang() string {
-	if len(r.w.languages) > 0 {
-		return r.w.languages[0]
+// identityLangs is the language set folded into the record's resolution
+// identity. IdentityLanguage, when set, fixes it to a single language (so
+// freshly-minted WorkIDs match a replaced provider that keyed everything under
+// one language); otherwise it is the export's full language set, defaulting per
+// the mapping when the export carries none. The work key sorts the set, so a
+// multilingual work keeps a stable per-language-set identity.
+func (r record) identityLangs() []string {
+	if r.m.IdentityLanguage != "" {
+		return []string{r.m.IdentityLanguage}
 	}
-	return r.m.DefaultLanguage
+	if len(r.w.languages) > 0 {
+		return r.w.languages
+	}
+	return []string{r.m.DefaultLanguage}
 }
 
 // Work returns the export work's BIBFRAME Work: the mapping's class, title

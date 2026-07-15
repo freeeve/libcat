@@ -173,9 +173,7 @@ func recordIdentity(bib *codexbf.BIBFRAME, controlNumber string) identity.Record
 			}
 		}
 	}
-	if len(bib.Work.Languages) > 0 {
-		rec.Lang = bib.Work.Languages[0]
-	}
+	rec.Langs = bib.Work.Languages
 	if controlNumber != "" {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, controlNumber))
 	}

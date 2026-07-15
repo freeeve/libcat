@@ -91,6 +91,13 @@ func (it Item) Instance() codexbf.Instance {
 	for _, isbn := range it.ISBNs() {
 		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Isbn", Value: isbn})
 	}
+	// The ASIN is a local identifier tagged with the assigning agency, so it
+	// round-trips as a first-class cross-provider edition key (identity.SchemeASIN)
+	// rather than an opaque local id -- letting the same title on another
+	// ASIN-carrying feed merge on the shared edition.
+	for _, asin := range it.ASINs() {
+		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Identifier", Value: asin, Source: identity.SourceASIN})
+	}
 	// The OverDrive title id and Reserve ID are local identifiers, distinguished by
 	// bf:source: the title id carries "overdrive", the Reserve ID
 	// "overdrive-reserve" so the availability adapter can recover it unambiguously.
@@ -123,21 +130,24 @@ func (it Item) WorkID() string {
 
 // Identity returns the record's resolution keys and clustering fields for
 // identity.Resolver to assign stable Work/Instance ids (ARCHITECTURE §4). The
-// keys are the OverDrive title id, each ISBN, and the Reserve ID, namespaced by
-// scheme -- ordered so the most specific (the title id) resolves first and ISBN
-// serves as the cross-provider merge key. The clustering fields are the primary
-// author, the main title, and the original language.
+// keys are the OverDrive title id, each ISBN, each ASIN, and the Reserve ID,
+// namespaced by scheme -- ordered so the most specific (the title id) resolves
+// first and ISBN/ASIN serve as the cross-provider edition-merge keys. The
+// clustering fields are the primary author, the main title, and the language set.
 func (it Item) Identity() identity.Record {
 	rec := identity.Record{
 		Author: it.primaryAuthor(),
 		Title:  it.Title,
-		Lang:   it.primaryLang(),
+		Langs:  it.langs(),
 	}
 	if it.ID != "" {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, it.ID))
 	}
 	for _, isbn := range it.ISBNs() {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeISBN, isbn))
+	}
+	for _, asin := range it.ASINs() {
+		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeASIN, asin))
 	}
 	if it.ReserveID != "" {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, it.ReserveID))
@@ -154,15 +164,21 @@ func (it Item) primaryAuthor() string {
 	return ""
 }
 
-// primaryLang returns the ISO 639-2 code of the item's first mappable language,
-// or "".
-func (it Item) primaryLang() string {
+// langs returns the ISO 639-2 codes of the item's mappable languages, in feed
+// order, deduped. The work key sorts the set, so a multilingual title keeps a
+// stable per-language-set identity rather than an arbitrary first language.
+func (it Item) langs() []string {
+	var out []string
+	seen := map[string]bool{}
 	for _, l := range it.Languages {
-		if code := iso639_2(l.ID); code != "" {
-			return code
+		code := iso639_2(l.ID)
+		if code == "" || seen[code] {
+			continue
 		}
+		seen[code] = true
+		out = append(out, code)
 	}
-	return ""
+	return out
 }
 
 // bibContributions maps the item's creators to BIBFRAME contributions, marking

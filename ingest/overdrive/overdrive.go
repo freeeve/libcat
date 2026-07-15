@@ -171,6 +171,22 @@ func (it Item) ISBNs() []string {
 	return out
 }
 
+// ASINs returns the deduped Amazon ASINs across all formats, in first-seen
+// order. The ASIN is a same-edition cross-provider merge key (identity.SchemeASIN).
+func (it Item) ASINs() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, f := range it.Formats {
+		for _, id := range f.Identifiers {
+			if id.Type == "ASIN" && id.Value != "" && !seen[id.Value] {
+				seen[id.Value] = true
+				out = append(out, id.Value)
+			}
+		}
+	}
+	return out
+}
+
 // relatorCode maps an OverDrive creator role to its MARC/LoC relator code, or "" when
 // the role has no controlled mapping (bibframe.go turns a code into a relators IRI).
 func relatorCode(role string) string {

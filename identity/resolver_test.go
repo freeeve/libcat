@@ -102,7 +102,7 @@ func TestResolveMintsThenClusters(t *testing.T) {
 	// The ebook: nothing known yet, so both ids are minted.
 	a := r.Resolve(Record{
 		ProviderKeys: []string{"overdrive:1", "isbn:AAA"},
-		Author:       "Byron, Grace", Title: "Herculine", Lang: "eng",
+		Author:       "Byron, Grace", Title: "Herculine", Langs: []string{"eng"},
 	})
 	if !a.MintedInstance || !a.MintedWork {
 		t.Fatalf("first record should mint both ids: %+v", a)
@@ -112,7 +112,7 @@ func TestResolveMintsThenClusters(t *testing.T) {
 	// -> a new Instance that clusters onto the same Work.
 	b := r.Resolve(Record{
 		ProviderKeys: []string{"overdrive:2", "isbn:BBB"},
-		Author:       "Byron, Grace", Title: "Herculine", Lang: "eng",
+		Author:       "Byron, Grace", Title: "Herculine", Langs: []string{"eng"},
 	})
 	if b.InstanceID == a.InstanceID {
 		t.Error("distinct editions must be distinct Instances")
@@ -127,9 +127,9 @@ func TestResolveMintsThenClusters(t *testing.T) {
 
 func TestResolveByISBNAcrossProviders(t *testing.T) {
 	r := NewResolver()
-	a := r.Resolve(Record{ProviderKeys: []string{"overdrive:1", "isbn:AAA"}, Author: "A", Title: "T", Lang: "eng"})
+	a := r.Resolve(Record{ProviderKeys: []string{"overdrive:1", "isbn:AAA"}, Author: "A", Title: "T", Langs: []string{"eng"}})
 	// A different provider id but the same ISBN is the same Instance (§9 merge).
-	b := r.Resolve(Record{ProviderKeys: []string{"hoopla:9", "isbn:AAA"}, Author: "A", Title: "T", Lang: "eng"})
+	b := r.Resolve(Record{ProviderKeys: []string{"hoopla:9", "isbn:AAA"}, Author: "A", Title: "T", Langs: []string{"eng"}})
 	if b.InstanceID != a.InstanceID {
 		t.Errorf("same ISBN should resolve to the same Instance: %s vs %s", b.InstanceID, a.InstanceID)
 	}
@@ -141,14 +141,14 @@ func TestResolveByISBNAcrossProviders(t *testing.T) {
 // TestReingestStable simulates a second ingest seeded from the first ingest's
 // committed identity: the same feed must resolve to identical ids with no minting.
 func TestReingestStable(t *testing.T) {
-	rec := Record{ProviderKeys: []string{"overdrive:1", "isbn:AAA"}, Author: "A", Title: "T", Lang: "eng"}
+	rec := Record{ProviderKeys: []string{"overdrive:1", "isbn:AAA"}, Author: "A", Title: "T", Langs: []string{"eng"}}
 
 	first := NewResolver()
 	a := first.Resolve(rec)
 
 	second := NewResolver()
 	second.SeedInstance(a.InstanceID, a.WorkID, rec.ProviderKeys)
-	second.SeedWorkKey(WorkKey(rec.Author, rec.Title, rec.Lang), a.WorkID)
+	second.SeedWorkKey(WorkKeySet(rec.Author, rec.Title, rec.Langs), a.WorkID)
 
 	b := second.Resolve(rec)
 	if b.InstanceID != a.InstanceID || b.WorkID != a.WorkID {
@@ -161,10 +161,10 @@ func TestReingestStable(t *testing.T) {
 
 func TestEditorialMergeOverrides(t *testing.T) {
 	r := NewResolver()
-	a := r.Resolve(Record{ProviderKeys: []string{"overdrive:1"}, Author: "A", Title: "T", Lang: "eng"})
+	a := r.Resolve(Record{ProviderKeys: []string{"overdrive:1"}, Author: "A", Title: "T", Langs: []string{"eng"}})
 	// A curator merges a's Work into another Work id.
 	r.SeedMerge(a.WorkID, "wcanonical")
-	b := r.Resolve(Record{ProviderKeys: []string{"overdrive:1"}, Author: "A", Title: "T", Lang: "eng"})
+	b := r.Resolve(Record{ProviderKeys: []string{"overdrive:1"}, Author: "A", Title: "T", Langs: []string{"eng"}})
 	if b.WorkID != "wcanonical" {
 		t.Errorf("merge should override: got %s, want wcanonical", b.WorkID)
 	}
@@ -172,10 +172,10 @@ func TestEditorialMergeOverrides(t *testing.T) {
 
 func TestConflictSurfaced(t *testing.T) {
 	r := NewResolver()
-	r.Resolve(Record{ProviderKeys: []string{"isbn:AAA"}, Author: "A", Title: "T", Lang: "eng"})
-	r.Resolve(Record{ProviderKeys: []string{"isbn:BBB"}, Author: "A", Title: "T2", Lang: "eng"})
+	r.Resolve(Record{ProviderKeys: []string{"isbn:AAA"}, Author: "A", Title: "T", Langs: []string{"eng"}})
+	r.Resolve(Record{ProviderKeys: []string{"isbn:BBB"}, Author: "A", Title: "T2", Langs: []string{"eng"}})
 	// A record whose two keys already point at two different Instances is a conflict.
-	r.Resolve(Record{ProviderKeys: []string{"isbn:AAA", "isbn:BBB"}, Author: "A", Title: "T", Lang: "eng"})
+	r.Resolve(Record{ProviderKeys: []string{"isbn:AAA", "isbn:BBB"}, Author: "A", Title: "T", Langs: []string{"eng"}})
 	if len(r.Conflicts()) == 0 {
 		t.Error("expected a provider-key conflict to be surfaced")
 	}
@@ -192,7 +192,7 @@ func TestSplitPinOverridesCluster(t *testing.T) {
 	r.SeedPin("i2", "wnew")
 
 	rec := func(isbn string) Record {
-		return Record{ProviderKeys: []string{ProviderKey(SchemeISBN, isbn)}, Author: "A", Title: "T", Lang: "eng"}
+		return Record{ProviderKeys: []string{ProviderKey(SchemeISBN, isbn)}, Author: "A", Title: "T", Langs: []string{"eng"}}
 	}
 	if a := r.Resolve(rec("111")); a.WorkID != "wshared" {
 		t.Errorf("unpinned instance resolved to %s, want wshared", a.WorkID)
@@ -235,7 +235,7 @@ func TestConflictingPinIsReportedNotSilentlyDropped(t *testing.T) {
 func TestEmptyKeyNeverClusters(t *testing.T) {
 	r := NewResolver()
 	a := r.Resolve(Record{ProviderKeys: []string{"overdrive:1"}})
-	b := r.Resolve(Record{ProviderKeys: []string{"overdrive:2"}, Author: "A", Lang: "eng"})
+	b := r.Resolve(Record{ProviderKeys: []string{"overdrive:2"}, Author: "A", Langs: []string{"eng"}})
 	if a.WorkID == b.WorkID {
 		t.Errorf("title-less records must not cluster: both got %s", a.WorkID)
 	}
