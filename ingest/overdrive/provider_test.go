@@ -54,3 +54,55 @@ func TestProviderCleansTitles(t *testing.T) {
 		t.Errorf("identity title = %q, want %q", got, want)
 	}
 }
+
+// TestProviderOwnedOnlyFilter checks Params["ownedOnly"] drops titles the
+// library does not hold, so the ingested collection is exactly the owned feed,
+// while the default keeps every title.
+func TestProviderOwnedOnlyFilter(t *testing.T) {
+	held := sampleItem()
+	held.ID, held.ReserveID, held.OwnedCopies = "owned1", "res-owned1", 2
+	unheld := sampleItem()
+	unheld.ID, unheld.ReserveID, unheld.IsOwned, unheld.OwnedCopies = "unowned1", "res-unowned1", false, 0
+
+	dir := t.TempDir()
+	page := struct {
+		Items []Item `json:"items"`
+	}{Items: []Item{held, unheld}}
+	data, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "page-0001.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Default: both titles ingested.
+	all, err := New(ingest.Config{Source: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := all.Records(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("default records = %d, want 2 (no filter)", len(recs))
+	}
+
+	// ownedOnly: the unheld title is dropped.
+	ownedProv, err := New(ingest.Config{Source: dir, Params: map[string]string{"ownedOnly": "true"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err = ownedProv.Records(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("ownedOnly records = %d, want 1 (unheld dropped)", len(recs))
+	}
+	// The survivor is the held title, marked owned in its extras.
+	if ep, ok := recs[0].(ingest.ExtraProvider); !ok || ep.Extras()["owned"] != "true" {
+		t.Error("kept record should be the owned title")
+	}
+}

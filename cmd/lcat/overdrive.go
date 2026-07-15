@@ -21,6 +21,7 @@ func runOverdrive(args []string) error {
 	provider := fs.String("provider", overdrive.ProviderName, "provenance graph feed:<provider> for the records")
 	reconcile := fs.String("reconcile", "", "flag feed-only works this scan no longer lists: review | auto-suppress")
 	allowEmpty := fs.Bool("reconcile-allow-empty", false, "let a zero-record scan reconcile (withdraws every feed-only work)")
+	ownedOnly := fs.Bool("owned-only", false, "ingest only titles the library holds (isOwned or ownedCopies>0)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -31,5 +32,8 @@ func runOverdrive(args []string) error {
 		return fmt.Errorf("--out (grains output directory) is required")
 	}
 	cfg := ingest.Config{Feed: *provider, Source: *cache}
+	if *ownedOnly {
+		cfg.Params = map[string]string{"ownedOnly": "true"}
+	}
 	return runIngest(providerRegistry(), overdrive.ProviderName, cfg, *out, *reconcile, *allowEmpty)
 }

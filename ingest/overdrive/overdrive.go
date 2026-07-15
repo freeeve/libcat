@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -34,6 +35,36 @@ type Item struct {
 	Subjects    []NamedID `json:"subjects"`
 	BISAC       []BISAC   `json:"bisac"`
 	Formats     []Format  `json:"formats"`
+	// Availability signal from the feed: whether the library holds the title,
+	// how many copies it owns, and the current hold queue. These drive the owned
+	// (collection-membership) extra and the owned-only ingest filter, so
+	// ownership derives from the feed rather than an external membership list.
+	IsOwned     bool `json:"isOwned"`
+	OwnedCopies int  `json:"ownedCopies"`
+	HoldsCount  int  `json:"holdsCount"`
+}
+
+// owned reports whether the library holds the title: the feed's isOwned flag or
+// any owned copies. Either alone is enough (a record may carry one without the
+// other).
+func (it Item) owned() bool {
+	return it.IsOwned || it.OwnedCopies > 0
+}
+
+// Extras surfaces the feed's ownership signal as per-Work extras, so it is
+// facetable, filterable in the audit (?filter=owned=true is the feed-derived
+// collection), and forwarded to the OPAC page. owned marks collection
+// membership; ownedCopies is the held quantity (a weight for held-quantity
+// reporting); holds is the current queue, present only when non-zero.
+func (it Item) Extras() map[string]string {
+	extras := map[string]string{
+		"owned":       strconv.FormatBool(it.owned()),
+		"ownedCopies": strconv.Itoa(it.OwnedCopies),
+	}
+	if it.HoldsCount > 0 {
+		extras["holds"] = strconv.Itoa(it.HoldsCount)
+	}
+	return extras
 }
 
 // NamedID is OverDrive's {id, name} pair (types, subjects, languages, publisher).

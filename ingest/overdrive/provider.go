@@ -16,13 +16,15 @@ const ProviderName = "overdrive"
 // ingest.Run pipeline. It holds only build-time config; the live availability half
 // is a separate runtime adapter.
 type Provider struct {
-	feed  string
-	cache string
+	feed      string
+	cache     string
+	ownedOnly bool
 }
 
 // New is the ingest.Factory for OverDrive. It takes the scan cache directory from
 // Config.Source and the provenance feed from Config.Feed (defaulting to
-// feed:overdrive). It errors when no cache is configured.
+// feed:overdrive). Params["ownedOnly"]="true" ingests only titles the library
+// holds (see Records). It errors when no cache is configured.
 func New(cfg ingest.Config) (ingest.Provider, error) {
 	if cfg.Source == "" {
 		return nil, fmt.Errorf("overdrive: cache directory (Config.Source) is required")
@@ -31,7 +33,7 @@ func New(cfg ingest.Config) (ingest.Provider, error) {
 	if feed == "" {
 		feed = ProviderName
 	}
-	return Provider{feed: feed, cache: cfg.Source}, nil
+	return Provider{feed: feed, cache: cfg.Source, ownedOnly: cfg.Params["ownedOnly"] == "true"}, nil
 }
 
 // Name returns the provider's provenance feed graph name.
@@ -49,8 +51,14 @@ func (p Provider) Records(_ context.Context) ([]ingest.Record, error) {
 	if err != nil {
 		return nil, err
 	}
-	recs := make([]ingest.Record, len(items))
-	for i, it := range items {
+	recs := make([]ingest.Record, 0, len(items))
+	for _, it := range items {
+		// With ownedOnly, drop titles the library does not hold so the ingested
+		// collection is exactly what the feed says it owns -- ownership derives
+		// from the feed, not an external membership list.
+		if p.ownedOnly && !it.owned() {
+			continue
+		}
 		// Thunder titles carry HTML character references and markup (e.g.
 		// "LEGO&#174; Creations", "Qing&#8212;Min Ning"); normalize the transcribed
 		// text at the source so both the BIBFRAME titles and the identity
@@ -59,7 +67,7 @@ func (p Provider) Records(_ context.Context) ([]ingest.Record, error) {
 		it.Title = ingest.CleanText(it.Title)
 		it.Subtitle = ingest.CleanText(it.Subtitle)
 		it.Series = ingest.CleanText(it.Series)
-		recs[i] = it
+		recs = append(recs, it)
 	}
 	return recs, nil
 }
