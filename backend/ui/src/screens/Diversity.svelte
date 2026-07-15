@@ -350,6 +350,11 @@
           reachability the label columns above measure.
           {rl.withLanguage.toLocaleString()} of {rl.totalWorks.toLocaleString()} scoped
           work{rl.totalWorks === 1 ? "" : "s"} declare a language.
+          {#if rl.multilingual > 0}
+            Each row counts works in <em>only</em> that language; works available in
+            several are grouped as <em>Multilingual</em> rather than counted under each,
+            so no language is inflated.
+          {/if}
         </p>
         <table class="reslang-table">
           <thead>
@@ -373,6 +378,18 @@
                 <td class="n">{rl.withLanguage > 0 ? pct(l.works / rl.withLanguage) : "--"}</td>
               </tr>
             {/each}
+            {#if rl.multilingual > 0}
+              <tr class="multilingual-row">
+                <th scope="row">Multilingual</th>
+                <td class="bar-col" aria-hidden="true">
+                  <div class="bar-track">
+                    <div class="bar bar-muted" style={`width:${rl.withLanguage > 0 ? ((rl.multilingual / rl.withLanguage) * 100).toFixed(2) : 0}%`}></div>
+                  </div>
+                </td>
+                <td class="n">{rl.multilingual.toLocaleString()}</td>
+                <td class="n">{rl.withLanguage > 0 ? pct(rl.multilingual / rl.withLanguage) : "--"}</td>
+              </tr>
+            {/if}
           </tbody>
         </table>
       </section>

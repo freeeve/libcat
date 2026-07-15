@@ -178,22 +178,33 @@ func aggregateCreators(sums []ingest.WorkSummary, include func(*ingest.WorkSumma
 // the works are IN (bf:language / Work.Languages), the real book language --
 // deliberately separate from the subject-label reachability columns. Following
 // BIBFRAME practice, language is a Work attribute (a translation is its own
-// Work), so this counts at the Work level. WithLanguage is the honest
-// denominator: works declaring no language are common and must not read as a
-// language.
+// Work), so this counts at the Work level.
+//
+// The buckets are EXCLUSIVE: a work declaring one language counts under that
+// language; a work declaring two or more counts once under Multilingual, never
+// under each. This is deliberate and honest -- a source that stamps the full
+// set of languages a title is available in onto every record (rather than the
+// one language of this copy) would otherwise let an English book with a Spanish
+// edition inflate the Spanish count. Languages + Multilingual therefore sum to
+// WithLanguage, which is itself the honest denominator (declaring no language is
+// common and must not read as a language).
 type resourceLanguageAudit struct {
 	// TotalWorks is every scoped work; WithLanguage is those declaring at least
 	// one bf:language.
 	TotalWorks   int `json:"totalWorks"`
 	WithLanguage int `json:"withLanguage"`
-	// Languages is the per-language work count, most works first. A work counts
-	// once per distinct language it declares (a bilingual edition counts in
-	// both), so the counts can exceed WithLanguage.
+	// Multilingual is works declaring two or more distinct languages, counted
+	// once here instead of under each language (see the type doc).
+	Multilingual int `json:"multilingual"`
+	// Languages is the single-language work count per language, most works first.
+	// Multi-language works are excluded here (they are in Multilingual), so
+	// summing Languages and Multilingual gives WithLanguage.
 	Languages []resourceLanguageCount `json:"languages"`
 }
 
-// resourceLanguageCount is one language and how many scoped works are in it.
-// Code is the ISO 639-2/B code as stored (bf:language local name), e.g. "spa".
+// resourceLanguageCount is one language and how many scoped single-language
+// works are in it. Code is the ISO 639-2/B code as stored (bf:language local
+// name), e.g. "spa".
 type resourceLanguageCount struct {
 	Code  string `json:"code"`
 	Works int    `json:"works"`
@@ -201,10 +212,13 @@ type resourceLanguageCount struct {
 
 // aggregateResourceLanguages folds the scoped summaries' Work.Languages into the
 // resource-language distribution; nil when no scoped work declares a language,
-// so "no language data carried" reads differently from "0 in this language".
+// so "no language data carried" reads differently from "0 in this language". A
+// work with one distinct language counts under it; a work with two or more
+// counts once as Multilingual (see resourceLanguageAudit).
 func aggregateResourceLanguages(sums []ingest.WorkSummary, include func(*ingest.WorkSummary) bool) *resourceLanguageAudit {
 	ra := &resourceLanguageAudit{}
 	counts := map[string]int{}
+	any := false
 	for i := range sums {
 		s := &sums[i]
 		if !include(s) {
@@ -213,17 +227,26 @@ func aggregateResourceLanguages(sums []ingest.WorkSummary, include func(*ingest.
 		ra.TotalWorks++
 		seen := map[string]bool{}
 		for _, code := range s.Languages {
-			if code == "" || seen[code] {
-				continue
+			if code != "" {
+				seen[code] = true
 			}
-			seen[code] = true
-			counts[code]++
 		}
-		if len(seen) > 0 {
+		switch len(seen) {
+		case 0:
+			continue
+		case 1:
 			ra.WithLanguage++
+			any = true
+			for code := range seen {
+				counts[code]++
+			}
+		default:
+			ra.WithLanguage++
+			ra.Multilingual++
+			any = true
 		}
 	}
-	if len(counts) == 0 {
+	if !any {
 		return nil
 	}
 	for code, n := range counts {

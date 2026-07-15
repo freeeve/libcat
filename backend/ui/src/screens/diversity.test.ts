@@ -187,14 +187,15 @@ describe("Diversity audit screen", () => {
     expect(document.querySelector(".labellang-note")).toBeNull();
   });
 
-  it("renders the resource-language section as book language, distinct from label reachability", async () => {
+  it("renders the resource-language section with a multilingual bucket, distinct from label reachability", async () => {
     fetchDiversityAudit.mockResolvedValue({
       ...REPORT,
       resourceLanguages: {
         totalWorks: 500,
         withLanguage: 480,
+        multilingual: 20,
         languages: [
-          { code: "eng", works: 400 },
+          { code: "eng", works: 380 },
           { code: "spa", works: 80 },
         ],
       },
@@ -208,10 +209,23 @@ describe("Diversity audit screen", () => {
     expect(section?.textContent).toContain("not");
     const rows = [...document.querySelectorAll(".reslang-table tbody tr")];
     expect(rows[0]?.textContent).toContain("ENG");
-    expect(rows[0]?.textContent).toContain("400");
-    // eng share of works-with-language: 400/480 = 83.3%.
-    expect(rows[0]?.textContent).toContain("83.3%");
+    expect(rows[0]?.textContent).toContain("380");
     expect(rows[1]?.textContent).toContain("SPA");
+    // Multi-language works are their own row (not folded into eng/spa).
+    const multi = document.querySelector(".multilingual-row");
+    expect(multi?.textContent).toContain("Multilingual");
+    expect(multi?.textContent).toContain("20");
+  });
+
+  it("omits the multilingual row when no work declares more than one language", async () => {
+    fetchDiversityAudit.mockResolvedValue({
+      ...REPORT,
+      resourceLanguages: { totalWorks: 100, withLanguage: 100, multilingual: 0, languages: [{ code: "eng", works: 100 }] },
+    });
+    fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
+    await render();
+    expect(document.querySelector(".reslang")).not.toBeNull();
+    expect(document.querySelector(".multilingual-row")).toBeNull();
   });
 
   it("omits the resource-language section when no work declares a language", async () => {

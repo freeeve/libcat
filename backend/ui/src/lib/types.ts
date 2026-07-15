@@ -800,8 +800,13 @@ export interface ResourceLanguageAudit {
    *  the honest denominator, since declaring none is common. */
   totalWorks: number;
   withLanguage: number;
-  /** Per-language work counts, most works first. A work counts once per distinct
-   *  language it declares, so counts can exceed withLanguage. */
+  /** Works declaring two or more distinct languages, counted here once instead
+   *  of under each language (a source that stamps a title's full availability
+   *  set on every record would otherwise inflate each language). */
+  multilingual: number;
+  /** Single-language work counts per language, most works first. Multi-language
+   *  works are excluded here (see multilingual), so languages + multilingual
+   *  sum to withLanguage. */
   languages: { code: string; works: number }[];
 }
 

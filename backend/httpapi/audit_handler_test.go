@@ -288,6 +288,7 @@ type resLangPage struct {
 	ResourceLanguages *struct {
 		TotalWorks   int `json:"totalWorks"`
 		WithLanguage int `json:"withLanguage"`
+		Multilingual int `json:"multilingual"`
 		Languages    []struct {
 			Code  string `json:"code"`
 			Works int    `json:"works"`
@@ -296,9 +297,11 @@ type resLangPage struct {
 }
 
 // TestAuditDiversityResourceLanguages checks the Work-level resource-language
-// distribution: it counts the language works are IN (bf:language), honours the
-// audit's collection scope, reports WithLanguage as the honest denominator, and
-// is absent entirely when no scoped work declares a language.
+// distribution: single-language works count under their language, multi-language
+// works count once as Multilingual (never under each language, so an English
+// title with a Spanish edition available does not inflate Spanish), buckets sum
+// to WithLanguage, the collection scope is honoured, and the block is absent when
+// no scoped work declares a language.
 func TestAuditDiversityResourceLanguages(t *testing.T) {
 	bs := blob.NewMem()
 	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
@@ -310,28 +313,41 @@ func TestAuditDiversityResourceLanguages(t *testing.T) {
 	seedAuditWorkLangs(t, bs, "wreslang003", []string{"eng"}, inQll)
 	seedAuditWorkLangs(t, bs, "wreslang004", nil, inQll)                    // in scope, no language
 	seedAuditWorkLangs(t, bs, "wreslang005", []string{"fre"}, nil)          // out of the QLL scope
-	seedAuditWorkLangs(t, bs, "wreslang006", []string{"eng", "spa"}, inQll) // bilingual edition
+	seedAuditWorkLangs(t, bs, "wreslang006", []string{"eng", "spa"}, inQll) // multi-language availability
 
-	// Full corpus: every work counted, fre included.
+	// Full corpus: every work counted, fre included; the eng+spa work is
+	// Multilingual, NOT a Spanish work.
 	full := getResLangs(t, h, "")
 	if full.ResourceLanguages == nil {
 		t.Fatal("resource-language block missing on the full corpus")
 	}
-	if full.ResourceLanguages.TotalWorks != 6 || full.ResourceLanguages.WithLanguage != 5 {
-		t.Errorf("full totals = %d/%d, want 6 total / 5 with language", full.ResourceLanguages.TotalWorks, full.ResourceLanguages.WithLanguage)
+	rl := full.ResourceLanguages
+	if rl.TotalWorks != 6 || rl.WithLanguage != 5 {
+		t.Errorf("full totals = %d/%d, want 6 total / 5 with language", rl.TotalWorks, rl.WithLanguage)
 	}
-	if got := resLangCount(full, "eng"); got != 3 {
-		t.Errorf("full eng = %d, want 3 (002, 003, 006)", got)
+	if rl.Multilingual != 1 {
+		t.Errorf("full multilingual = %d, want 1 (006 eng+spa)", rl.Multilingual)
 	}
-	if got := resLangCount(full, "spa"); got != 2 {
-		t.Errorf("full spa = %d, want 2 (001, 006 bilingual)", got)
+	if got := resLangCount(full, "eng"); got != 2 {
+		t.Errorf("full eng = %d, want 2 (002, 003 -- not the multilingual 006)", got)
+	}
+	if got := resLangCount(full, "spa"); got != 1 {
+		t.Errorf("full spa = %d, want 1 (001 only -- 006 is multilingual, not inflated into spa)", got)
 	}
 	if got := resLangCount(full, "fre"); got != 1 {
 		t.Errorf("full fre = %d, want 1 (005)", got)
 	}
+	// Single-language buckets plus Multilingual reconcile to WithLanguage.
+	sum := rl.Multilingual
+	for _, l := range rl.Languages {
+		sum += l.Works
+	}
+	if sum != rl.WithLanguage {
+		t.Errorf("languages+multilingual = %d, want %d (WithLanguage)", sum, rl.WithLanguage)
+	}
 	// Most works first: eng leads.
-	if full.ResourceLanguages.Languages[0].Code != "eng" {
-		t.Errorf("languages should be ranked by works, got %+v", full.ResourceLanguages.Languages)
+	if rl.Languages[0].Code != "eng" {
+		t.Errorf("languages should be ranked by works, got %+v", rl.Languages)
 	}
 
 	// Scoped to the QLL collection: fre (out of scope) drops out.
@@ -345,8 +361,11 @@ func TestAuditDiversityResourceLanguages(t *testing.T) {
 	if got := resLangCount(scoped, "fre"); got != 0 {
 		t.Errorf("scoped fre = %d, want 0 (005 is outside inQll)", got)
 	}
-	if got := resLangCount(scoped, "eng"); got != 3 {
-		t.Errorf("scoped eng = %d, want 3", got)
+	if got := resLangCount(scoped, "eng"); got != 2 {
+		t.Errorf("scoped eng = %d, want 2", got)
+	}
+	if scoped.ResourceLanguages.Multilingual != 1 {
+		t.Errorf("scoped multilingual = %d, want 1", scoped.ResourceLanguages.Multilingual)
 	}
 
 	// A corpus with no language data at all omits the block.
@@ -356,6 +375,27 @@ func TestAuditDiversityResourceLanguages(t *testing.T) {
 	none := getResLangs(t, h2, "")
 	if none.ResourceLanguages != nil {
 		t.Errorf("resource-language block should be absent with no language data: %+v", none.ResourceLanguages)
+	}
+}
+
+// TestAuditResourceLanguagesMultilingualOnly checks the block still appears when
+// every scoped work with a language is multilingual (no single-language work),
+// so a Multilingual-only corpus is not mistaken for no language data.
+func TestAuditResourceLanguagesMultilingualOnly(t *testing.T) {
+	bs := blob.NewMem()
+	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Verifier: verifier})
+	seedAuditWorkLangs(t, bs, "wmlonly0001", []string{"eng", "spa"}, nil)
+
+	p := getResLangs(t, h, "")
+	if p.ResourceLanguages == nil {
+		t.Fatal("block should be present with a multilingual work")
+	}
+	if p.ResourceLanguages.WithLanguage != 1 || p.ResourceLanguages.Multilingual != 1 {
+		t.Errorf("withLanguage/multilingual = %d/%d, want 1/1", p.ResourceLanguages.WithLanguage, p.ResourceLanguages.Multilingual)
+	}
+	if len(p.ResourceLanguages.Languages) != 0 {
+		t.Errorf("no single-language works, want empty languages, got %+v", p.ResourceLanguages.Languages)
 	}
 }
 
