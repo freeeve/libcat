@@ -34,6 +34,53 @@ func TestMergeFirstFeedWins(t *testing.T) {
 	}
 }
 
+// TestMergeFillsVacantFields locks in the per-field cross-feed merge (task 498):
+// a shared work keeps the first feed's declared fields but fills fields that
+// feed left empty from later feeds -- subjects from the subject-bearing feed,
+// languages from the first feed that declares them, Extra per key, Held ORed --
+// and the inputs stay unmutated.
+func TestMergeFillsVacantFields(t *testing.T) {
+	overdrive := &Catalog{Version: SchemaVersion, Works: []Work{
+		{ID: "w1", Title: "Nimona", Languages: []string{"spa"},
+			Extra: map[string]string{"owned": "true", "ownedCopies": "3"}, Held: true},
+	}}
+	coll := &Catalog{Version: SchemaVersion, Works: []Work{
+		{ID: "w1", Title: "Nimona (coll)", Languages: []string{"eng", "ger", "por", "spa"},
+			Subjects: []Subject{{ID: "hom:queerComics"}}, Tags: []string{"graphic novels"},
+			Extra: map[string]string{"inQll": "true", "owned": "stale"}},
+	}}
+	merged := Merge([]*Catalog{overdrive, coll})
+	if len(merged.Works) != 1 {
+		t.Fatalf("works = %+v", merged.Works)
+	}
+	w := merged.Works[0]
+	if w.Title != "Nimona" {
+		t.Fatalf("title = %q, want the first feed's", w.Title)
+	}
+	if !reflect.DeepEqual(w.Languages, []string{"spa"}) {
+		t.Fatalf("languages = %v, want the first feed's clean value kept", w.Languages)
+	}
+	if len(w.Subjects) != 1 || w.Subjects[0].ID != "hom:queerComics" {
+		t.Fatalf("subjects = %+v, want filled from the later feed", w.Subjects)
+	}
+	if !reflect.DeepEqual(w.Tags, []string{"graphic novels"}) {
+		t.Fatalf("tags = %v, want filled from the later feed", w.Tags)
+	}
+	if w.Extra["owned"] != "true" || w.Extra["ownedCopies"] != "3" || w.Extra["inQll"] != "true" {
+		t.Fatalf("extra = %v, want first-declaring feed per key", w.Extra)
+	}
+	if !w.Held {
+		t.Fatal("held = false, want ORed across feeds")
+	}
+	// Inputs untouched: the fill wrote into the merge's own copies.
+	if len(overdrive.Works[0].Subjects) != 0 || len(overdrive.Works[0].Extra) != 2 {
+		t.Fatalf("first input mutated: %+v", overdrive.Works[0])
+	}
+	if coll.Works[0].Extra["owned"] != "stale" {
+		t.Fatalf("second input mutated: %+v", coll.Works[0])
+	}
+}
+
 // TestMergeEmpty checks that merging no catalogs yields an empty, versioned catalog.
 func TestMergeEmpty(t *testing.T) {
 	merged := Merge(nil)

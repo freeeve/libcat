@@ -9,28 +9,36 @@ import (
 
 // Merge unions per-feed projections by work id. Project views one
 // provenance graph at a time (feed:<provider> + editorial:), so a multi-feed
-// corpus projects each feed separately and merges here: earlier catalogs win a
-// shared id -- list the primary feed first, its records are richer than a
-// sidecar's -- and the result is sorted by id like Project's output. The input
-// catalog.nq must cover every feed's works; after a multi-feed ingest, `lcat
-// serialize` regenerates it, since each ingest run rewrites catalog.nq with
-// only its own run's works.
+// corpus projects each feed separately and merges here. Shared ids merge
+// field-wise: where both feeds declare a field the earlier catalog wins -- list
+// the primary feed first -- but a field the earlier feed left empty fills from
+// the first later feed that declares it, and Extra fills per key. A merged
+// grain (cross-feed dedup) carries each feed's graph, so whole-record
+// first-wins forced a choice between one feed's subjects and the other's
+// languages/ownership; field-wise, one public record carries both. The result
+// is sorted by id like Project's output. The input catalog.nq must cover every
+// feed's works; after a multi-feed ingest, `lcat serialize` regenerates it,
+// since each ingest run rewrites catalog.nq with only its own run's works.
 //
 // The vocabulary sideband (Catalog.Terms) merges by term id,
 // field-wise: labels fill per language (earlier catalogs win a language, like
-// works win an id), broader edges union, the first non-empty scheme sticks --
+// works win a field), broader edges union, the first non-empty scheme sticks --
 // per-feed projections describe the same authority term from different
 // coverage, so the union is at least as rich as any one input.
 func Merge(cats []*Catalog) *Catalog {
 	merged := &Catalog{Version: SchemaVersion}
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	terms := map[string]*Term{}
 	for _, c := range cats {
 		for _, w := range c.Works {
-			if seen[w.ID] {
+			if i, ok := seen[w.ID]; ok {
+				fillVacantFields(&merged.Works[i], w)
 				continue
 			}
-			seen[w.ID] = true
+			seen[w.ID] = len(merged.Works)
+			// Private copy of Extra: later feeds fill keys in place, and the
+			// inputs must stay untouched.
+			w.Extra = maps.Clone(w.Extra)
 			merged.Works = append(merged.Works, w)
 		}
 		for _, t := range c.Terms {
@@ -66,6 +74,59 @@ func Merge(cats []*Catalog) *Catalog {
 		merged.Terms = append(merged.Terms, t)
 	}
 	return merged
+}
+
+// fillVacantFields copies src's fields into dst where dst declares nothing:
+// empty strings and empty slices fill whole, Extra fills per key, and Held ORs
+// -- any feed evidencing holdings makes the work held. Declared fields are
+// never overwritten, so the provider order still ranks feeds where they
+// disagree.
+func fillVacantFields(dst *Work, src Work) {
+	if dst.Title == "" {
+		dst.Title = src.Title
+	}
+	if dst.Subtitle == "" {
+		dst.Subtitle = src.Subtitle
+	}
+	if dst.Summary == "" {
+		dst.Summary = src.Summary
+	}
+	if len(dst.Contributors) == 0 {
+		dst.Contributors = src.Contributors
+	}
+	if len(dst.Subjects) == 0 {
+		dst.Subjects = src.Subjects
+	}
+	if len(dst.Tags) == 0 {
+		dst.Tags = src.Tags
+	}
+	if len(dst.Languages) == 0 {
+		dst.Languages = src.Languages
+	}
+	if len(dst.Classifications) == 0 {
+		dst.Classifications = src.Classifications
+	}
+	if len(dst.Formats) == 0 {
+		dst.Formats = src.Formats
+	}
+	if len(dst.Instances) == 0 {
+		dst.Instances = src.Instances
+	}
+	if len(dst.Series) == 0 {
+		dst.Series = src.Series
+	}
+	if dst.Relations == nil {
+		dst.Relations = src.Relations
+	}
+	dst.Held = dst.Held || src.Held
+	for k, v := range src.Extra {
+		if _, ok := dst.Extra[k]; !ok {
+			if dst.Extra == nil {
+				dst.Extra = map[string]string{}
+			}
+			dst.Extra[k] = v
+		}
+	}
 }
 
 // SanitizeSources rewrites every Work's extra "sources" attribution list to
