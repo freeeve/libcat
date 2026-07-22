@@ -25,7 +25,16 @@ const REPORT: DiversityReport = {
   multiplicity: { uncategorized: 200, matchedOne: 450, matchedMulti: 150 },
   labelLanguages: ["en", "es", "fr"],
   categories: [
-    { id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, labelLangWorks: { en: 400, es: 120 } },
+    {
+      id: "lgbtqia",
+      label: "LGBTQIA+",
+      works: 400,
+      shareCovered: 0.5,
+      shareTotal: 0.4,
+      labelLangWorks: { en: 400, es: 120 },
+      bookLangWorks: { eng: 300, spa: 40 },
+      bookLangMulti: 5,
+    },
     { id: "indigenous", label: "Indigenous peoples", works: 0, shareCovered: 0, shareTotal: 0 },
   ],
 };
@@ -171,6 +180,40 @@ describe("Diversity audit screen", () => {
     expect(cells[1]).toContain("30.0%");
     // The note disambiguates from book language.
     expect(document.querySelector(".labellang-note")?.textContent).toContain("not");
+  });
+
+  it("renders per-category book-language columns distinct from the subject-label columns", async () => {
+    arm();
+    await render();
+    const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
+    // Book columns are the bf:language codes with coverage, ranked by total,
+    // rendered as "<CODE> books" -- separate from the "<LANG> labels" columns.
+    expect(headers.join("|")).toContain("ENG books");
+    expect(headers.join("|")).toContain("SPA books");
+    const rows = [...document.querySelectorAll("table.cats tbody tr")];
+    const bookCells = [...(rows[0]?.querySelectorAll(".booklang-cell") ?? [])].map((c) => c.textContent);
+    // lgbtqia: eng 300 leads (ranked first), spa 40 -- NOT the 120 es-label count.
+    expect(bookCells[0]).toContain("300");
+    expect(bookCells[1]).toContain("40");
+    expect(bookCells[1]).not.toContain("120");
+    // The two axes are visibly separate: label es=120 but book spa=40.
+    const labelCells = [...(rows[0]?.querySelectorAll(".labellang-cell") ?? [])].map((c) => c.textContent);
+    expect(labelCells[1]).toContain("120");
+    // The note warns against reading the label column as book language.
+    expect(document.querySelector(".booklang-note")?.textContent).toContain("different axis");
+  });
+
+  it("omits the book-language columns when no category declares a book language", async () => {
+    fetchDiversityAudit.mockResolvedValue({
+      ...REPORT,
+      categories: [{ id: "lgbtqia", label: "LGBTQIA+", works: 400, shareCovered: 0.5, shareTotal: 0.4, labelLangWorks: { en: 400 } }],
+    });
+    fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
+    await render();
+    const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
+    expect(headers.join("|")).not.toContain("books");
+    expect(document.querySelector(".booklang-cell")).toBeNull();
+    expect(document.querySelector(".booklang-note")).toBeNull();
   });
 
   it("omits the subject-label columns when no category carries a configured language", async () => {

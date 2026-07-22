@@ -116,7 +116,7 @@ type crosswalkView struct {
 // GET/PUT/DELETE the persisted override, and POST preview to run the content
 // audit with a candidate crosswalk WITHOUT persisting it -- the facet
 // builder's live counts.
-func registerAuditCrosswalk(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, vix *vocab.Index, auditLangs []string, verifier auth.TokenVerifier, cws *crosswalkSource) {
+func registerAuditCrosswalk(mux *http.ServeMux, bs blob.Store, ix *workindex.Index, vix *vocab.Index, auditLangs, providers []string, verifier auth.TokenVerifier, cws *crosswalkSource) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 
 	view := func(r *http.Request) (crosswalkView, error) {
@@ -209,7 +209,7 @@ func registerAuditCrosswalk(mux *http.ServeMux, bs blob.Store, ix *workindex.Ind
 			if !includeInAudit(s, filters) {
 				continue
 			}
-			a.AddWeighted(summaryRefs(s, vix, auditLangs), workWeight(s))
+			a.AddWeighted(summaryRefs(s, vix, auditLangs), workWeight(s), s.MergedLanguages(providers)...)
 		}
 		writeJSON(w, http.StatusOK, auditResponse{
 			Input:  "work index (cataloging corpus: suppressed included, tombstoned excluded)",

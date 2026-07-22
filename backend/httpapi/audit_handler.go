@@ -381,8 +381,9 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, au
 				}
 				refs := summaryRefs(s, vix, auditLangs)
 				w := workWeight(s)
-				a.AddWeighted(refs, w)
-				proj.AddWeighted(append(refs, suggested[s.WorkID]...), w)
+				bookLangs := s.MergedLanguages(providers)
+				a.AddWeighted(refs, w, bookLangs...)
+				proj.AddWeighted(append(refs, suggested[s.WorkID]...), w, bookLangs...)
 			}
 			sim = &auditSimulation{
 				Filter:    describeSimQuery(simQ),
@@ -396,7 +397,7 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, au
 				if !include(s) {
 					continue
 				}
-				a.AddWeighted(summaryRefs(s, vix, auditLangs), workWeight(s))
+				a.AddWeighted(summaryRefs(s, vix, auditLangs), workWeight(s), s.MergedLanguages(providers)...)
 			}
 		}
 		resp := auditResponse{

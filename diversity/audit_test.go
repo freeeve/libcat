@@ -126,6 +126,48 @@ func TestAuditorLanguageCoverage(t *testing.T) {
 	}
 }
 
+// TestAuditorBookLanguage checks the per-category BOOK-language tally (task
+// 495): a work counts under its single resolved book language, a multilingual
+// work lands in BookLangMulti not any per-language column, a work with no book
+// language contributes to neither, and the axis is distinct from the
+// subject-heading LabelLangWorks reachability.
+func TestAuditorBookLanguage(t *testing.T) {
+	a := NewAuditor(Default())
+	// 1: lgbtqia, English book. Its subject carries en+es labels, so the label
+	// axis says es-reachable while the book axis says English -- the exact
+	// conflation 495 separates.
+	a.AddWeighted([]SubjectRef{{Labels: []string{"Gay men"}, Langs: []string{"en", "es"}}}, 0, "eng")
+	// 2: lgbtqia, Spanish book, subject reachable in en+es.
+	a.AddWeighted([]SubjectRef{{Labels: []string{"Lesbian fiction"}, Langs: []string{"en", "es"}}}, 0, "spa")
+	// 3: lgbtqia, multilingual book (two languages) -> BookLangMulti.
+	a.AddWeighted([]SubjectRef{{Labels: []string{"Queer theory"}, Langs: []string{"en"}}}, 0, "eng", "spa")
+	// 4: lgbtqia, no book language declared -> neither column.
+	a.AddWeighted([]SubjectRef{{Labels: []string{"Transgender people"}, Langs: []string{"en"}}}, 0)
+
+	lg := tally(a.Report(), "lgbtqia")
+	if lg.Works != 4 {
+		t.Fatalf("lgbtqia works = %d, want 4", lg.Works)
+	}
+	if lg.BookLangWorks["eng"] != 1 {
+		t.Errorf("lgbtqia eng books = %d, want 1 (work 1 only; the multilingual work is excluded)", lg.BookLangWorks["eng"])
+	}
+	if lg.BookLangWorks["spa"] != 1 {
+		t.Errorf("lgbtqia spa books = %d, want 1 (work 2 only)", lg.BookLangWorks["spa"])
+	}
+	if lg.BookLangMulti != 1 {
+		t.Errorf("lgbtqia multilingual books = %d, want 1 (work 3)", lg.BookLangMulti)
+	}
+	// The two axes are computed independently: es-heading reachability counts
+	// every work whose subject carries an es label (works 1 and 2), while es
+	// books counts only the Spanish book (work 2) -- the inflation 495 separates.
+	if lg.LabelLangWorks["es"] != 2 {
+		t.Errorf("lgbtqia es labels = %d, want 2 (works 1,2 carry es-labeled subjects)", lg.LabelLangWorks["es"])
+	}
+	if lg.BookLangWorks["spa"] != 1 {
+		t.Errorf("lgbtqia es books = %d, want 1 -- must not inflate to the es-label count", lg.BookLangWorks["spa"])
+	}
+}
+
 // TestAuditorLanglessSubject checks that a subject with no configured-language
 // labels (an uncontrolled heading) counts toward Works but no language column.
 func TestAuditorLanglessSubject(t *testing.T) {

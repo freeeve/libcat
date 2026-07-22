@@ -14,6 +14,11 @@
   // The subject-label language columns for the current report (configured langs
   // with any coverage). Empty for an English-only or unconfigured corpus.
   const langCols = $derived(report ? labelLangs(report) : []);
+  // The book-language columns: the resource (bf:language) codes some category
+  // actually carries, most-common first. A different axis from langCols -- what
+  // the books ARE in, not what languages their subject headings are reachable
+  // in -- so the two never share a column.
+  const bookCols = $derived(report ? bookLangs(report) : []);
   let snapshots = $state<DiversitySnapshot[]>([]);
   let loading = $state(true);
   let recording = $state(false);
@@ -113,6 +118,28 @@
   /** Share of a category's works reachable via a subject label in lang. */
   function langShare(c: DiversityCategory, lang: string): number {
     return c.works > 0 ? langWorks(c, lang) / c.works : 0;
+  }
+
+  /** The book-language columns to render: the resource-language codes some
+   *  category carries, ranked by total works so the most common book languages
+   *  lead. A category with none in a rendered column shows a dash. Distinct from
+   *  labelLangs -- these are bf:language codes (eng/spa), not the audit's
+   *  subject-label codes (en/es). */
+  function bookLangs(r: DiversityReport): string[] {
+    const totals = new Map<string, number>();
+    for (const c of r.categories) {
+      for (const [code, n] of Object.entries(c.bookLangWorks ?? {})) {
+        totals.set(code, (totals.get(code) ?? 0) + n);
+      }
+    }
+    return [...totals.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([code]) => code);
+  }
+
+  /** A category's work count whose single resolved book language is code. */
+  function bookWorks(c: DiversityCategory, code: string): number {
+    return c.bookLangWorks?.[code] ?? 0;
   }
 
   // Gauge: a donut whose stroke covers the coverage fraction.
@@ -284,6 +311,10 @@
             <th scope="col" class="n" title={`Works whose controlled subject terms carry a ${lang.toUpperCase()} label -- subject-heading reachability, not the book's language`}
               >{lang.toUpperCase()} labels</th>
           {/each}
+          {#each bookCols as code (code)}
+            <th scope="col" class="n booklang" title={`Works whose own language (bf:language) is ${code.toUpperCase()} -- the book's language, not subject-heading reachability`}
+              >{code.toUpperCase()} books</th>
+          {/each}
           {#if hasBenchmarks(report)}
             <th scope="col" class="n">Benchmark</th>
           {/if}
@@ -325,6 +356,13 @@
                 {/if}
               </td>
             {/each}
+            {#each bookCols as code (code)}
+              <td class="n booklang-cell" title={`${bookWorks(c, code).toLocaleString()} of ${c.works.toLocaleString()} works are in ${code.toUpperCase()}`}>
+                {#if bookWorks(c, code) > 0}
+                  {bookWorks(c, code).toLocaleString()} <span class="muted src">{pct(c.works > 0 ? bookWorks(c, code) / c.works : 0)}</span>
+                {/if}
+              </td>
+            {/each}
             {#if hasBenchmarks(report)}
               <td class="n bench-cell">
                 {#if c.benchmark != null}
@@ -350,6 +388,16 @@
         count works whose <em>controlled subject terms</em> carry a heading label in that language --
         how discoverable the category is by a searcher in that language, <strong>not</strong> the language the
         books are written in.
+      </p>
+    {/if}
+    {#if bookCols.length > 0}
+      <p class="muted hint booklang-note">
+        The {bookCols.map((c) => c.toUpperCase()).join(" / ")} book column{bookCols.length === 1 ? "" : "s"}
+        count works whose <em>own</em> language (bf:language) is that language -- the actual books, resolved
+        to their winning feed. This is a different axis from the label columns: a category can reach a
+        language through nearly every subject heading yet hold only a handful of books in it. Read
+        <strong>&ldquo;{(bookCols[0] ?? "spa").toUpperCase()} books&rdquo;</strong> for how many books are in
+        the language, never the label column.
       </p>
     {/if}
     {#if hasBenchmarks(report)}
@@ -745,6 +793,17 @@
     font-size: 0.7rem;
   }
   .bench-note {
+    margin: 0.35rem 0 0;
+  }
+  /* The book-language group sits apart from the subject-label group: a subtle
+     left rule marks where "reachable in a language" ends and "written in a
+     language" begins, so the two axes are never read as one run of columns. */
+  .cats th.booklang,
+  .cats td.booklang-cell {
+    border-left: 1px solid var(--rule, #dde);
+    padding-left: 0.75rem;
+  }
+  .booklang-note {
     margin: 0.35rem 0 0;
   }
 

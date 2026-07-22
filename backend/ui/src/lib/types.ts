@@ -791,6 +791,16 @@ export interface DiversityCategory {
    *  audit's configured languages (see DiversityReport.labelLanguages); a
    *  language a category has no coverage in is simply absent. */
   labelLangWorks?: Record<string, number>;
+  /** Per language code, the number of works in this category whose single
+   *  resolved BOOK language (bf:language through the cross-feed merge) is that
+   *  code -- the "ES books" axis, a different measurement from labelLangWorks
+   *  ("subjects available in ES"). A work with two or more book languages is
+   *  excluded here and counted in bookLangMulti. Absent when no work in the
+   *  category declares a language. */
+  bookLangWorks?: Record<string, number>;
+  /** Works in this category carrying two or more resolved book languages, kept
+   *  out of bookLangWorks so per-language counts never double a work. */
+  bookLangMulti?: number;
   /** Operator-supplied comparison share in [0,1], with its named source --
    *  never a shipped target, never graded by the tool. */
   benchmark?: number;

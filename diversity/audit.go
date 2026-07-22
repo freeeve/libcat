@@ -80,6 +80,21 @@ type CategoryTally struct {
 	// the gap to it is the collection's controlled-heading coverage in the other
 	// languages. Absent for a corpus audited with no configured languages.
 	LabelLangWorks map[string]int `json:"labelLangWorks,omitempty"`
+	// BookLangWorks counts, per language code, how many of this category's works
+	// have that as their single resolved book language -- the work's actual
+	// bf:language resolved through the cross-feed merge, the "ES books" axis.
+	// This is a different measurement from LabelLangWorks ("subjects available
+	// in ES"): a category can have thousands of works whose subjects carry a
+	// Spanish heading label yet only a few hundred works that ARE in Spanish, so
+	// the two must never be read as one number. A work with two or more book
+	// languages is excluded from every per-language count and tallied once in
+	// BookLangMulti instead, mirroring the scope-global resourceLanguages
+	// buckets. Absent when no work in the category declares a language.
+	BookLangWorks map[string]int `json:"bookLangWorks,omitempty"`
+	// BookLangMulti counts this category's works carrying two or more resolved
+	// book languages (kept out of BookLangWorks so per-language counts never
+	// double a work). Omitted when zero.
+	BookLangMulti int `json:"bookLangMulti,omitempty"`
 	// Benchmark/BenchmarkSource pass the operator's comparison share through
 	// from the crosswalk, when one was configured. The tool never grades the
 	// delta: a share against a benchmark is only as good as the coverage
@@ -92,19 +107,21 @@ type CategoryTally struct {
 // once from a crosswalk, Add each work's subjects, then read Report. It is not safe
 // for concurrent Add.
 type Auditor struct {
-	cw           *Crosswalk
-	total        int
-	covered      int
-	multi        MultiplicityTally
-	perCat       map[string]int
-	perCatLang   map[string]map[string]int
-	weightTotal  int
-	perCatWeight map[string]int
+	cw             *Crosswalk
+	total          int
+	covered        int
+	multi          MultiplicityTally
+	perCat         map[string]int
+	perCatLang     map[string]map[string]int
+	perCatBookLang map[string]map[string]int
+	perCatBookMult map[string]int
+	weightTotal    int
+	perCatWeight   map[string]int
 }
 
 // NewAuditor returns an Auditor over the given crosswalk.
 func NewAuditor(cw *Crosswalk) *Auditor {
-	return &Auditor{cw: cw, perCat: map[string]int{}, perCatLang: map[string]map[string]int{}, perCatWeight: map[string]int{}}
+	return &Auditor{cw: cw, perCat: map[string]int{}, perCatLang: map[string]map[string]int{}, perCatBookLang: map[string]map[string]int{}, perCatBookMult: map[string]int{}, perCatWeight: map[string]int{}}
 }
 
 // Add folds one work's subjects into the tally with no weight. See AddWeighted.
@@ -119,7 +136,13 @@ func (a *Auditor) Add(subjects []SubjectRef) {
 // there; its weight adds to each matched category and to the corpus total. A
 // work with no usable subjects contributes only to TotalWorks (and TotalWeight)
 // -- it dilutes coverage, which is the point of reporting coverage.
-func (a *Auditor) AddWeighted(subjects []SubjectRef, weight int) {
+//
+// bookLangs is the work's resolved book language codes (bf:language through the
+// cross-feed merge). A work with exactly one counts under it in each matched
+// category's BookLangWorks; two or more count once in BookLangMulti; none
+// contribute nothing. Callers with no language data pass none, leaving the
+// per-category book-language axis empty.
+func (a *Auditor) AddWeighted(subjects []SubjectRef, weight int, bookLangs ...string) {
 	a.total++
 	a.weightTotal += weight
 	covered := false
@@ -170,9 +193,34 @@ func (a *Auditor) AddWeighted(subjects []SubjectRef, weight int) {
 			a.multi.MatchedMulti++
 		}
 	}
+	// The work's book-language bucket, resolved once: exactly one language is a
+	// single-language work counted under it; two or more is multilingual.
+	bookSeen := map[string]bool{}
+	for _, l := range bookLangs {
+		if l = strings.TrimSpace(l); l != "" {
+			bookSeen[l] = true
+		}
+	}
+	var bookCode string
+	if len(bookSeen) == 1 {
+		for l := range bookSeen {
+			bookCode = l
+		}
+	}
 	for id := range cats {
 		a.perCat[id]++
 		a.perCatWeight[id] += weight
+		switch {
+		case bookCode != "":
+			perLang := a.perCatBookLang[id]
+			if perLang == nil {
+				perLang = map[string]int{}
+				a.perCatBookLang[id] = perLang
+			}
+			perLang[bookCode]++
+		case len(bookSeen) >= 2:
+			a.perCatBookMult[id]++
+		}
 	}
 	for id, langs := range catLangs {
 		perLang := a.perCatLang[id]
@@ -200,7 +248,12 @@ func (a *Auditor) Report() Report {
 			langWorks = make(map[string]int, len(perLang))
 			maps.Copy(langWorks, perLang)
 		}
-		t := CategoryTally{ID: c.ID, Label: c.Label, Works: works, Weight: a.perCatWeight[c.ID], LabelLangWorks: langWorks, Benchmark: c.Benchmark, BenchmarkSource: c.BenchmarkSource}
+		var bookLangWorks map[string]int
+		if perLang := a.perCatBookLang[c.ID]; len(perLang) > 0 {
+			bookLangWorks = make(map[string]int, len(perLang))
+			maps.Copy(bookLangWorks, perLang)
+		}
+		t := CategoryTally{ID: c.ID, Label: c.Label, Works: works, Weight: a.perCatWeight[c.ID], LabelLangWorks: langWorks, BookLangWorks: bookLangWorks, BookLangMulti: a.perCatBookMult[c.ID], Benchmark: c.Benchmark, BenchmarkSource: c.BenchmarkSource}
 		if a.covered > 0 {
 			t.ShareCovered = float64(t.Works) / float64(a.covered)
 		}
