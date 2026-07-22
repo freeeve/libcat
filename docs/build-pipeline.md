@@ -277,6 +277,13 @@ key = false                      # rides the Instance, never a merge key
 [identifiers."urn:coll:odreserve:"]
 source = "overdrive-reserve"     # bf:source tag (raw value, no scheme prefix)
 key = false
+[identifiers."urn:coll:oclcwork:"] # a WORK-level anchor (OCLC work id / LCCN)
+source = "oclcwork"              # bf:source label + the anchor's namespace
+anchor = true                    # clusters editions and cross-feed duplicates
+                                 # onto one Work AHEAD of the fuzzy author+title
+                                 # +language key, language-scoped so translations
+                                 # stay distinct; rides the Work node, not the
+                                 # Instance, and is not a merge key
 
 [languages]                      # export code = ISO 639-2/B
 en = "eng"

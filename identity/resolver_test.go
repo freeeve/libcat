@@ -125,6 +125,73 @@ func TestResolveMintsThenClusters(t *testing.T) {
 	}
 }
 
+// TestResolveWorkAnchorAheadOfFuzzy checks a work-level anchor clusters two
+// records the fuzzy key would split (different titles), while a third record
+// under the same anchor but a different language stays a distinct Work.
+func TestResolveWorkAnchorAheadOfFuzzy(t *testing.T) {
+	r := NewResolver()
+
+	a := r.Resolve(Record{
+		ProviderKeys: []string{"coll:1"},
+		Author:       "Muir, Tamsyn", Title: "Gideon the Ninth", Langs: []string{"eng"},
+		Anchors: []string{"oclcwork:1112223"},
+	})
+	if !a.MintedWork {
+		t.Fatalf("first anchored record mints a Work: %+v", a)
+	}
+	// A different edition the fuzzy key would NOT cluster (variant title), same
+	// anchor + language -> same Work via the anchor, ahead of the fuzzy key.
+	b := r.Resolve(Record{
+		ProviderKeys: []string{"coll:2"},
+		Author:       "Muir, Tamsyn", Title: "Gideon the Ninth (Locked Tomb 1)", Langs: []string{"eng"},
+		Anchors: []string{"oclcwork:1112223"},
+	})
+	if b.WorkID != a.WorkID {
+		t.Errorf("shared work anchor should cluster despite the title variance: %s vs %s", b.WorkID, a.WorkID)
+	}
+	if b.MintedWork {
+		t.Errorf("anchor-matched record should reuse the Work, not mint: %+v", b)
+	}
+	// The Spanish translation carries the same bare anchor but a different
+	// language set -> a distinct Work (BIBFRAME one-Work-per-language).
+	c := r.Resolve(Record{
+		ProviderKeys: []string{"coll:3"},
+		Author:       "Muir, Tamsyn", Title: "Gideon la Novena", Langs: []string{"spa"},
+		Anchors: []string{"oclcwork:1112223"},
+	})
+	if c.WorkID == a.WorkID {
+		t.Errorf("a translation under the same anchor must stay a distinct Work: %s", c.WorkID)
+	}
+	if !c.MintedWork {
+		t.Errorf("the translation mints its own Work: %+v", c)
+	}
+}
+
+// TestResolveWorkAnchorSeededAcrossFeeds checks an anchor seeded from a prior
+// grain (another feed) resolves a fresh record onto the committed Work, so a
+// shared work id deduplicates cross-feed without the fuzzy post-pass.
+func TestResolveWorkAnchorSeededAcrossFeeds(t *testing.T) {
+	r := NewResolver()
+	// Committed by an earlier coll ingest: Work w1 anchored under the OCLC work
+	// id, language-scoped (as the scanner seeds it).
+	r.SeedInstance("iprior", "w1", []string{"coll:1"})
+	r.SeedWorkAnchor(anchorKey("oclcwork:9990001", []string{"eng"}), "w1")
+
+	// A fresh overdrive record for the same work: no shared provider key, no
+	// matching ISBN, a different access point -- only the anchor bridges it.
+	got := r.Resolve(Record{
+		ProviderKeys: []string{"overdrive:42"},
+		Author:       "Different, Cataloger", Title: "A Wildly Different Transcription", Langs: []string{"eng"},
+		Anchors: []string{"oclcwork:9990001"},
+	})
+	if got.WorkID != "w1" {
+		t.Errorf("seeded anchor should resolve the record onto w1, got %s", got.WorkID)
+	}
+	if got.MintedWork {
+		t.Errorf("anchor hit should not mint a Work: %+v", got)
+	}
+}
+
 func TestResolveByISBNAcrossProviders(t *testing.T) {
 	r := NewResolver()
 	a := r.Resolve(Record{ProviderKeys: []string{"overdrive:1", "isbn:AAA"}, Author: "A", Title: "T", Langs: []string{"eng"}})

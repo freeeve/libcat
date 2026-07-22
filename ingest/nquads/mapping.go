@@ -106,6 +106,12 @@ type IdentifierRule struct {
 	// merges cross-feed, any other joins as "<source>:<value>". Table form
 	// only (the legacy string form is always a key).
 	Key bool
+	// Anchor makes the identifier a WORK-level anchor: a stable work id
+	// ("<source>:<value>", e.g. an OCLC work id or LCCN) that clusters editions
+	// and cross-feed duplicates onto one Work AHEAD of the fuzzy access-point
+	// key, language-scoped so translations stay distinct. It rides the Work node
+	// (not the Instance) and is not an Instance identifier. Table form only.
+	Anchor bool
 }
 
 // UnmarshalTOML implements toml.Unmarshaler for the string-or-table union.
@@ -135,8 +141,14 @@ func (r *IdentifierRule) UnmarshalTOML(v any) error {
 					return fmt.Errorf("nquads mapping: identifier key %v is not a bool", e)
 				}
 				r.Key = b
+			case "anchor":
+				b, ok := e.(bool)
+				if !ok {
+					return fmt.Errorf("nquads mapping: identifier anchor %v is not a bool", e)
+				}
+				r.Anchor = b
 			default:
-				return fmt.Errorf("nquads mapping: unknown identifier rule key %q (want class, source, key)", k)
+				return fmt.Errorf("nquads mapping: unknown identifier rule key %q (want class, source, key, anchor)", k)
 			}
 		}
 	default:

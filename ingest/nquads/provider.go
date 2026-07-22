@@ -446,6 +446,11 @@ func (p *Provider) mapIdentifier(w *work, obj string) {
 			continue
 		}
 		switch {
+		case rule.Anchor:
+			// A work-level anchor ("<source>:<value>", e.g. an OCLC work id):
+			// clusters ahead of the fuzzy key and rides the Work node, so it is
+			// neither an ISBN merge key nor an Instance identifier.
+			w.idents = append(w.idents, mappedID{anchor: true, source: rule.Source, value: v, key: rule.Source + ":" + v})
 		case rule.Scheme == "isbn" || (rule.Scheme == "" && rule.Key && rule.Class == "Isbn"):
 			w.isbns = append(w.isbns, v)
 		case rule.Scheme != "":

@@ -16,6 +16,24 @@ const (
 	SchemeID   = "id"   // provider-local identifier (e.g. an OverDrive title/reserve id)
 )
 
+// Work-level anchor schemes: stable identifiers that name the WORK (not an
+// edition), so a provider that supplies one clusters its editions -- across
+// feeds -- ahead of the fuzzy author+title+language key. The edition-level
+// schemes above key an Instance; these key a Work. They are language-scoped at
+// resolution (anchorKey), so a translation under the same anchor stays a
+// distinct Work (BIBFRAME one-Work-per-language). anchorSources gates which
+// bf:source labels on a Work's bf:identifiedBy are treated as anchors; the label
+// doubles as the anchor's provider-key namespace.
+const (
+	SchemeOCLCWork = "oclcwork" // OCLC FRBR work identifier
+	SchemeLCCN     = "lccn"     // LC control number, taken as a work anchor
+)
+
+var anchorSources = map[string]bool{
+	SchemeOCLCWork: true,
+	SchemeLCCN:     true,
+}
+
 // SourceASIN is the bf:source label a provider stamps on an ASIN identifier so
 // the scanner recovers it as SchemeASIN (a cross-provider same-edition merge key)
 // rather than an opaque provider-local id. It names the assigning agency, so the
@@ -69,6 +87,11 @@ type WorkIdentity struct {
 	// dedup can tell which feeds already contribute a Work under a cluster key
 	// and never bridge a namespaced feed's record onto its own prior work.
 	Feed string
+	// Anchors are the Work's language-scoped work-level anchor keys (anchorKey
+	// of each recovered anchor with the Work's languages), seeded so a new
+	// record carrying the same anchor resolves onto this Work ahead of the
+	// fuzzy cluster key. Empty for a Work no provider anchored.
+	Anchors []string
 }
 
 // GrainIdentity is the identity recovered from one grain -- the Work(s) it
@@ -110,10 +133,12 @@ func ScanDataset(ds *rdf.Dataset) GrainIdentity {
 			if !minted(work, "Work") {
 				continue
 			}
+			langs := workLangs(g, work)
 			gi.Works = append(gi.Works, WorkIdentity{
 				WorkID:     fragID(work.Value, "Work"),
-				ClusterKey: WorkKeySet(workAuthor(g, work), workTitle(g, work), workLangs(g, work)),
+				ClusterKey: WorkKeySet(workAuthor(g, work), workTitle(g, work), langs),
 				Feed:       feed,
+				Anchors:    anchorKeys(workAnchors(g, work), langs),
 			})
 		}
 		for _, inst := range g.SubjectsOfType(bfInstance) {
@@ -163,11 +188,46 @@ func SeedResolver(r *Resolver, grains []GrainIdentity) {
 		for _, w := range gi.Works {
 			r.SeedWorkKey(w.ClusterKey, w.WorkID)
 			r.SeedWorkFeed(w.WorkID, w.Feed)
+			for _, a := range w.Anchors {
+				r.SeedWorkAnchor(a, w.WorkID)
+			}
 		}
 		for _, inst := range gi.Instances {
 			r.SeedInstance(inst.InstanceID, inst.WorkID, inst.ProviderKeys)
 		}
 	}
+}
+
+// workAnchors recovers a Work node's work-level anchors: each bf:identifiedBy
+// value whose bf:source label is an anchor scheme (anchorSources), namespaced
+// by that label (mirroring the SchemeASIN bf:source round-trip for Instances).
+// It reads the anchor off the Work node, where addWorkAnchor emits it, since a
+// work-level identifier belongs to the Work, not an edition.
+func workAnchors(g rdf.GraphQuery, work rdf.Term) []string {
+	var out []string
+	for _, node := range g.Objects(work, bfIdentifiedBy) {
+		val, ok := g.Literal(node, rdfValue)
+		if !ok || val == "" {
+			continue
+		}
+		if label := identifierSourceLabel(g, node); anchorSources[label] {
+			out = append(out, ProviderKey(label, val))
+		}
+	}
+	return out
+}
+
+// anchorKeys language-scopes each recovered anchor with the Work's languages,
+// the seed-side mirror of the resolver's Resolve-time anchorKey computation.
+func anchorKeys(anchors, langs []string) []string {
+	if len(anchors) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(anchors))
+	for _, a := range anchors {
+		out = append(out, anchorKey(a, langs))
+	}
+	return out
 }
 
 // fragID extracts a minted id from a node IRI of the form "#<id><suffix>".

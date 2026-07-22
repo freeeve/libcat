@@ -3,6 +3,7 @@ package bibframe
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/freeeve/libcat/storage"
 	codexbf "github.com/freeeve/libcodex/bibframe"
@@ -51,6 +52,13 @@ type WorkGroup struct {
 	// feed graph as Work->Work links using the #<id>Work fragment convention.
 	// Empty when the Work has no differing-language sibling.
 	TranslationOf []string
+	// Anchors are the Work's work-level anchor keys (namespaced, e.g.
+	// "oclcwork:12345"): a stable work identifier a provider supplies. They are
+	// emitted onto the #<id>Work node as bf:identifiedBy with a bf:source label,
+	// so identity.ScanDataset recovers them and clusters a re-ingest (and other
+	// feeds) onto this Work ahead of the fuzzy key. Empty when the provider
+	// supplies none, leaving the grain unchanged.
+	Anchors []string
 }
 
 // AgentIdentity is one contributor's authority identity for graph emission;
@@ -225,6 +233,54 @@ func addWorkTranslations(g *rdf.Graph, workID string, targets []string) {
 	}
 }
 
+// BIBFRAME/RDF IRIs the work-anchor emission uses. A work-level anchor rides a
+// bf:identifiedBy node on the Work carrying its value (rdf:value) and a bf:source
+// whose rdfs:label names the anchor scheme -- the read side (identity.scan) keys
+// on that label, mirroring the Instance ASIN round-trip.
+const (
+	predIdentifiedBy = "http://id.loc.gov/ontologies/bibframe/identifiedBy"
+	predBFSource     = "http://id.loc.gov/ontologies/bibframe/source"
+	predRDFValue     = "http://www.w3.org/1999/02/22-rdf-syntax-ns#value"
+	predRDFSLabel    = "http://www.w3.org/2000/01/rdf-schema#label"
+	predRDFType      = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+	classIdentifier  = "http://id.loc.gov/ontologies/bibframe/Identifier"
+	classBFSource    = "http://id.loc.gov/ontologies/bibframe/Source"
+)
+
+// addWorkAnchor attaches a Work's work-level anchors to its feed graph: one
+// bf:identifiedBy node per anchor carrying rdf:value <id> and a bf:source whose
+// rdfs:label is the anchor scheme (the namespace before the first ":" in the
+// "scheme:value" key). This is the emit half of the round-trip identity.scan's
+// workAnchors reads back. Anchors are deduped and emitted in sorted order for
+// deterministic grains; a malformed key (no ":", empty half) is skipped. A no-op
+// for an empty slice, so a Work with no anchor yields an unchanged graph.
+func addWorkAnchor(g *rdf.Graph, workID string, anchors []string) {
+	if len(anchors) == 0 {
+		return
+	}
+	w := rdf.NewIRI(WorkIRI(workID))
+	ordered := append([]string(nil), anchors...)
+	sort.Strings(ordered)
+	seen := map[string]bool{}
+	n := 0
+	for _, a := range ordered {
+		scheme, value, ok := strings.Cut(a, ":")
+		if !ok || scheme == "" || value == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		idNode := rdf.NewBlank(fmt.Sprintf("anchor%d", n))
+		srcNode := rdf.NewBlank(fmt.Sprintf("anchorsrc%d", n))
+		n++
+		g.Add(w, rdf.NewIRI(predIdentifiedBy), idNode)
+		g.Add(idNode, rdf.NewIRI(predRDFType), rdf.NewIRI(classIdentifier))
+		g.Add(idNode, rdf.NewIRI(predRDFValue), rdf.NewLiteral(value, "", ""))
+		g.Add(idNode, rdf.NewIRI(predBFSource), srcNode)
+		g.Add(srcNode, rdf.NewIRI(predRDFType), rdf.NewIRI(classBFSource))
+		g.Add(srcNode, rdf.NewIRI(predRDFSLabel), rdf.NewLiteral(scheme, "", ""))
+	}
+}
+
 // GroupInstance is one Instance of a WorkGroup: its minted id and Instance-level
 // BIBFRAME.
 type GroupInstance struct {
@@ -256,6 +312,7 @@ func (wg WorkGroup) graph() *rdf.Graph {
 	}
 	g := wi.Graph(wg.WorkID, bases)
 	addWorkExtras(g, wg.WorkID, wg.Extras)
+	addWorkAnchor(g, wg.WorkID, wg.Anchors)
 	addWorkTranslations(g, wg.WorkID, wg.TranslationOf)
 	addControlledSubjects(g, wg.WorkID, wg.Subjects)
 	addDescribedTerms(g, wg.Terms)

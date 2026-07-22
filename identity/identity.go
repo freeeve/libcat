@@ -87,6 +87,16 @@ func WorkKeySet(author, title string, langs []string) string {
 	return NormalizeKey(author) + keySep + t + keySep + normalizeLangs(langs)
 }
 
+// anchorKey language-scopes a work-level anchor: the namespaced anchor joined
+// with the work's normalized language set, so the same anchor under a different
+// language (a translation) resolves to a distinct Work -- one Work per language,
+// like WorkKeySet -- while the bare anchor still names the whole language
+// cluster for translationOf grouping. It shares normalizeLangs with the cluster
+// key, so an anchor and a fuzzy key computed from the same languages agree.
+func anchorKey(anchor string, langs []string) string {
+	return anchor + keySep + normalizeLangs(langs)
+}
+
 // splitBaseLangs splits a work cluster key into its language-agnostic base
 // (author + title) and its language-set component, so language-sibling Works
 // (same base, different languages) can be found. It fails on a key with no title

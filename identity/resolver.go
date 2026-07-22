@@ -27,6 +27,13 @@ type Record struct {
 	// key, computed with WorkKeySet. Empty for a feed whose cluster key is
 	// already un-namespaced -- it clusters cross-feed on the cluster key directly.
 	MatchKey string
+	// Anchors are the record's work-level anchor keys (namespaced, e.g.
+	// "oclcwork:12345"), a stable work identifier a provider supplies. When one
+	// resolves to a committed Work, it clusters this record onto it AHEAD of the
+	// fuzzy author+title+language key -- so editions and cross-feed duplicates a
+	// shared work id names merge even where their access points differ. The
+	// anchor is language-scoped at resolution, so translations stay distinct.
+	Anchors []string
 }
 
 // Assignment is the resolved identity for a record: its stable Instance and Work
@@ -69,6 +76,7 @@ type Resolver struct {
 	instByProvider map[string]string // provider key -> instance id
 	workByInst     map[string]string // instance id -> work id
 	workByKey      map[string]string // computed cluster key -> work id
+	workByAnchor   map[string]string // language-scoped work anchor -> work id
 	mergedInto     map[string]string // work id -> canonical work id (editorial overlay)
 	pinByInst      map[string]string // instance id -> pinned work id (editorial split overlay)
 	usedInst       map[string]bool
@@ -95,6 +103,7 @@ func NewResolver() *Resolver {
 		instByProvider: map[string]string{},
 		workByInst:     map[string]string{},
 		workByKey:      map[string]string{},
+		workByAnchor:   map[string]string{},
 		mergedInto:     map[string]string{},
 		pinByInst:      map[string]string{},
 		usedInst:       map[string]bool{},
@@ -129,6 +138,22 @@ func (r *Resolver) SeedWorkKey(clusterKey, workID string) {
 			r.seedKeyWorks[clusterKey] = map[string]bool{}
 		}
 		r.seedKeyWorks[clusterKey][workID] = true
+	}
+}
+
+// SeedWorkAnchor records a committed Work's language-scoped work anchor, so a
+// new record carrying the same anchor clusters onto it ahead of the fuzzy key.
+// The key is already language-scoped by the scanner (anchorKey), matching the
+// form Resolve computes from a record's Anchors and Langs. First seeded wins: a
+// re-seed of the same anchor to a different Work is ignored, so a re-ingest
+// cannot silently re-home an anchored Work.
+func (r *Resolver) SeedWorkAnchor(anchorKey, workID string) {
+	if anchorKey == "" {
+		return
+	}
+	r.usedWork[workID] = true
+	if _, ok := r.workByAnchor[anchorKey]; !ok {
+		r.workByAnchor[anchorKey] = workID
 	}
 }
 
@@ -194,15 +219,26 @@ func (r *Resolver) Resolve(rec Record) Assignment {
 		workID, ok = r.workByInst[instanceID]
 		if !ok {
 			key := WorkKeySet(rec.Author, rec.Title, rec.Langs)
-			if wid, seen := r.workByKey[key]; key != "" && seen {
-				workID = wid
-			} else {
+			anchored := r.anchorTarget(rec.Anchors, rec.Langs)
+			switch {
+			case anchored != "":
+				// A stable work-level anchor (OCLC work id / LCCN) resolves ahead
+				// of the fuzzy key, so a shared work id clusters editions and
+				// cross-feed duplicates even where their access points differ.
+				workID = anchored
+			case key != "" && r.workByKey[key] != "":
+				workID = r.workByKey[key]
+			default:
 				workID = r.mint(WorkPrefix, r.usedWork)
 				if key != "" {
 					r.workByKey[key] = workID
 				}
 				mintedWork = true
 			}
+			// Bind this record's anchors onto the resolved Work so a later
+			// record (any feed) carrying one resolves here. First binding wins,
+			// so a fuzzy-clustered anchor cannot later be re-homed.
+			r.bindAnchors(rec.Anchors, rec.Langs, workID)
 		}
 	}
 	r.workByInst[instanceID] = workID
@@ -212,6 +248,32 @@ func (r *Resolver) Resolve(rec Record) Assignment {
 		WorkID:         r.canonical(workID),
 		MintedInstance: mintedInst,
 		MintedWork:     mintedWork,
+	}
+}
+
+// anchorTarget returns the committed Work a record's work-level anchors resolve
+// to -- the first anchor (in the record's priority order), language-scoped, that
+// is already bound -- following the merge overlay to the survivor. Empty when no
+// anchor is known, so the caller falls back to the fuzzy cluster key.
+func (r *Resolver) anchorTarget(anchors, langs []string) string {
+	for _, a := range anchors {
+		if wid, ok := r.workByAnchor[anchorKey(a, langs)]; ok {
+			return r.canonical(wid)
+		}
+	}
+	return ""
+}
+
+// bindAnchors records each of a record's anchors (language-scoped) against the
+// Work it resolved to, so a later record carrying the same anchor clusters here.
+// First binding wins, matching SeedWorkAnchor: a Work first reached by the fuzzy
+// key still claims its anchors, and a re-ingest cannot re-home them.
+func (r *Resolver) bindAnchors(anchors, langs []string, workID string) {
+	for _, a := range anchors {
+		k := anchorKey(a, langs)
+		if _, ok := r.workByAnchor[k]; !ok {
+			r.workByAnchor[k] = workID
+		}
 	}
 }
 

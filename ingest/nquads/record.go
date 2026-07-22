@@ -13,8 +13,13 @@ import (
 
 // mappedID is one non-merge-key identifier as it rides the Instance: class
 // ("Isbn"/"Identifier"), optional bf:source, the emitted value, and the
-// SchemeID resolution key when the rule opted in ("" = display-only).
-type mappedID struct{ class, source, value, key string }
+// SchemeID resolution key when the rule opted in ("" = display-only). When
+// anchor is set the id is a WORK-level anchor instead: it rides the Work node
+// (not the Instance) and its key clusters ahead of the fuzzy access-point key.
+type mappedID struct {
+	class, source, value, key string
+	anchor                    bool
+}
 
 // work is one accumulated export record (a work, or one format bucket of a
 // grouped work): the mapped fields plus which source objects attested it.
@@ -112,11 +117,30 @@ func (r record) Identity() identity.Record {
 		rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeISBN, isbn))
 	}
 	for _, id := range r.w.idents {
-		if id.key != "" {
+		switch {
+		case id.anchor:
+			// A work-level anchor resolves ahead of the fuzzy key (it names the
+			// Work), so it is a Record anchor, not an edition provider key.
+			rec.Anchors = append(rec.Anchors, id.key)
+		case id.key != "":
 			rec.ProviderKeys = append(rec.ProviderKeys, identity.ProviderKey(identity.SchemeID, id.key))
 		}
 	}
 	return rec
+}
+
+// WorkAnchors returns the record's work-level anchor keys (namespaced,
+// "<source>:<value>") for emission onto the Work node, so a re-ingest and other
+// feeds recover them and cluster onto this Work. It satisfies the ingest
+// WorkAnchorer interface; nil when the export carried no anchor identifier.
+func (r record) WorkAnchors() []string {
+	var out []string
+	for _, id := range r.w.idents {
+		if id.anchor && id.key != "" {
+			out = append(out, id.key)
+		}
+	}
+	return out
 }
 
 // identityLangs is the language set folded into the record's resolution
@@ -324,6 +348,11 @@ func (r record) Instance() codexbf.Instance {
 		inst.Identifiers = append(inst.Identifiers, codexbf.Identifier{Class: "Isbn", Value: isbn})
 	}
 	for _, id := range r.w.idents {
+		if id.anchor {
+			// A work-level anchor rides the Work node (addWorkAnchor), not the
+			// Instance -- it names the Work, not this edition.
+			continue
+		}
 		inst.Identifiers = append(inst.Identifiers,
 			codexbf.Identifier{Class: id.class, Value: id.value, Source: id.source})
 	}

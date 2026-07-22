@@ -135,6 +135,12 @@ func cluster(recs []Record, prior bibframe.Prior, mergeSeeds []MergeSeed, feed s
 			if ep, ok := rec.(ExtraProvider); ok {
 				wg.Extras = ep.Extras()
 			}
+			// The first record likewise supplies the Work's work-level anchors
+			// (OCLC work id / LCCN), emitted onto the Work node so a re-ingest
+			// and other feeds cluster onto it ahead of the fuzzy key.
+			if wa, ok := rec.(WorkAnchorer); ok {
+				wg.Anchors = wa.WorkAnchors()
+			}
 			// The first record likewise contributes the Work's controlled subjects
 			// (authority URIs + labels + broader), emitted into the feed graph.
 			if se, ok := rec.(SubjectEnricher); ok {

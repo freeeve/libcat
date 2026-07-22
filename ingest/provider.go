@@ -84,6 +84,19 @@ type ExtraProvider interface {
 	Extras() map[string]string
 }
 
+// WorkAnchorer is an optional capability a Record may implement to carry
+// work-level anchor keys (namespaced "<scheme>:<value>", e.g. an OCLC work id or
+// LCCN). Run emits them onto the Work node under bf:identifiedBy with a
+// bf:source label (bibframe.addWorkAnchor), and identity.ScanDataset recovers
+// them so a re-ingest -- and other feeds carrying the same anchor -- cluster onto
+// this Work ahead of the fuzzy access-point key. The record's Identity().Anchors
+// carry the same keys for the live resolve. For a clustered Work the first
+// record's anchors win, matching how shared Work metadata is taken; a Record
+// that does not implement it contributes none.
+type WorkAnchorer interface {
+	WorkAnchors() []string
+}
+
 // AuthoritySubject is one controlled-vocabulary subject a provider asserts for a Work
 // (authority URI + localized labels + skos:broader parents). It is an alias of the
 // bibframe emission type, defined in bibframe to avoid an ingest<-bibframe import cycle

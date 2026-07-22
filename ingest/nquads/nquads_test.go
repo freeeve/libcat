@@ -294,6 +294,77 @@ func TestMergeSeedsFromIsReplacedBy(t *testing.T) {
 	}
 }
 
+// TestWorkAnchorMapping proves an `anchor = true` identifier rule routes a
+// work-level id (OCLC work id) to the record's Anchors and WorkAnchors -- the
+// resolve-ahead-of-fuzzy and emit-onto-the-Work halves -- and keeps it OUT of
+// the resolution provider keys and the Instance identifiers (it names the Work,
+// not the edition).
+func TestWorkAnchorMapping(t *testing.T) {
+	dir := t.TempDir()
+	mapping := filepath.Join(dir, "m.toml")
+	nq := filepath.Join(dir, "c.nq")
+	m := `work-prefix = "urn:coll:work:"
+id-scheme = "coll"
+[predicates]
+title = "http://purl.org/dc/terms/title"
+identifier = "http://purl.org/dc/terms/identifier"
+[identifiers]
+"urn:isbn:" = "isbn"
+[identifiers."urn:coll:oclcwork:"]
+source = "oclcwork"
+anchor = true
+`
+	body := `<urn:coll:work:20> <http://purl.org/dc/terms/title> "Stone Butch Blues" .
+<urn:coll:work:20> <http://purl.org/dc/terms/identifier> <urn:isbn:9780000000200> .
+<urn:coll:work:20> <http://purl.org/dc/terms/identifier> <urn:coll:oclcwork:1112223> .
+`
+	if err := os.WriteFile(mapping, []byte(m), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nq, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := New(ingest.Config{Feed: "coll", Source: nq, Params: map[string]string{"mapping": mapping}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := p.Records(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("records = %d, want 1", len(recs))
+	}
+	rec := recs[0].(record)
+
+	const anchor = "oclcwork:1112223"
+	id := rec.Identity()
+	if !slices.Contains(id.Anchors, anchor) {
+		t.Errorf("Identity().Anchors = %v, want the OCLC work anchor", id.Anchors)
+	}
+	// The anchor must not leak into the resolution provider keys (it is a Work
+	// key, resolved separately) nor the ISBN merge keys.
+	for _, k := range id.ProviderKeys {
+		if strings.Contains(k, "oclcwork") {
+			t.Errorf("work anchor leaked into provider keys: %v", id.ProviderKeys)
+		}
+	}
+	wa, ok := recs[0].(ingest.WorkAnchorer)
+	if !ok {
+		t.Fatal("the nquads record must implement ingest.WorkAnchorer")
+	}
+	if got := wa.WorkAnchors(); !slices.Contains(got, anchor) {
+		t.Errorf("WorkAnchors() = %v, want the OCLC work anchor", got)
+	}
+	// The anchor rides the Work node, not the Instance: no Instance identifier
+	// carries the oclcwork value.
+	for _, ident := range rec.Instance().Identifiers {
+		if ident.Value == "1112223" || ident.Source == "oclcwork" {
+			t.Errorf("work anchor leaked onto an Instance identifier: %+v", ident)
+		}
+	}
+}
+
 func buildCollProvider(t *testing.T) ingest.Provider {
 	t.Helper()
 	dir := t.TempDir()
