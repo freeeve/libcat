@@ -83,3 +83,12 @@ the tag" -- the dist must already be in the tag's commit, and `go install`
 cannot run npm. `release.sh` waits for the CI-created tag to appear on origin
 before it reports success (`gh run list --workflow=release-backend.yml` shows the
 run). Requires the `gh` CLI with the `workflow` scope.
+
+Once the tag exists, the same workflow builds the **ready-to-deploy artifacts**
+from that SPA dist and publishes them on the `backend/v<V>` GitHub release: the
+arm64 Lambda `bootstrap` zip, the self-host `lcatd`+`lcat` binary tarballs
+(linux amd64/arm64), and a `ghcr.io/<owner>/libcat` container image -- so a
+consumer downloads and deploys instead of running `go build` or staging a zip
+(the same rationale as embedding the built SPA: the release ships the artifact,
+not the build). The artifacts embed the same real SPA, since they build from the
+dist committed into the tag. See `backend/deploy/README.md`.

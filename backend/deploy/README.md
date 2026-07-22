@@ -4,6 +4,23 @@ The backend is one `net/http` handler with two wrappers, so every deployment
 shape serves identical routes. **The static tier needs none of this** -- the
 graph is the contract, and a catalog built with `lcat` alone keeps working.
 
+## Prebuilt release artifacts (skip the build)
+
+Every backend release publishes ready-to-deploy artifacts on its GitHub release
+(`backend/v<X.Y.Z>`), each with the admin SPA already embedded -- so a consumer
+neither `go build`s nor stage-zips, they download and deploy:
+
+| Artifact | Shape it feeds |
+|---|---|
+| `lcatd-lambda-arm64.zip` | the terraform `lambda_zip` (provided.al2023, arm64) |
+| `lcatd-linux-amd64.tar.gz` / `lcatd-linux-arm64.tar.gz` | self-host / container (`lcatd` + `lcat` binaries) |
+| `ghcr.io/freeeve/libcat:v<X.Y.Z>` | container hosts (Cloud Run / Fargate / k8s) |
+
+`SHA256SUMS` accompanies the downloads. The from-source commands below stay
+valid for local builds and unreleased commits; each notes its published
+equivalent. (`go install .../backend/cmd/lcatd@backend/v<V>` also ships the real
+SPA, but a `go install` still compiles -- the artifacts above do not.)
+
 ## Shapes
 
 | Shape | Entry point | Datastore | Grain store |
@@ -48,6 +65,9 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bootstrap ./cmd/lcatd-lambda
 # Bundle the read-only grains next to the binary (LCATD_BLOB_DIR points at them).
 zip -r lcatd-demo.zip bootstrap grains/
 ```
+
+> Or skip the build: unzip the release's `lcatd-lambda-arm64.zip` (SPA already
+> embedded) and add your `grains/` to it -- `zip -gr lcatd-lambda-arm64.zip grains/`.
 
 Deploy the zip as a `provided.al2023` (arm64) function with a Function URL and:
 `LCATD_READ_ONLY=1`, `LCATD_BLOB_DIR=/var/task/grains`, `LCATD_LOCAL_AUTH=1`,
@@ -124,6 +144,9 @@ cd deploy/terraform
 terraform init
 terraform apply -var grain_bucket_name=my-catalog-grains -var lambda_zip=../../lcatd-lambda.zip
 ```
+
+Or point `lambda_zip` straight at the release's `lcatd-lambda-arm64.zip` (no
+build): download it and `terraform apply -var lambda_zip=/path/to/lcatd-lambda-arm64.zip`.
 
 Creates: the pk/sk DynamoDB table (TTL + PITR), the versioned grain bucket
 (exports auto-expire), the API lambda + HTTP API (CORS from

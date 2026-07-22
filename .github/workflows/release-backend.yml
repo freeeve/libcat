@@ -1,12 +1,17 @@
 # Builds the admin SPA and creates the backend release tag with the REAL
 # ui/dist embedded, so `go install .../backend/cmd/lcatd@<tag>` ships a working
-# UI instead of the committed placeholder (tasks/479).
+# UI instead of the committed placeholder (tasks/479). It then publishes the
+# ready-to-deploy backend artifacts for the tag -- the arm64 Lambda bootstrap
+# zip, the self-host lcatd+lcat binary tarballs, and a container image -- so a
+# consumer neither `go build`s nor stage-zips: they download the published
+# artifact and deploy it, exactly as 479 ships the built SPA dist.
 #
 # CI owns backend tagging because a Go module tag is immutable once the proxy
 # fetches it: the built dist must already be in the tagged commit at creation,
 # and `go install` cannot run npm. release.sh dispatches this after it pushes
 # the go.mod-bump commit; the built dist is committed on top of that commit and
-# only the TAG is pushed, so main keeps its placeholder for day-to-day dev.
+# only the TAG is pushed, so main keeps its placeholder for day-to-day dev. The
+# artifacts build from the same SPA dist on disk, so they carry the real UI too.
 name: release-backend
 on:
   workflow_dispatch:
@@ -18,11 +23,12 @@ on:
         description: "Commit to build the release from (the go.mod-bump commit)"
         required: true
       dry_run:
-        description: "Build and assemble the tag locally but do not push it"
+        description: "Build and assemble the tag and artifacts locally but do not push them"
         type: boolean
         default: false
 permissions:
   contents: write
+  packages: write
 jobs:
   tag:
     runs-on: ubuntu-latest
@@ -70,3 +76,85 @@ jobs:
         run: |
           echo "DRY RUN: would push backend/v${{ inputs.version }} at $(git rev-parse HEAD)"
           git show --stat HEAD | head -50
+
+      # ---- ready-to-deploy artifacts (tasks/493) -----------------------------
+      # Built from the SPA dist committed above, so every binary embeds the real
+      # admin UI. A consumer downloads these instead of `go build`/stage-zip.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - name: Build the deploy artifacts (SPA embedded)
+        env:
+          VERSION: v${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # The two modules resolve against each other from the working tree, so
+          # the artifacts match the tagged source exactly (mirrors the Dockerfile;
+          # the dev go.work is untracked). No proxy round-trip for the local root.
+          go work init . ./backend
+          if grep -q "lcat-ui-placeholder" backend/ui/dist/index.html; then
+            echo "dist is the placeholder -- refusing to build artifacts" >&2
+            exit 1
+          fi
+          out="$(pwd)/dist-artifacts"
+          mkdir -p "$out"
+          # 1) The arm64 Lambda bootstrap, zipped -- provided.al2023/arm64, the
+          #    shape the terraform stack's lambda_zip expects (deploy/README.md).
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+            go build -tags lambda.norpc -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+            -o bootstrap ./backend/cmd/lcatd-lambda
+          zip -qj "$out/lcatd-lambda-arm64.zip" bootstrap
+          rm -f bootstrap
+          # 2) Self-host binary tarballs per linux arch: lcatd plus lcat (the
+          #    projector the rebuild command shells out to), the pair the image
+          #    ships.
+          for arch in amd64 arm64; do
+            b="$(mktemp -d)"
+            GOOS=linux GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o "$b/lcatd" ./backend/cmd/lcatd
+            GOOS=linux GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags="-s -w" -o "$b/lcat" ./cmd/lcat
+            tar -C "$b" -czf "$out/lcatd-linux-$arch.tar.gz" lcatd lcat
+            rm -rf "$b"
+          done
+          # Name the inputs explicitly: a bare ./* glob would include the
+          # SHA256SUMS redirect target (created empty before the glob expands).
+          (cd "$out" && sha256sum lcatd-lambda-arm64.zip lcatd-linux-*.tar.gz > SHA256SUMS)
+          ls -la "$out"
+      - name: Publish the artifacts on the release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="backend/v${{ inputs.version }}"
+          notes="Ready-to-deploy libcat backend artifacts for ${tag}, admin SPA embedded.
+          - Lambda: lcatd-lambda-arm64.zip (provided.al2023, arm64) -- terraform lambda_zip.
+          - Self-host: lcatd-linux-<arch>.tar.gz (lcatd + lcat), amd64/arm64.
+          - Container: ghcr.io/${{ github.repository_owner }}/libcat:v${{ inputs.version }}.
+          Verify downloads against SHA256SUMS."
+          # Idempotent re-run: create the release if absent, else replace assets.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist-artifacts/* --clobber
+          else
+            gh release create "$tag" dist-artifacts/* \
+              --verify-tag --title "backend $tag" --notes "$notes"
+          fi
+      - name: Build and push the container image
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/libcat
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build -t "$IMAGE:v${{ inputs.version }}" -t "$IMAGE:latest" \
+            --build-arg VERSION="v${{ inputs.version }}" .
+          docker push "$IMAGE:v${{ inputs.version }}"
+          docker push "$IMAGE:latest"
+      - name: Dry run -- report the artifacts that would publish
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        run: |
+          echo "DRY RUN: would publish on backend/v${{ inputs.version }}:"
+          ls -la dist-artifacts
+          echo "and push ghcr.io/${{ github.repository_owner }}/libcat:v${{ inputs.version }} (+ :latest)"
