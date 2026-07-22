@@ -164,30 +164,37 @@ describe("Diversity audit screen", () => {
     expect(headers.join("|")).not.toContain("Benchmark");
   });
 
-  it("renders one subject-label column per configured language that has coverage", async () => {
+  it("renders subject-label coverage in its own table, not the content table", async () => {
     arm();
     await render();
-    const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
-    // en and es have coverage in the fixture; fr is configured but has none.
-    expect(headers.join("|")).toContain("EN labels");
-    expect(headers.join("|")).toContain("ES labels");
-    expect(headers.join("|")).not.toContain("FR labels");
-    const rows = [...document.querySelectorAll("table.cats tbody tr")];
+    // Label reachability is metadata completeness, not content, so it lives in a
+    // separate section -- NOT among the content table's columns.
+    const catHeaders = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
+    expect(catHeaders.join("|")).not.toContain("labels");
+    expect(document.querySelector("table.cats .labellang-cell")).toBeNull();
+    // The dedicated table carries a per-language column (en, es have coverage; fr none).
+    const section = document.querySelector(".labellang");
+    expect(section).not.toBeNull();
+    const headers = [...(section?.querySelectorAll("thead th") ?? [])].map((h) => h.textContent);
+    expect(headers).toContain("EN");
+    expect(headers).toContain("ES");
+    expect(headers).not.toContain("FR");
+    const rows = [...(section?.querySelectorAll("tbody tr") ?? [])];
     const cells = [...(rows[0]?.querySelectorAll(".labellang-cell") ?? [])].map((c) => c.textContent);
     // lgbtqia: en 400/400 = 100%, es 120/400 = 30.0%.
     expect(cells[0]).toContain("400");
     expect(cells[1]).toContain("120");
     expect(cells[1]).toContain("30.0%");
-    // The note disambiguates from book language.
-    expect(document.querySelector(".labellang-note")?.textContent).toContain("not");
+    // The section frames itself as missing metadata, not content.
+    expect(section?.textContent).toContain("metadata");
   });
 
-  it("renders per-category book-language columns distinct from the subject-label columns", async () => {
+  it("renders per-category book-language columns in the content table, separate from label coverage", async () => {
     arm();
     await render();
     const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
-    // Book columns are the bf:language codes with coverage, ranked by total,
-    // rendered as "<CODE> books" -- separate from the "<LANG> labels" columns.
+    // Book columns (bf:language codes with coverage, ranked by total) stay in the
+    // content table as "<CODE> books"; label coverage does not.
     expect(headers.join("|")).toContain("ENG books");
     expect(headers.join("|")).toContain("SPA books");
     const rows = [...document.querySelectorAll("table.cats tbody tr")];
@@ -196,10 +203,11 @@ describe("Diversity audit screen", () => {
     expect(bookCells[0]).toContain("300");
     expect(bookCells[1]).toContain("40");
     expect(bookCells[1]).not.toContain("120");
-    // The two axes are visibly separate: label es=120 but book spa=40.
-    const labelCells = [...(rows[0]?.querySelectorAll(".labellang-cell") ?? [])].map((c) => c.textContent);
-    expect(labelCells[1]).toContain("120");
-    // The note warns against reading the label column as book language.
+    // es label coverage (120) lives only in the separate label table, so book spa
+    // (40) is never read off it.
+    const labelCells = [...document.querySelectorAll(".labellang .labellang-cell")].map((c) => c.textContent);
+    expect(labelCells.some((t) => t?.includes("120"))).toBe(true);
+    // The book note points at the separate label table.
     expect(document.querySelector(".booklang-note")?.textContent).toContain("different axis");
   });
 
@@ -216,7 +224,7 @@ describe("Diversity audit screen", () => {
     expect(document.querySelector(".booklang-note")).toBeNull();
   });
 
-  it("omits the subject-label columns when no category carries a configured language", async () => {
+  it("omits the label-coverage section when no category carries a configured language", async () => {
     fetchDiversityAudit.mockResolvedValue({
       ...REPORT,
       labelLanguages: ["en", "es", "fr"],
@@ -224,10 +232,8 @@ describe("Diversity audit screen", () => {
     });
     fetchDiversitySnapshots.mockResolvedValue({ snapshots: [] });
     await render();
-    const headers = [...document.querySelectorAll("table.cats thead th")].map((h) => h.textContent);
-    expect(headers.join("|")).not.toContain("labels");
+    expect(document.querySelector(".labellang")).toBeNull();
     expect(document.querySelector(".labellang-cell")).toBeNull();
-    expect(document.querySelector(".labellang-note")).toBeNull();
   });
 
   it("renders the resource-language section with a multilingual bucket, distinct from label reachability", async () => {

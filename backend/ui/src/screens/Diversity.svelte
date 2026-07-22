@@ -307,10 +307,6 @@
           {#if report.simulation}
             <th scope="col" class="n" title="Works in this category if the pending queue were accepted">Projected</th>
           {/if}
-          {#each langCols as lang (lang)}
-            <th scope="col" class="n" title={`Works whose controlled subject terms carry a ${lang.toUpperCase()} label -- subject-heading reachability, not the book's language`}
-              >{lang.toUpperCase()} labels</th>
-          {/each}
           {#each bookCols as code (code)}
             <th scope="col" class="n booklang" title={`Works whose own language (bf:language) is ${code.toUpperCase()} -- the book's language, not subject-heading reachability`}
               >{code.toUpperCase()} books</th>
@@ -349,13 +345,6 @@
                 {/if}
               </td>
             {/if}
-            {#each langCols as lang (lang)}
-              <td class="n labellang-cell" title={`${langWorks(c, lang).toLocaleString()} of ${c.works.toLocaleString()} works carry a ${lang.toUpperCase()} subject label`}>
-                {#if c.works > 0}
-                  {langWorks(c, lang).toLocaleString()} <span class="muted src">{pct(langShare(c, lang))}</span>
-                {/if}
-              </td>
-            {/each}
             {#each bookCols as code (code)}
               <td class="n booklang-cell" title={`${bookWorks(c, code).toLocaleString()} of ${c.works.toLocaleString()} works are in ${code.toUpperCase()}`}>
                 {#if bookWorks(c, code) > 0}
@@ -382,22 +371,13 @@
         which the title counts alone hide.
       </p>
     {/if}
-    {#if langCols.length > 0}
-      <p class="muted hint labellang-note">
-        The {langCols.map((l) => l.toUpperCase()).join(" / ")} label column{langCols.length === 1 ? "" : "s"}
-        count works whose <em>controlled subject terms</em> carry a heading label in that language --
-        how discoverable the category is by a searcher in that language, <strong>not</strong> the language the
-        books are written in.
-      </p>
-    {/if}
     {#if bookCols.length > 0}
       <p class="muted hint booklang-note">
         The {bookCols.map((c) => c.toUpperCase()).join(" / ")} book column{bookCols.length === 1 ? "" : "s"}
         count works whose <em>own</em> language (bf:language) is that language -- the actual books, resolved
-        to their winning feed. This is a different axis from the label columns: a category can reach a
-        language through nearly every subject heading yet hold only a handful of books in it. Read
-        <strong>&ldquo;{(bookCols[0] ?? "spa").toUpperCase()} books&rdquo;</strong> for how many books are in
-        the language, never the label column.
+        to their winning feed. That is real content. Subject-heading label coverage -- whether a category is
+        <em>reachable</em> in a language -- is a different axis (missing metadata, not missing content) and
+        has its own table below.
       </p>
     {/if}
     {#if hasBenchmarks(report)}
@@ -415,7 +395,7 @@
         <p class="muted hint">
           What language the works are written <em>in</em> (bf:language) --
           the real book language, <strong>not</strong> the subject-heading
-          reachability the label columns above measure.
+          reachability the label-coverage table measures.
           {rl.withLanguage.toLocaleString()} of {rl.totalWorks.toLocaleString()} scoped
           work{rl.totalWorks === 1 ? "" : "s"} declare a language.
           {#if rl.multilingual > 0}
@@ -458,6 +438,49 @@
                 <td class="n">{rl.withLanguage > 0 ? pct(rl.multilingual / rl.withLanguage) : "--"}</td>
               </tr>
             {/if}
+          </tbody>
+        </table>
+      </section>
+    {/if}
+
+    {#if langCols.length > 0}
+      <section class="labellang" aria-label="Subject-heading label coverage">
+        <h3>Subject-heading label coverage</h3>
+        <p class="muted hint">
+          Per category, how many works are <em>reachable</em> through a controlled
+          subject term carrying a heading label in each language -- how discoverable
+          the category is to a searcher in that language. This measures the
+          <strong>vocabulary's</strong> translation completeness (missing
+          <em>metadata</em>), <strong>not</strong> the language the books are written
+          in: after a full label harvest a category can approach 100% in a language it
+          holds almost no books in. For book language, read Resource languages and the
+          content table's book columns instead.
+        </p>
+        <table class="labellang-table">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              <th scope="col" class="n">Works</th>
+              {#each langCols as lang (lang)}
+                <th scope="col" class="n" title={`Works reachable through a controlled subject term with a ${lang.toUpperCase()} heading label`}
+                  >{lang.toUpperCase()}</th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each report.categories as c (c.id)}
+              <tr>
+                <th scope="row">{c.label}</th>
+                <td class="n">{c.works.toLocaleString()}</td>
+                {#each langCols as lang (lang)}
+                  <td class="n labellang-cell" title={`${langWorks(c, lang).toLocaleString()} of ${c.works.toLocaleString()} works reachable via a ${lang.toUpperCase()} subject label`}>
+                    {#if c.works > 0}
+                      {langWorks(c, lang).toLocaleString()} <span class="muted src">{pct(langShare(c, lang))}</span>
+                    {/if}
+                  </td>
+                {/each}
+              </tr>
+            {/each}
           </tbody>
         </table>
       </section>
@@ -816,6 +839,31 @@
   .reslang-table {
     width: 100%;
     border-collapse: collapse;
+  }
+  .labellang {
+    margin-top: 1.75rem;
+  }
+  .labellang h3 {
+    margin-bottom: 0.25rem;
+  }
+  .labellang-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .labellang-table th,
+  .labellang-table td {
+    text-align: left;
+    padding: 0.35rem 0.75rem 0.35rem 0;
+    border-bottom: 1px solid var(--rule, #dde);
+  }
+  .labellang-table td.n,
+  .labellang-table th.n {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .labellang-table tbody th {
+    font-weight: 500;
   }
   .trends {
     margin-top: 1.75rem;
