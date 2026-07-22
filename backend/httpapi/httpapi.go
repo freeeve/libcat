@@ -111,6 +111,14 @@ type Deps struct {
 	// per-category coverage columns for, in column order (default en,es,fr).
 	// These count subject-heading reachability, not the book's own language.
 	AuditLangs []string
+	// Providers is the feed precedence order (first wins a cross-feed-merged
+	// work's fields), matching the `lcat project --provider` order that builds
+	// the public catalog. The diversity audit resolves each work's book
+	// language through it so a merged work reports its winning feed's language,
+	// exactly as the published catalog does, instead of unioning every feed's.
+	// Feeds absent from the list rank last (sorted); empty falls back to the
+	// primary Provider alone.
+	Providers []string
 	// ReadOnly puts the instance in demo mode: editorial and config writes are
 	// rejected (paired with a read-only blob store), while authentication,
 	// reads, search, and dry-run previews still work.
@@ -188,7 +196,7 @@ func New(deps Deps) http.Handler {
 				return nil
 			}
 		}
-		computeAudit := registerAudit(mux, ix, deps.Vocab, deps.AuditLangs, deps.Suggest, deps.Verifier, cws)
+		computeAudit := registerAudit(mux, ix, deps.Vocab, deps.AuditLangs, deps.Providers, deps.Suggest, deps.Verifier, cws)
 		registerAuditSnapshots(mux, deps.Blob, deps.Verifier, computeAudit)
 		registerAuditCrosswalk(mux, deps.Blob, ix, deps.Vocab, deps.AuditLangs, deps.Verifier, cws)
 		registerAuditTerms(mux, ix, deps.Vocab, deps.Verifier)

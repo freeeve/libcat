@@ -157,6 +157,100 @@ func TestSummarizeGrainSkolemHeading(t *testing.T) {
 	}
 }
 
+// langURI is a bf:language object IRI whose local name is the code, the shape
+// the crosswalk emits and SummarizeDataset reads.
+func langURI(code string) rdf.Term {
+	return rdf.NewIRI("http://id.loc.gov/vocabulary/languages/" + code)
+}
+
+// addLangWork adds a minimal bf:Work with the given languages under a specific
+// graph, so a test can split one Work's languages across feeds.
+func addLangWork(ds *rdf.Dataset, id string, graph rdf.Term, langs ...string) {
+	const bfNS = "http://id.loc.gov/ontologies/bibframe/"
+	work := rdf.NewIRI(bibframe.WorkIRI(id))
+	ds.Add(work, rdf.NewIRI("http://www.w3.org/1999/02/22-rdf-syntax-ns#type"), rdf.NewIRI(bfNS+"Work"), graph)
+	for _, code := range langs {
+		ds.Add(work, rdf.NewIRI(bfNS+"language"), langURI(code), graph)
+	}
+}
+
+// TestSummarizeCrossFeedLanguages covers the per-field feed merge the audit
+// applies (task 499): a Work carrying different bf:language per feed graph
+// keeps the union in Languages (the similarity signal) but exposes the per-feed
+// split in LangsByFeed, and MergedLanguages resolves the winning feed under a
+// provider precedence order -- so the audit reports one book language instead
+// of the multilingual bucket the cross-graph union invents.
+func TestSummarizeCrossFeedLanguages(t *testing.T) {
+	overdrive := bibframe.FeedGraph("overdrive")
+	coll := bibframe.FeedGraph("coll")
+	ds := &rdf.Dataset{}
+	// Merged work: overdrive's clean per-edition spa vs coll's flattened eng.
+	addLangWork(ds, "wmerge000001", overdrive, "spa")
+	addLangWork(ds, "wmerge000001", coll, "eng")
+	// Single-feed work: coll only, eng.
+	addLangWork(ds, "wsingle00001", coll, "eng")
+
+	summaries := ingest.SummarizeDataset(ds)
+	byID := map[string]ingest.WorkSummary{}
+	for _, s := range summaries {
+		byID[s.WorkID] = s
+	}
+
+	merged := byID["wmerge000001"]
+	if got := merged.Languages; !slices.Equal(got, []string{"eng", "spa"}) {
+		t.Fatalf("union Languages = %v, want [eng spa]", got)
+	}
+	if got := merged.LangsByFeed; !slices.Equal(got["overdrive"], []string{"spa"}) || !slices.Equal(got["coll"], []string{"eng"}) {
+		t.Fatalf("LangsByFeed = %v, want overdrive:[spa] coll:[eng]", got)
+	}
+	if got := merged.MergedLanguages([]string{"overdrive", "coll"}); !slices.Equal(got, []string{"spa"}) {
+		t.Fatalf("MergedLanguages(overdrive first) = %v, want [spa]", got)
+	}
+	if got := merged.MergedLanguages([]string{"coll", "overdrive"}); !slices.Equal(got, []string{"eng"}) {
+		t.Fatalf("MergedLanguages(coll first) = %v, want [eng]", got)
+	}
+	// A feed absent from the order ranks last, sorted -- so a two-feed corpus
+	// with only the primary named still resolves to the primary.
+	if got := merged.MergedLanguages([]string{"overdrive"}); !slices.Equal(got, []string{"spa"}) {
+		t.Fatalf("MergedLanguages(primary only) = %v, want [spa]", got)
+	}
+
+	single := byID["wsingle00001"]
+	if single.LangsByFeed != nil {
+		t.Fatalf("single-feed work should carry no per-feed split: %v", single.LangsByFeed)
+	}
+	if got := single.MergedLanguages([]string{"overdrive", "coll"}); !slices.Equal(got, []string{"eng"}) {
+		t.Fatalf("single-feed MergedLanguages = %v, want [eng] (fallback to Languages)", got)
+	}
+}
+
+// TestSummarizeCrossFeedLanguagesEditorialOverride covers an editorial
+// lcat:overrides bf:language shadowing every feed's languages: the merged
+// result is the editorially-owned language alone, matching the projector's
+// feed+editorial view.
+func TestSummarizeCrossFeedLanguagesEditorialOverride(t *testing.T) {
+	const bfNS = "http://id.loc.gov/ontologies/bibframe/"
+	overdrive := bibframe.FeedGraph("overdrive")
+	coll := bibframe.FeedGraph("coll")
+	editorial := bibframe.EditorialGraph()
+	ds := &rdf.Dataset{}
+	addLangWork(ds, "wover000001", overdrive, "spa")
+	addLangWork(ds, "wover000001", coll, "eng")
+	work := rdf.NewIRI(bibframe.WorkIRI("wover000001"))
+	// A cataloger fixes the language to French, owning the predicate.
+	ds.Add(work, rdf.NewIRI(bibframe.PredOverrides), rdf.NewIRI(bfNS+"language"), editorial)
+	ds.Add(work, rdf.NewIRI(bfNS+"language"), langURI("fre"), editorial)
+
+	summaries := ingest.SummarizeDataset(ds)
+	if len(summaries) != 1 {
+		t.Fatalf("summaries = %+v", summaries)
+	}
+	s := summaries[0]
+	if got := s.MergedLanguages([]string{"overdrive", "coll"}); !slices.Equal(got, []string{"fre"}) {
+		t.Fatalf("MergedLanguages with editorial override = %v, want [fre]", got)
+	}
+}
+
 // fakeEnricher asserts one subject on every Work it sees.
 type fakeEnricher struct {
 	name       string

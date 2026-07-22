@@ -143,6 +143,15 @@ type Config struct {
 	// Default "overdrive".
 	Provider string
 
+	// Providers is the feed precedence order the diversity audit resolves a
+	// cross-feed-merged work's book language under -- first wins a shared work's
+	// fields, matching the `lcat project --provider` order that builds the
+	// public catalog, so the admin audit reports the same winning-feed language
+	// the published site does. Set LCATD_PROVIDERS to a comma-separated list;
+	// unset, it is the primary Provider alone (feeds absent from the list rank
+	// last, sorted, so a two-feed corpus needs no explicit list).
+	Providers []string
+
 	// DisableTickers skips the container-shaped background workers (the
 	// 15s vocab-download and export-job drains). Set programmatically by
 	// serverless entrypoints, which drain on scheduled invocations instead
@@ -436,6 +445,18 @@ func FromEnv() (Config, error) {
 		}
 		if len(cfg.AuditLangs) == 0 {
 			cfg.AuditLangs = []string{"en"}
+		}
+	}
+	cfg.Providers = []string{cfg.Provider}
+	if raw, ok := os.LookupEnv("LCATD_PROVIDERS"); ok {
+		cfg.Providers = nil
+		for s := range strings.SplitSeq(raw, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				cfg.Providers = append(cfg.Providers, s)
+			}
+		}
+		if len(cfg.Providers) == 0 {
+			cfg.Providers = []string{cfg.Provider}
 		}
 	}
 	cfg.ExtraFacets = []string{"sources"}

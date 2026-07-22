@@ -55,6 +55,18 @@ type WorkSummary struct {
 	// series relations; Languages are bf:language local names ("en").
 	Series    []string `json:",omitempty"`
 	Languages []string `json:",omitempty"`
+	// LangsByFeed groups the Work's bf:language codes by the provenance feed
+	// graph they came from ("" for editorial/default-graph languages, which
+	// always apply). Languages (above) is the cross-graph union; this preserves
+	// the per-feed split it discards so a consumer with a provider precedence
+	// order can resolve a cross-feed-merged Work to its winning feed's language
+	// via MergedLanguages -- reproducing the per-field merge project.Merge
+	// applies, so the audit's resource-language tally matches the public
+	// catalog instead of flattening every feed's languages into one Work. Only
+	// populated for genuinely multi-feed Works (2+ feed buckets), where the
+	// merge can differ from the union; single-feed Works leave it nil and
+	// MergedLanguages falls back to Languages.
+	LangsByFeed map[string][]string `json:",omitempty"`
 	// Visibility and holdings signals for the admin works list:
 	// the editor deliberately shows everything, so each row says what the
 	// public projection would do with it.
@@ -827,6 +839,46 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 		}
 		m[key] = tr.O.Value
 	}
+	// Per-feed language capture for the cross-feed merge (project.Merge
+	// parity): group each Work's bf:language codes by the feed graph they came
+	// from, so MergedLanguages can resolve a merged Work to its winning feed's
+	// language rather than the cross-graph union. Editorial languages (feed key
+	// "") always apply, and an editorial lcat:overrides bf:language shadows
+	// every feed's languages -- exactly as the projector's feed+editorial view
+	// does. The default graph, like editorial, buckets under "".
+	overrides := bibframe.ScanOverrides(ds)
+	langsByFeed := map[string]map[string]map[string]bool{}
+	shadowed := map[string]bool{}
+	for i := range ds.Quads {
+		q := &ds.Quads[i]
+		if q.P.Value != bfNS+"language" {
+			continue
+		}
+		code := rdf.LocalName(q.O.Value)
+		if code == "" {
+			continue
+		}
+		feed := bibframe.FeedName(q.G)
+		if feed != "" && overrides.Shadows(q.S.Value, bfNS+"language") {
+			// An editorial lcat:overrides bf:language shadows this feed's
+			// languages; the editorial languages alone win. Record that the
+			// merge diverges from the union so the split is kept even when it
+			// leaves fewer than two feed buckets.
+			shadowed[q.S.Value] = true
+			continue
+		}
+		byFeed := langsByFeed[q.S.Value]
+		if byFeed == nil {
+			byFeed = map[string]map[string]bool{}
+			langsByFeed[q.S.Value] = byFeed
+		}
+		codes := byFeed[feed]
+		if codes == nil {
+			codes = map[string]bool{}
+			byFeed[feed] = codes
+		}
+		codes[code] = true
+	}
 	var out []WorkSummary
 	for _, work := range merged.SubjectsOfType(bfNS + "Work") {
 		id := strings.TrimSuffix(strings.TrimPrefix(work.Value, "#"), "Work")
@@ -954,7 +1006,100 @@ func SummarizeDataset(ds *rdf.Dataset) []WorkSummary {
 		// instance dedupe existed because every printing transcribed the same 490
 		//; the graph no longer repeats it per Instance.
 		s.Languages = sortedUnique(s.Languages)
+		s.LangsByFeed = multiFeedLangs(langsByFeed[work.Value], shadowed[work.Value])
 		out = append(out, s)
 	}
 	return out
+}
+
+// multiFeedLangs flattens a Work's feed->code sets into the WorkSummary
+// LangsByFeed shape, but only when the merge can differ from the Languages
+// union: the Work draws languages from 2+ distinct feeds (excluding the
+// always-apply editorial bucket ""), or an editorial override shadowed a feed's
+// languages. Otherwise a single-feed Work's MergedLanguages equals its
+// Languages union, so storing the split would only cost memory; it stays nil
+// and MergedLanguages falls back to Languages. Codes per feed are sorted and
+// deduped.
+func multiFeedLangs(byFeed map[string]map[string]bool, shadowed bool) map[string][]string {
+	feedBuckets := 0
+	for feed := range byFeed {
+		if feed != "" {
+			feedBuckets++
+		}
+	}
+	if feedBuckets < 2 && !shadowed {
+		return nil
+	}
+	out := make(map[string][]string, len(byFeed))
+	for feed, codes := range byFeed {
+		out[feed] = sortedKeysBool(codes)
+	}
+	return out
+}
+
+// sortedKeysBool returns a set's keys sorted -- the language-code ordering
+// LangsByFeed and MergedLanguages share.
+func sortedKeysBool(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// MergedLanguages resolves the Work's languages under a provider precedence
+// order, mirroring the per-field cross-feed merge project.Merge applies: the
+// first feed that declares any language wins (feeds named in order rank first,
+// in order; feeds absent from order rank last, sorted), unioned with editorial
+// languages, which always apply. It reproduces the projected catalog's
+// Work.Languages from the raw grain, so the diversity audit's resource-language
+// tally matches the public catalog rather than unioning every feed's languages
+// -- the flattening that invents a multilingual bucket the published site does
+// not have. Falls back to Languages when the per-feed split is absent (a
+// single-feed Work, or a summary from a pre-merge snapshot).
+func (s WorkSummary) MergedLanguages(order []string) []string {
+	if s.LangsByFeed == nil {
+		return s.Languages
+	}
+	editorial := s.LangsByFeed[""]
+	feeds := make([]string, 0, len(s.LangsByFeed))
+	ranked := map[string]bool{"": true}
+	for _, p := range order {
+		if _, ok := s.LangsByFeed[p]; ok && !ranked[p] {
+			feeds = append(feeds, p)
+			ranked[p] = true
+		}
+	}
+	var rest []string
+	for f := range s.LangsByFeed {
+		if !ranked[f] {
+			rest = append(rest, f)
+		}
+	}
+	sort.Strings(rest)
+	feeds = append(feeds, rest...)
+	for _, f := range feeds {
+		if merged := unionSorted(s.LangsByFeed[f], editorial); len(merged) > 0 {
+			return merged
+		}
+	}
+	return unionSorted(nil, editorial)
+}
+
+// unionSorted merges two language-code slices into one sorted, deduped slice --
+// a feed's languages combined with the always-apply editorial languages, the
+// per-feed view the projector reads.
+func unionSorted(feed, editorial []string) []string {
+	if len(feed) == 0 && len(editorial) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(feed)+len(editorial))
+	for _, c := range feed {
+		set[c] = true
+	}
+	for _, c := range editorial {
+		set[c] = true
+	}
+	return sortedKeysBool(set)
 }

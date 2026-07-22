@@ -399,6 +399,61 @@ func TestAuditResourceLanguagesMultilingualOnly(t *testing.T) {
 	}
 }
 
+// seedAuditWorkFeedLangs seeds one Work whose bf:language differs per feed
+// graph -- a cross-feed-merged work, the shape the per-field merge resolves.
+func seedAuditWorkFeedLangs(t *testing.T, bs blob.Store, workID string, byFeed map[string][]string, extras map[string]string) {
+	t.Helper()
+	const bfNS = "http://id.loc.gov/ontologies/bibframe/"
+	const rdfType = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+	ds := &rdf.Dataset{}
+	work := rdf.NewIRI(bibframe.WorkIRI(workID))
+	for provider, langs := range byFeed {
+		feed := bibframe.FeedGraph(provider)
+		ds.Add(work, rdf.NewIRI(rdfType), rdf.NewIRI(bfNS+"Work"), feed)
+		for _, code := range langs {
+			ds.Add(work, rdf.NewIRI(bfNS+"language"), rdf.NewIRI("http://id.loc.gov/vocabulary/languages/"+code), feed)
+		}
+	}
+	for k, v := range extras {
+		ds.Add(work, rdf.NewIRI(bibframe.ExtraPred+k), rdf.NewLiteral(v, "", ""), bibframe.FeedGraph("coll"))
+	}
+	nq, err := ds.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bs.Put(t.Context(), bibframe.GrainPath(workID), nq, blob.PutOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestAuditResourceLanguagesCrossFeedMerge checks the audit resolves a
+// cross-feed-merged work to its winning feed's book language under the provider
+// precedence order (task 499), rather than unioning both feeds' languages into
+// the Multilingual bucket the public catalog does not have. overdrive's clean
+// per-edition spa wins over coll's flattened eng, so the work counts as one
+// Spanish book, not one multilingual book.
+func TestAuditResourceLanguagesCrossFeedMerge(t *testing.T) {
+	bs := blob.NewMem()
+	verifier := staffVerifier{"lib-token": {Email: "lib@example.org", Roles: []auth.Role{auth.RoleLibrarian}}}
+	h := New(Deps{Blob: bs, DB: store.NewMem(), Verifier: verifier, Providers: []string{"overdrive", "coll"}})
+
+	seedAuditWorkFeedLangs(t, bs, "wxfeed00001", map[string][]string{"overdrive": {"spa"}, "coll": {"eng"}}, nil)
+
+	p := getResLangs(t, h, "")
+	if p.ResourceLanguages == nil {
+		t.Fatal("resource-language block missing")
+	}
+	if p.ResourceLanguages.Multilingual != 0 {
+		t.Errorf("multilingual = %d, want 0 (overdrive spa wins, not eng+spa)", p.ResourceLanguages.Multilingual)
+	}
+	if got := resLangCount(p, "spa"); got != 1 {
+		t.Errorf("spa = %d, want 1 (overdrive's winning-feed language)", got)
+	}
+	if got := resLangCount(p, "eng"); got != 0 {
+		t.Errorf("eng = %d, want 0 (coll's flattened language loses to overdrive)", got)
+	}
+}
+
 // weightPage decodes the weight fields of an audit response.
 type weightPage struct {
 	TotalWeight int `json:"totalWeight"`

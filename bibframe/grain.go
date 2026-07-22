@@ -7,6 +7,7 @@ package bibframe
 
 import (
 	"fmt"
+	"strings"
 
 	codex "github.com/freeeve/libcodex"
 	codexbf "github.com/freeeve/libcodex/bibframe"
@@ -26,6 +27,18 @@ func FeedGraph(provider string) rdf.Term {
 // ingest -- editorial: statements are preserved verbatim across re-ingest.
 func EditorialGraph() rdf.Term {
 	return rdf.NewIRI("editorial:")
+}
+
+// FeedName returns the provider a feed:<provider> graph term names, or "" for
+// the editorial graph, the default graph, or any non-feed graph. It is the
+// inverse of FeedGraph, letting a consumer that needs per-feed provenance (the
+// cross-feed language merge in the work summary) bucket statements by their
+// originating feed.
+func FeedName(g rdf.Term) string {
+	if !isFeedGraph(g) {
+		return ""
+	}
+	return strings.TrimPrefix(g.Value, "feed:")
 }
 
 // Grain crosswalks one record to BIBFRAME and returns its canonical N-Quads

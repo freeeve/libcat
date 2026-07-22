@@ -210,12 +210,16 @@ type resourceLanguageCount struct {
 	Works int    `json:"works"`
 }
 
-// aggregateResourceLanguages folds the scoped summaries' Work.Languages into the
-// resource-language distribution; nil when no scoped work declares a language,
-// so "no language data carried" reads differently from "0 in this language". A
-// work with one distinct language counts under it; a work with two or more
-// counts once as Multilingual (see resourceLanguageAudit).
-func aggregateResourceLanguages(sums []ingest.WorkSummary, include func(*ingest.WorkSummary) bool) *resourceLanguageAudit {
+// aggregateResourceLanguages folds the scoped summaries' resolved book language
+// into the resource-language distribution; nil when no scoped work declares a
+// language, so "no language data carried" reads differently from "0 in this
+// language". A work with one distinct language counts under it; a work with two
+// or more counts once as Multilingual (see resourceLanguageAudit). Languages
+// resolve through MergedLanguages under the provider precedence order, so a
+// cross-feed-merged work reports its winning feed's language -- matching the
+// public catalog -- instead of the cross-graph union that would flatten it into
+// the Multilingual bucket the published site does not have.
+func aggregateResourceLanguages(sums []ingest.WorkSummary, include func(*ingest.WorkSummary) bool, providers []string) *resourceLanguageAudit {
 	ra := &resourceLanguageAudit{}
 	counts := map[string]int{}
 	any := false
@@ -226,7 +230,7 @@ func aggregateResourceLanguages(sums []ingest.WorkSummary, include func(*ingest.
 		}
 		ra.TotalWorks++
 		seen := map[string]bool{}
-		for _, code := range s.Languages {
+		for _, code := range s.MergedLanguages(providers) {
 			if code != "" {
 				seen[code] = true
 			}
@@ -325,7 +329,7 @@ func (f auditFilterSet) cacheKey() string {
 // semantics as `lcat audit --filter/--source`.
 // registerAudit returns its compute path so the snapshot recorder reuses the
 // same filters/cache/aggregation (registerAuditSnapshots).
-func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, auditLangs []string, svc *suggest.Service, verifier auth.TokenVerifier, cws *crosswalkSource) func(*http.Request) (auditResponse, auditFilterSet, int, error) {
+func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, auditLangs, providers []string, svc *suggest.Service, verifier auth.TokenVerifier, cws *crosswalkSource) func(*http.Request) (auditResponse, auditFilterSet, int, error) {
 	librarian := auth.Require(verifier, auth.RoleLibrarian)
 	cache := &auditCache{}
 
@@ -401,7 +405,7 @@ func registerAudit(mux *http.ServeMux, ix *workindex.Index, vix *vocab.Index, au
 			Report:            a.Report(),
 			LabelLanguages:    auditLangs,
 			Creators:          aggregateCreators(sums, include),
-			ResourceLanguages: aggregateResourceLanguages(sums, include),
+			ResourceLanguages: aggregateResourceLanguages(sums, include, providers),
 			Simulation:        sim,
 		}
 		if !wantSim {
